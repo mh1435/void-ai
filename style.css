@@ -8,8 +8,9 @@
   --blue: #3fa9ff;
   --red: #ff4d5e;
   --gold: #ffd166;
-  --panel: rgba(10, 16, 24, 0.88);
-  --edge: rgba(125, 249, 255, 0.25);
+  --panel: linear-gradient(180deg, rgba(18, 28, 42, 0.92), rgba(8, 13, 20, 0.92));
+  --edge: rgba(125, 249, 255, 0.28);
+  --panelShadow: 0 4px 16px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 html, body {
@@ -29,9 +30,27 @@ html, body {
 #select {
   position: fixed; inset: 0; z-index: 30;
   display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(ellipse at center, #0d1a2b 0%, #05080f 100%);
+  background:
+    radial-gradient(60% 80% at 15% 15%, rgba(63, 169, 255, 0.14), transparent 70%),
+    radial-gradient(55% 75% at 85% 85%, rgba(255, 77, 94, 0.12), transparent 70%),
+    radial-gradient(40% 50% at 50% 50%, rgba(199, 125, 255, 0.08), transparent 70%),
+    radial-gradient(ellipse at center, #0d1a2b 0%, #05080f 100%);
   overflow-y: auto;
 }
+#select::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(2px 2px at 12% 30%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1.5px 1.5px at 34% 12%, rgba(125,249,255,0.6), transparent),
+    radial-gradient(2px 2px at 58% 26%, rgba(255,255,255,0.35), transparent),
+    radial-gradient(1.5px 1.5px at 78% 8%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(2px 2px at 90% 42%, rgba(199,125,255,0.5), transparent),
+    radial-gradient(1.5px 1.5px at 22% 76%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(2px 2px at 66% 88%, rgba(125,249,255,0.45), transparent),
+    radial-gradient(1.5px 1.5px at 44% 60%, rgba(255,255,255,0.3), transparent);
+  animation: twinkle 4s ease-in-out infinite alternate;
+}
+@keyframes twinkle { from { opacity: 0.4; } to { opacity: 1; } }
 .selBox { text-align: center; padding: 20px; max-width: 720px; width: 100%; }
 .logo {
   font-size: clamp(40px, 8vw, 64px); letter-spacing: 8px; font-weight: 800;
@@ -44,11 +63,17 @@ html, body {
 }
 .heroCard {
   width: 104px; padding: 10px 6px 8px; border-radius: 12px; cursor: pointer;
-  background: rgba(255, 255, 255, 0.04); border: 2px solid transparent;
-  transition: transform 0.15s, border-color 0.15s;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+  border: 2px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
-.heroCard:hover { transform: translateY(-3px); }
-.heroCard.sel { border-color: #7df9ff; background: rgba(125, 249, 255, 0.08); }
+.heroCard:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55); }
+.heroCard.sel {
+  border-color: #7df9ff;
+  background: linear-gradient(160deg, rgba(125, 249, 255, 0.14), rgba(125, 249, 255, 0.04));
+  box-shadow: 0 0 18px rgba(125, 249, 255, 0.35), 0 8px 20px rgba(0, 0, 0, 0.5);
+}
 .heroCard canvas { width: 72px; height: 72px; }
 .heroName { font-weight: 700; font-size: 17px; margin-top: 2px; }
 .heroRole { font-size: 12px; color: #8fa3b8; letter-spacing: 1px; text-transform: uppercase; }
@@ -77,6 +102,7 @@ html, body {
   display: flex; align-items: center; gap: 16px;
   background: var(--panel); border: 1px solid var(--edge); border-radius: 20px;
   padding: 4px 18px; font-size: 18px; font-weight: 700;
+  box-shadow: var(--panelShadow);
 }
 .tKills { display: flex; align-items: center; gap: 6px; }
 .tKills i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
@@ -88,6 +114,7 @@ html, body {
   position: absolute; top: calc(6px + env(safe-area-inset-top)); right: 10px;
   display: flex; gap: 14px; font-size: 14px;
   background: var(--panel); border: 1px solid var(--edge); border-radius: 16px; padding: 4px 14px;
+  box-shadow: var(--panelShadow);
 }
 #statsMini .gold b { color: var(--gold); }
 #statsMini .kda b, #statsMini .cs b { color: #cfe0ef; }
@@ -96,6 +123,7 @@ html, body {
   position: absolute; top: calc(6px + env(safe-area-inset-top)); left: 10px;
   border: 1px solid var(--edge); border-radius: 8px;
   width: 140px; height: 140px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
 }
 
 #announce {
@@ -122,6 +150,7 @@ html, body {
   display: flex; align-items: center; gap: 8px;
   background: var(--panel); border: 1px solid var(--edge); border-radius: 14px; padding: 6px 12px;
   pointer-events: none;
+  box-shadow: var(--panelShadow);
 }
 .portWrap { position: relative; width: 48px; height: 48px; }
 #portGlyph { width: 48px; height: 48px; }
@@ -169,6 +198,7 @@ html, body {
   background: var(--panel); border: 1px solid var(--edge);
   display: flex; align-items: center; justify-content: center;
   font-size: 18px; cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .miniBtn:active { transform: scale(0.92); }
 .miniBtn.buy { flex-direction: column; font-size: 13px; border-color: rgba(255, 209, 102, 0.4); opacity: 0.55; }
@@ -185,6 +215,8 @@ html, body {
   display: flex; align-items: center; justify-content: center;
   font-size: 26px; cursor: pointer; overflow: hidden;
   touch-action: none;
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.5), inset 0 2px 3px rgba(255, 255, 255, 0.08);
+  transition: box-shadow 0.25s, border-color 0.25s;
 }
 .skillBtn.ult {
   width: 74px; height: 74px; font-size: 32px;
@@ -194,6 +226,18 @@ html, body {
 .skillBtn:active { transform: scale(0.94); }
 .skillBtn .icon { pointer-events: none; text-shadow: 0 0 8px rgba(125, 249, 255, 0.8); }
 .skillBtn.noMana .icon { opacity: 0.35; }
+.skillBtn.ready {
+  border-color: rgba(125, 249, 255, 0.9);
+  box-shadow: 0 0 14px rgba(125, 249, 255, 0.5), inset 0 0 12px rgba(125, 249, 255, 0.12);
+}
+.skillBtn.ult.ready {
+  border-color: var(--gold);
+  animation: ultPulse 1.6s ease-in-out infinite;
+}
+@keyframes ultPulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(255, 209, 102, 0.45), inset 0 0 12px rgba(255, 209, 102, 0.12); }
+  50%      { box-shadow: 0 0 26px rgba(255, 209, 102, 0.85), inset 0 0 18px rgba(255, 209, 102, 0.22); }
+}
 .cdOverlay {
   position: absolute; left: 0; bottom: 0; width: 100%; height: 0%;
   background: rgba(0, 0, 0, 0.72); pointer-events: none;
@@ -214,6 +258,7 @@ html, body {
   display: flex; align-items: center; justify-content: center;
   font-size: 40px; cursor: pointer;
   touch-action: none;
+  box-shadow: 0 0 16px rgba(255, 77, 94, 0.3), 0 6px 16px rgba(0, 0, 0, 0.5), inset 0 2px 4px rgba(255, 255, 255, 0.08);
 }
 #btnAttack:active { transform: scale(0.94); background: radial-gradient(circle at 35% 30%, #6b1f2e, #2a0a14); }
 #btnAttack span { pointer-events: none; text-shadow: 0 0 10px rgba(255, 77, 94, 0.9); }
@@ -263,6 +308,15 @@ html, body {
 #scoreboard tr.red td:first-child { color: var(--red); font-weight: 700; }
 #scoreboard tr.me { background: rgba(125, 249, 255, 0.08); }
 #scoreboard tr.sep td { height: 8px; }
+
+/* low HP vignette */
+#lowHp {
+  position: fixed; inset: 0; z-index: 8; pointer-events: none; opacity: 0;
+  transition: opacity 0.4s;
+  background: radial-gradient(ellipse at center, transparent 52%, rgba(255, 0, 30, 0.32) 100%);
+  animation: lowHpPulse 1.2s ease-in-out infinite;
+}
+@keyframes lowHpPulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.5); } }
 
 /* death overlay */
 #deathOverlay {
