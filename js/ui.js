@@ -100,13 +100,16 @@ const UI = {
       const cv = document.createElement('canvas');
       cv.width = 120; cv.height = 120;
       const c = cv.getContext('2d');
-      c.translate(60, 60);
-      const g = c.createRadialGradient(-10, -10, 8, 0, 0, 42);
-      g.addColorStop(0, lighten(h.color, 0.35)); g.addColorStop(1, h.color);
+      // spotlight backdrop
+      const g = c.createRadialGradient(60, 50, 8, 60, 60, 55);
+      g.addColorStop(0, 'rgba(255,255,255,0.14)');
+      g.addColorStop(0.6, lighten(h.color, 0.05) + '');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      c.globalAlpha = 0.35;
       c.fillStyle = g;
-      c.beginPath(); c.arc(0, 0, 42, 0, 7); c.fill();
-      c.translate(-60, -60);
-      drawHeroGlyph(c, h.id, 60, 60, 42, -Math.PI/2);
+      c.beginPath(); c.arc(60, 60, 55, 0, 7); c.fill();
+      c.globalAlpha = 1;
+      drawHeroCardArt(c, h, 60, 104, 1.5);
       card.appendChild(cv);
       const nm = document.createElement('div');
       nm.className = 'heroName';
@@ -138,17 +141,19 @@ const UI = {
     this.els.hud.style.display = 'block';
     this.buildSkillButtons();
     this.buildShop();
-    // portrait glyph
+    // portrait: the hero's character bust
     const c = this.els.portGlyph.getContext('2d');
+    const h = G.player.def;
     c.clearRect(0, 0, 64, 64);
     c.save();
-    const h = G.player.def;
-    const g = c.createRadialGradient(26, 26, 5, 32, 32, 26);
-    g.addColorStop(0, lighten(h.color, 0.35)); g.addColorStop(1, h.color);
+    c.beginPath(); c.arc(32, 32, 30, 0, 7); c.clip();
+    const g = c.createRadialGradient(32, 24, 4, 32, 32, 32);
+    g.addColorStop(0, lighten(h.color, 0.15));
+    g.addColorStop(1, '#0a1420');
     c.fillStyle = g;
-    c.beginPath(); c.arc(32, 32, 26, 0, 7); c.fill();
+    c.fillRect(0, 0, 64, 64);
+    drawHeroCardArt(c, h, 32, 86, 1.15);
     c.restore();
-    drawHeroGlyph(c, h.id, 32, 32, 26, -Math.PI/2);
   },
 
   // ---------- joystick ----------
@@ -195,7 +200,7 @@ const UI = {
     const defs = G.player.def.skills;
     defs.forEach((sk, i) => {
       const b = document.createElement('div');
-      b.className = 'skillBtn' + (i === 2 ? ' ult' : '');
+      b.className = 'skillBtn sk' + i + (i === 2 ? ' ult' : '');
       b.innerHTML = '<span class="icon">' + sk.icon + '</span><div class="cdOverlay"></div><div class="cdText"></div><div class="lock">🔒</div>';
       holder.appendChild(b);
       this.skillEls.push(b);
@@ -285,7 +290,7 @@ const UI = {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const z = G.cam.zoom;
     const wx = (Input.mouse.x * dpr - this.canvas.width/2) / z + G.cam.x;
-    const wy = (Input.mouse.y * dpr - this.canvas.height/2) / z + G.cam.y;
+    const wy = (Input.mouse.y * dpr - this.canvas.height/2) / (z * YS) + G.cam.y;
     const dx = wx - G.player.x, dy = wy - G.player.y;
     const d = Math.hypot(dx, dy);
     if (d < 5) return null;
@@ -463,6 +468,6 @@ const UI = {
     const cv = this.canvas, z = G.cam.zoom;
     c.strokeStyle = 'rgba(255,255,255,0.3)';
     c.lineWidth = 1;
-    c.strokeRect((G.cam.x - cv.width/2/z)*S, (G.cam.y - cv.height/2/z)*S, cv.width/z*S, cv.height/z*S);
+    c.strokeRect((G.cam.x - cv.width/2/z)*S, (G.cam.y - cv.height/2/(z*YS))*S, cv.width/z*S, cv.height/(z*YS)*S);
   },
 };

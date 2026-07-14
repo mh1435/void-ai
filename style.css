@@ -186,13 +186,20 @@ html, body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
-/* action cluster */
+/* action cluster: MLBB-style arc — attack in the corner, skills fanned around it */
 #actions {
-  position: absolute; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom));
-  display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+  position: absolute; right: 10px; bottom: calc(12px + env(safe-area-inset-bottom));
+  width: 330px; height: 264px;
   touch-action: none;
+  pointer-events: none;
 }
-.miniRow { display: flex; gap: 8px; }
+#actions > * { pointer-events: auto; }
+#skills { display: contents; }
+.miniRow { position: absolute; bottom: 12px; right: 216px; display: flex; gap: 8px; }
+#btnAttack { position: absolute; right: 12px; bottom: 6px; }
+.skillBtn.sk0 { position: absolute; right: 140px; bottom: 10px; }
+.skillBtn.sk1 { position: absolute; right: 112px; bottom: 96px; }
+.skillBtn.sk2 { position: absolute; right: 22px; bottom: 130px; }
 .miniBtn {
   width: 44px; height: 44px; border-radius: 50%;
   background: var(--panel); border: 1px solid var(--edge);
@@ -202,12 +209,15 @@ html, body {
 }
 .miniBtn:active { transform: scale(0.92); }
 .miniBtn.buy { flex-direction: column; font-size: 13px; border-color: rgba(255, 209, 102, 0.4); opacity: 0.55; }
+#btnBuy {
+  position: absolute; left: 12px; top: calc(160px + env(safe-area-inset-top));
+  width: 54px; height: 54px;
+}
+#btnBuy .itIcon { font-size: 17px; }
 .miniBtn.buy.afford { opacity: 1; box-shadow: 0 0 12px rgba(255, 209, 102, 0.5); }
 .miniBtn.buy .itIcon { font-weight: 800; color: var(--gold); line-height: 1; }
 .miniBtn.buy .cost { font-size: 9px; color: #b8c6d4; line-height: 1; }
 
-.mainRow { display: flex; align-items: flex-end; gap: 10px; }
-#skills { display: flex; align-items: flex-end; gap: 10px; }
 .skillBtn {
   position: relative; width: 62px; height: 62px; border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #1c3550, #0c1725);
@@ -346,6 +356,7 @@ html, body {
 
 @media (max-width: 720px) {
   #minimap { width: 108px; height: 108px; }
+  #btnBuy { top: calc(126px + env(safe-area-inset-top)); }
   .bars { width: 110px; }
   #statsMini .cs { display: none; }
 }

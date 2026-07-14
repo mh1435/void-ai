@@ -117,6 +117,7 @@ class Unit {
     this.x += dx / d * step;
     this.y += dy / d * step;
     this.facing = Math.atan2(dy, dx);
+    this.moving = true;
     if (this.recallT !== undefined && this.recallT > 0) this.recallT = 0; // moving cancels recall
     return d - step < 3;
   }
@@ -396,6 +397,7 @@ class Hero extends Unit {
 
   update(dt) {
     if (this.dead) return;
+    this.moving = false;
     this.updateBuffs(dt);
     this.computeStats();
     this.atkTimer = Math.max(0, this.atkTimer - dt);
@@ -431,6 +433,7 @@ class Hero extends Unit {
       const step = Math.min(d.left, d.speed * dt);
       this.x += d.dx * step; this.y += d.dy * step;
       d.left -= step;
+      this.moving = true;
       this.facing = Math.atan2(d.dy, d.dx);
       if (d.onPass) {
         for (const u of G.units) {
@@ -472,6 +475,7 @@ class Hero extends Unit {
       this.facing = Math.atan2(my, mx);
       this.recallT = 0;
       this._moving = true;
+      this.moving = true;
     } else {
       this._moving = false;
       // idle or attack held: auto-attack nearest visible enemy in range
@@ -531,6 +535,7 @@ class Minion extends Unit {
 
   update(dt) {
     if (this.dead) return;
+    this.moving = false;
     this.updateBuffs(dt);
     this.computeStats();
     this.atkTimer = Math.max(0, this.atkTimer - dt);
@@ -643,6 +648,7 @@ class JungleMonster extends Unit {
 
   update(dt) {
     if (this.dead) return;
+    this.moving = false;
     this.updateBuffs(dt);
     this.computeStats();
     this.atkTimer = Math.max(0, this.atkTimer - dt);
