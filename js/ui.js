@@ -68,7 +68,7 @@ const UI = {
       'announce','killfeed','topTimer','topBlue','topRed','goldVal','kdaVal','csVal',
       'hpFill','mpFill','xpFill','lvlBadge','portGlyph','itemsRow','shopPanel','shopGrid','shopGold',
       'btnShop','btnCloseShop','deathOverlay','deathTimer','scoreboard','btnScore','endTitle','btnRestart',
-      'heroGrid','btnStart','selInfo'];
+      'heroGrid','btnStart','selInfo','lowHp'];
     for (const id of ids) this.els[id] = document.getElementById(id);
 
     this.resize();
@@ -394,8 +394,12 @@ const UI = {
           tx.textContent = cd > 1 ? Math.ceil(cd) : cd.toFixed(1);
         } else { ov.style.height = '0%'; tx.textContent = ''; }
         b.classList.toggle('noMana', !locked && p.mana < sk.mana);
+        b.classList.toggle('ready', !locked && cd <= 0 && p.mana >= sk.mana && !p.dead);
       });
     }
+
+    // low-HP warning vignette
+    this.els.lowHp.style.opacity = (!p.dead && p.hp < p.hpMax() * 0.3) ? 1 : 0;
 
     // buy button
     const next = p.nextBuildItem();
