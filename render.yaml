@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: void-ai
+    runtime: python3
+    plan: free
+    buildCommand: ""
+    startCommand: "python3 void_web_cloud.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
