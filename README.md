@@ -47,17 +47,39 @@ python3 -m http.server 8080
 | **Vex, the Void Caller** | Support | Marks enemies (+12% dmg taken), heals, gravity well |
 | **Thane, Wolfheart** | Fighter | Lifesteal brawler with bleed and rage ultimate |
 
+## 🧊 3D Mode (Beta)
+
+`3d.html` is a real 3D build of the same game, rendered with [Three.js](https://threejs.org)
+(MIT license) instead of the 2D canvas. It reuses the entire simulation — `js/data.js`,
+`js/entities.js`, `js/ai.js`, and `Game.update()` in `js/game.js` — completely unchanged;
+only the rendering layer (`js3d/render3d.js`) is new, so gameplay, fog of war, and the DOM
+HUD all work identically to the 2D version. The 2D game at `index.html` is untouched and
+remains the main, complete version — 3D is an added mode, not a replacement.
+
+Heroes are a real rigged, animated character model — **RobotExpressive.glb**, by
+[Tomás Laulhé](https://www.patreon.com/quaternius) (**CC0 1.0** — public domain, free for
+any use), tinted per hero. Both files, plus their license notes, live in
+`assets/models/` and `js3d/vendor/THREE_LICENSE.txt`.
+
+Being a beta: it's one shared character model recolored per hero rather than six unique
+designs (free rigged/animated humanoid models are scarce), and towers/minions/environment
+are built from real 3D geometry rather than a second licensed model pack.
+
 ## 🧱 Code layout
 
 ```
-index.html      HUD + screens (hero select, HUD, shop, scoreboard, end screen)
-style.css       all styling
-js/data.js      constants, map layout, hero kits, items
-js/entities.js  Unit/Hero/Minion/Tower/Jungle classes, combat, ability API
-js/ai.js        bot decision-making
-js/game.js      match state, simulation loop, world renderer
-js/ui.js        input (joystick, drag-aim skills, keyboard), HUD, minimap, SFX
-js/main.js      bootstrap + requestAnimationFrame loop
+index.html      2D game: HUD + screens (hero select, HUD, shop, scoreboard, end screen)
+3d.html         3D beta: same HUD/screens, real Three.js scene instead of canvas
+style.css       all styling (shared by both)
+js/data.js      constants, map layout, hero kits, items (shared)
+js/entities.js  Unit/Hero/Minion/Tower/Jungle classes, combat, ability API (shared)
+js/ai.js        bot decision-making (shared)
+js/game.js      match state, simulation loop, 2D world renderer
+js/ui.js        input (joystick, drag-aim skills, keyboard), HUD, minimap, SFX (shared)
+js/main.js      2D bootstrap + requestAnimationFrame loop
+js3d/render3d.js  3D renderer: reads the same G/UI state as js/game.js's render()
+js3d/main3d.js    3D bootstrap: loads the character model, then starts the loop
+js3d/vendor/      self-hosted Three.js + GLTFLoader/SkeletonUtils (no CDN dependency)
 ```
 
 ## 🛣 Roadmap → multiplayer
