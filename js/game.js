@@ -505,11 +505,30 @@ function buildMapCanvas() {
     c.quadraticCurveTo(u + len/2, w - 6, u + len, w);
     c.stroke();
   }
-  // banks
+  // banks with a broken foam highlight just inside the waterline
   c.strokeStyle = 'rgba(220,240,255,0.08)';
   c.lineWidth = 6;
   c.beginPath(); c.moveTo(-2400, -150); c.lineTo(2400, -150); c.stroke();
   c.beginPath(); c.moveTo(-2400, 150); c.lineTo(2400, 150); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,0.22)'; c.lineWidth = 3; c.setLineDash([26, 18]);
+  c.beginPath(); c.moveTo(-2400, -138); c.lineTo(2400, -138); c.stroke();
+  c.beginPath(); c.moveTo(-2400, 138); c.lineTo(2400, 138); c.stroke();
+  c.setLineDash([]);
+
+  // stepping-stone crossings
+  for (const cu of [-950, 700]) {
+    for (let s = -2; s <= 2; s++) {
+      const sx = cu + s*4, sy = s*58 + (rnd()-0.5)*10;
+      c.fillStyle = 'rgba(0,0,0,0.3)';
+      c.beginPath(); c.ellipse(sx+3, sy+4, 26, 20, 0, 0, 7); c.fill();
+      const sg = c.createLinearGradient(sx-24, sy-18, sx+24, sy+18);
+      sg.addColorStop(0, '#6b7480'); sg.addColorStop(1, '#454d58');
+      c.fillStyle = sg;
+      c.beginPath(); c.ellipse(sx, sy, 25, 19, 0, 0, 7); c.fill();
+      c.strokeStyle = 'rgba(0,0,0,0.4)'; c.lineWidth = 2;
+      c.beginPath(); c.ellipse(sx, sy, 25, 19, 0, 0, 7); c.stroke();
+    }
+  }
   c.restore();
 
   // ---- lanes: stone roads ----
@@ -523,24 +542,37 @@ function buildMapCanvas() {
     c.strokeStyle = 'rgba(0,0,0,0.30)'; c.lineWidth = 168; path(); c.stroke();   // road edge shadow
     c.strokeStyle = 'rgba(148,138,116,0.30)'; c.lineWidth = 150; path(); c.stroke(); // stone bed
     c.strokeStyle = 'rgba(196,184,152,0.18)'; c.lineWidth = 108; path(); c.stroke(); // worn center
-    c.strokeStyle = 'rgba(255,246,214,0.10)'; c.lineWidth = 10;                   // guide line
-    c.setLineDash([46, 64]); path(); c.stroke(); c.setLineDash([]);
 
-    // paving seams: short ticks perpendicular to the road
-    c.strokeStyle = 'rgba(0,0,0,0.10)'; c.lineWidth = 4;
+    // cobblestone paving: individual offset-brick blocks laid across the road width
     for (let i = 0; i < lane.length - 1; i++) {
       const [ax, ay] = lane[i], [bx, by] = lane[i+1];
       const segLen = Math.hypot(bx - ax, by - ay);
-      const nx = -(by - ay)/segLen, ny = (bx - ax)/segLen;
-      for (let d = 60; d < segLen - 30; d += 95) {
-        const px = ax + (bx - ax)*d/segLen, py = ay + (by - ay)*d/segLen;
-        const off = (rnd()*2 - 1) * 20;
-        c.beginPath();
-        c.moveTo(px + nx*(58 + off), py + ny*(58 + off));
-        c.lineTo(px - nx*(58 - off), py - ny*(58 - off));
-        c.stroke();
+      const ux = (bx - ax)/segLen, uy = (by - ay)/segLen;
+      const nx = -uy, ny = ux;
+      const stoneW = 34, stoneH = 26, rows = 4;
+      let rowN = 0;
+      for (let row = -rows/2; row < rows/2; row++) {
+        const rowOff = (rowN++ % 2) * (stoneW/2);
+        for (let d = rowOff; d < segLen; d += stoneW) {
+          const px = ax + ux*d + nx*(row*stoneH + stoneH/2);
+          const py = ay + uy*d + ny*(row*stoneH + stoneH/2);
+          const shade = 0.5 + rnd()*0.5;
+          c.save();
+          c.translate(px, py);
+          c.rotate(Math.atan2(uy, ux));
+          c.fillStyle = `rgba(${Math.round(150*shade)},${Math.round(140*shade)},${Math.round(115*shade)},0.22)`;
+          roundRect(c, -stoneW/2+1.5, -stoneH/2+1.5, stoneW-3, stoneH-3, 4);
+          c.fill();
+          c.strokeStyle = 'rgba(0,0,0,0.16)'; c.lineWidth = 1.5;
+          roundRect(c, -stoneW/2+1.5, -stoneH/2+1.5, stoneW-3, stoneH-3, 4);
+          c.stroke();
+          c.restore();
+        }
       }
     }
+    // faint centerline guide, kept from the original road marking
+    c.strokeStyle = 'rgba(255,246,214,0.08)'; c.lineWidth = 10;
+    c.setLineDash([46, 64]); path(); c.stroke(); c.setLineDash([]);
   }
 
   // ---- base platforms: hex courts with rune ring ----
@@ -590,7 +622,7 @@ function buildMapCanvas() {
       c.fillRect(-6, -14, 12, 14);
       c.restore();
     }
-    // gate pillars flanking the opening
+    // gate pillars flanking the opening, each topped with a team banner
     for (const ga of [gateAngle + gateHalf, gateAngle - gateHalf]) {
       const px = b.x + Math.cos(ga)*wallR, py = b.y + Math.sin(ga)*wallR;
       c.fillStyle = '#575f6b';
@@ -598,6 +630,29 @@ function buildMapCanvas() {
       c.strokeStyle = tc; c.lineWidth = 2.5; c.globalAlpha = 0.6;
       c.beginPath(); c.arc(px, py, 17, 0, 7); c.stroke();
       c.globalAlpha = 1;
+      c.strokeStyle = '#3a4048'; c.lineWidth = 5;
+      c.beginPath(); c.moveTo(px, py - 8); c.lineTo(px, py - 58); c.stroke();
+      c.fillStyle = tc; c.globalAlpha = 0.85;
+      c.beginPath();
+      c.moveTo(px, py - 58); c.lineTo(px + 26, py - 50); c.lineTo(px, py - 40);
+      c.closePath(); c.fill();
+      c.globalAlpha = 1;
+    }
+
+    // paved courtyard: concentric rings of radial stone wedges, kept inside the inner hex line
+    for (let ring = 0; ring < 3; ring++) {
+      const rIn = 25 + ring*52, rOut = rIn + 46;
+      const wedges = 14 + ring*4;
+      for (let i = 0; i < wedges; i++) {
+        const a0 = (i/wedges)*Math.PI*2, a1 = ((i+0.92)/wedges)*Math.PI*2;
+        const shade = 0.55 + rnd()*0.35;
+        c.fillStyle = `rgba(${Math.round(60*shade)},${Math.round(70*shade)},${Math.round(82*shade)},0.4)`;
+        c.beginPath();
+        c.arc(b.x, b.y, rOut, a0, a1);
+        c.arc(b.x, b.y, rIn, a1, a0, true);
+        c.closePath(); c.fill();
+        c.strokeStyle = 'rgba(0,0,0,0.25)'; c.lineWidth = 1.5; c.stroke();
+      }
     }
   }
 
@@ -627,20 +682,55 @@ function buildMapCanvas() {
     roundRect(c, b.x, b.y, b.w, b.h, 44); c.stroke();
   }
 
-  // ---- jungle camp pads + boss pit ----
+  // ---- jungle camp pads: trampled lair ground with bone/rubble scatter ----
   for (const cp of CAMPS) {
-    c.fillStyle = 'rgba(60,30,80,0.25)';
+    c.fillStyle = 'rgba(40,25,20,0.30)';
+    c.beginPath(); c.arc(cp.x, cp.y, 120, 0, 7); c.fill();
+    c.fillStyle = 'rgba(60,30,80,0.22)';
     c.beginPath(); c.arc(cp.x, cp.y, 120, 0, 7); c.fill();
     c.strokeStyle = 'rgba(199,125,255,0.22)'; c.lineWidth = 5;
     c.setLineDash([18, 14]);
     c.beginPath(); c.arc(cp.x, cp.y, 120, 0, 7); c.stroke();
     c.setLineDash([]);
+    // scattered bones and broken rubble marking the monster's lair
+    for (let i = 0; i < 7; i++) {
+      const a = rnd()*Math.PI*2, d = rnd()*90;
+      const bx = cp.x + Math.cos(a)*d, by = cp.y + Math.sin(a)*d;
+      c.save();
+      c.translate(bx, by); c.rotate(rnd()*6.28);
+      if (i % 3 === 0) {
+        c.fillStyle = 'rgba(210,200,180,0.4)';
+        c.beginPath(); c.ellipse(0, 0, 16, 4.5, 0, 0, 7); c.fill();
+        c.beginPath(); c.arc(-14, 0, 5, 0, 7); c.fill();
+        c.beginPath(); c.arc(14, 0, 5, 0, 7); c.fill();
+      } else {
+        c.fillStyle = 'rgba(70,60,55,0.35)';
+        c.beginPath(); c.moveTo(-7,-5); c.lineTo(7,-3); c.lineTo(5,6); c.lineTo(-6,5); c.closePath(); c.fill();
+      }
+      c.restore();
+    }
   }
+
+  // ---- boss pit: cracked ground with glowing fissures radiating from the center ----
   const bp = c.createRadialGradient(BOSS_SPOT.x, BOSS_SPOT.y, 30, BOSS_SPOT.x, BOSS_SPOT.y, 190);
   bp.addColorStop(0, 'rgba(90,30,130,0.4)');
   bp.addColorStop(1, 'rgba(90,30,130,0)');
   c.fillStyle = bp;
   c.beginPath(); c.arc(BOSS_SPOT.x, BOSS_SPOT.y, 190, 0, 7); c.fill();
+  c.fillStyle = 'rgba(10,4,16,0.35)';
+  c.beginPath(); c.arc(BOSS_SPOT.x, BOSS_SPOT.y, 150, 0, 7); c.fill();
+  for (let i = 0; i < 9; i++) {
+    const a = (i/9)*Math.PI*2 + rnd()*0.3;
+    let x = BOSS_SPOT.x, y = BOSS_SPOT.y, ang = a;
+    c.strokeStyle = 'rgba(199,125,255,0.5)'; c.lineWidth = 2.5;
+    c.beginPath(); c.moveTo(x, y);
+    for (let seg = 0; seg < 4; seg++) {
+      ang += (rnd()-0.5)*0.6;
+      x += Math.cos(ang)*(20+rnd()*16); y += Math.sin(ang)*(20+rnd()*16);
+      c.lineTo(x, y);
+    }
+    c.stroke();
+  }
   c.strokeStyle = 'rgba(199,125,255,0.35)'; c.lineWidth = 8;
   c.beginPath(); c.arc(BOSS_SPOT.x, BOSS_SPOT.y, 160, 0, 7); c.stroke();
   c.strokeStyle = 'rgba(224,170,255,0.18)'; c.lineWidth = 3;
@@ -661,6 +751,16 @@ function buildMapCanvas() {
     c.fillStyle = 'rgba(125,249,255,0.12)';
     c.beginPath(); c.arc(x, y, s*2, 0, 7); c.fill();
   }
+
+  // ---- directional lighting: soft sun from the top-left, multiplied over everything ----
+  c.globalCompositeOperation = 'multiply';
+  const sun = c.createLinearGradient(0, 0, WORLD, WORLD);
+  sun.addColorStop(0, 'rgba(255,255,255,1)');
+  sun.addColorStop(0.55, 'rgba(255,255,255,0.92)');
+  sun.addColorStop(1, 'rgba(150,150,170,0.8)');
+  c.fillStyle = sun;
+  c.fillRect(0, 0, WORLD, WORLD);
+  c.globalCompositeOperation = 'source-over';
 
   // ---- vignette ----
   const vg = c.createRadialGradient(1600, 1600, 900, 1600, 1600, 2400);

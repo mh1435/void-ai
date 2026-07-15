@@ -28,6 +28,28 @@ html, body {
 
 #game { position: fixed; inset: 0; display: block; }
 
+/* ================= ROTATE-DEVICE LOCK ================= */
+/* Void Arena, like every MOBA, is designed for landscape play only —
+   on a portrait phone we ask for a rotate instead of squeezing the HUD */
+#rotatePrompt {
+  display: none;
+  position: fixed; inset: 0; z-index: 100;
+  background: #05080f;
+  flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  text-align: center; padding: 20px;
+}
+#rotatePrompt .rotIcon { font-size: 56px; animation: rotHint 1.6s ease-in-out infinite; }
+@keyframes rotHint {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-90deg); }
+}
+#rotatePrompt p { color: #fff; font-size: 20px; font-weight: 700; letter-spacing: 1px; }
+#rotatePrompt span { color: #7d8fa3; font-size: 14px; }
+@media (orientation: portrait) and (max-width: 900px) {
+  #rotatePrompt { display: flex; }
+  #select, #hud, #end { display: none !important; }
+}
+
 /* ================= HERO SELECT ================= */
 #select {
   position: fixed; inset: 0; z-index: 30;
