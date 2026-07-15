@@ -396,6 +396,49 @@ function distToLanes(x, y) {
   return best;
 }
 
+// Traces a smooth, irregular hand-painted-looking blob instead of a perfect
+// circle/polygon: N control points at a jittered radius, joined with
+// quadratic curves through their midpoints so the outline stays soft and
+// organic rather than faceted. Used for every "natural" shape on the map —
+// grass patches, foliage, dirt, stone, water — nothing round or boxy is left
+// as a raw circle/rect once this is applied.
+//
+// blobPoints() generates the jittered unit-circle shape once; tracePts()
+// paints it at any position/size/rotation. Split this way so shapes drawn
+// live every frame (tree canopies, bush leaves) can precompute their outline
+// once at placement time and stay visually stable instead of re-randomizing
+// — a jittering canopy would look like static, not foliage.
+function blobPoints(rnd, pts, jitter) {
+  const P = [];
+  for (let i = 0; i < pts; i++) {
+    const a = (i / pts) * Math.PI * 2;
+    const rr = 1 - jitter/2 + rnd()*jitter;
+    P.push([Math.cos(a)*rr, Math.sin(a)*rr]);
+  }
+  return P;
+}
+function tracePts(c, P, x, y, r, squash = 1, rot = 0) {
+  const cos = Math.cos(rot), sin = Math.sin(rot);
+  const T = P.map(([lx, ly]) => {
+    const sx = lx*r, sy = ly*r*squash;
+    return [x + sx*cos - sy*sin, y + sx*sin + sy*cos];
+  });
+  c.beginPath();
+  let mx = (T[0][0]+T[T.length-1][0])/2, my = (T[0][1]+T[T.length-1][1])/2;
+  c.moveTo(mx, my);
+  for (let i = 0; i < T.length; i++) {
+    const nxt = T[(i+1) % T.length];
+    mx = (T[i][0]+nxt[0])/2; my = (T[i][1]+nxt[1])/2;
+    c.quadraticCurveTo(T[i][0], T[i][1], mx, my);
+  }
+  c.closePath();
+}
+function blobPath(c, x, y, r, rnd, opts = {}) {
+  const pts = opts.pts || (6 + Math.floor(rnd()*3));
+  const jitter = opts.jitter !== undefined ? opts.jitter : 0.4;
+  tracePts(c, blobPoints(rnd, pts, jitter), x, y, r, opts.squash || 1, opts.rot || 0);
+}
+
 // animated river sparkles (drawn live over the static map)
 const RIVER_SPARKS = (() => {
   const rnd = mulberry32(777), out = [];
@@ -427,18 +470,43 @@ function buildMapCanvas() {
   c.fillStyle = 'rgba(170,50,70,0.09)';
   c.beginPath(); c.moveTo(0, 0); c.lineTo(WORLD, 0); c.lineTo(WORLD, WORLD); c.closePath(); c.fill();
 
-  // mottled grass: layered soft blobs in varied greens
-  const grassTones = ['rgba(60,140,80,0.06)', 'rgba(30,90,60,0.08)', 'rgba(90,160,90,0.045)', 'rgba(20,60,50,0.09)'];
-  for (let i = 0; i < 700; i++) {
-    const x = rnd()*WORLD, y = rnd()*WORLD;
-    c.fillStyle = grassTones[(i % grassTones.length)];
-    const r = 25 + rnd()*90;
-    c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+  // mottled grass: multi-octave irregular blobs (large soft patches, then
+  // medium clumps, then tiny tufts) instead of uniform circles — this is
+  // what gives painted grass its depth rather than a polka-dot look
+  const grassTones = ['rgba(60,140,80,0.07)', 'rgba(30,90,60,0.09)', 'rgba(90,160,90,0.05)', 'rgba(20,60,50,0.10)'];
+  for (let i = 0; i < 260; i++) {
+    c.fillStyle = grassTones[i % grassTones.length];
+    blobPath(c, rnd()*WORLD, rnd()*WORLD, 60 + rnd()*110, rnd, { pts:7, jitter:0.5 });
+    c.fill();
   }
-  // fine speckle
-  for (let i = 0; i < 900; i++) {
-    c.fillStyle = rnd() > 0.5 ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.05)';
-    c.beginPath(); c.arc(rnd()*WORLD, rnd()*WORLD, 3 + rnd()*7, 0, 7); c.fill();
+  for (let i = 0; i < 500; i++) {
+    c.fillStyle = grassTones[(i+2) % grassTones.length];
+    blobPath(c, rnd()*WORLD, rnd()*WORLD, 14 + rnd()*30, rnd, { pts:6, jitter:0.6 });
+    c.fill();
+  }
+  // small grass tufts: short curved blade strokes fanning from a root point,
+  // clustered instead of scattered so they read as tufts, not noise
+  for (let i = 0; i < 420; i++) {
+    const cx = rnd()*WORLD, cy = rnd()*WORLD;
+    const dark = rnd() > 0.5;
+    c.strokeStyle = dark ? 'rgba(10,30,15,0.16)' : 'rgba(190,230,170,0.14)';
+    c.lineWidth = 1.6; c.lineCap = 'round';
+    const blades = 3 + Math.floor(rnd()*3);
+    for (let b = 0; b < blades; b++) {
+      const a = rnd()*Math.PI*2, len = 6 + rnd()*10;
+      const bend = (rnd()-0.5)*8;
+      c.beginPath();
+      c.moveTo(cx, cy);
+      c.quadraticCurveTo(cx + Math.cos(a)*len*0.6 + bend, cy + Math.sin(a)*len*0.6,
+                          cx + Math.cos(a)*len, cy + Math.sin(a)*len);
+      c.stroke();
+    }
+  }
+  // dirt/wear scuffs: thin irregular smudges instead of round speckle dots
+  for (let i = 0; i < 260; i++) {
+    c.fillStyle = rnd() > 0.5 ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.045)';
+    blobPath(c, rnd()*WORLD, rnd()*WORLD, 4 + rnd()*10, rnd, { pts:5, jitter:0.7, squash:0.5, rot:rnd()*6.28 });
+    c.fill();
   }
 
   // mowed-lawn stripes: alternating faint diagonal bands, the classic
@@ -469,10 +537,19 @@ function buildMapCanvas() {
     if (!clearOf(x, y)) continue;
     planted++;
     const r = 40 + rnd()*42;
-    TREES.push({ x, y, r, tone: rnd() > 0.5 ? 0 : 1, sway: rnd()*6.28 });
-    // only a dirt patch goes into the static ground; the tree itself is drawn upright at render time
+    // precompute irregular canopy lobe shapes once so the foliage outline
+    // stays stable frame to frame instead of re-jittering every render
+    const canopy = [
+      blobPoints(rnd, 9, 0.35),
+      blobPoints(rnd, 8, 0.4),
+      blobPoints(rnd, 7, 0.45),
+    ];
+    const canopyOff = [[0,0], [-0.17 + rnd()*0.06, -0.18 + rnd()*0.06], [-0.28 + rnd()*0.08, -0.3 + rnd()*0.08]];
+    TREES.push({ x, y, r, tone: rnd() > 0.5 ? 0 : 1, sway: rnd()*6.28, canopy, canopyOff });
+    // only an irregular dirt patch goes into the static ground; the tree itself is drawn upright at render time
     c.fillStyle = 'rgba(20,30,20,0.35)';
-    c.beginPath(); c.ellipse(x, y, r*0.9, r*0.42, 0, 0, 7); c.fill();
+    blobPath(c, x, y, r*0.85, rnd, { pts:7, jitter:0.4, squash:0.46 });
+    c.fill();
   }
 
   // ---- river (anti-diagonal band with depth + ripples) ----
@@ -557,14 +634,15 @@ function buildMapCanvas() {
           const px = ax + ux*d + nx*(row*stoneH + stoneH/2);
           const py = ay + uy*d + ny*(row*stoneH + stoneH/2);
           const shade = 0.5 + rnd()*0.5;
+          const stonePts = blobPoints(rnd, 6, 0.22); // hand-cut stone, not a rounded rect
           c.save();
           c.translate(px, py);
           c.rotate(Math.atan2(uy, ux));
-          c.fillStyle = `rgba(${Math.round(150*shade)},${Math.round(140*shade)},${Math.round(115*shade)},0.22)`;
-          roundRect(c, -stoneW/2+1.5, -stoneH/2+1.5, stoneW-3, stoneH-3, 4);
+          c.fillStyle = `rgba(${Math.round(150*shade)},${Math.round(140*shade)},${Math.round(115*shade)},0.24)`;
+          tracePts(c, stonePts, 0, 0, stoneW/2-1.5, (stoneH-3)/(stoneW-3));
           c.fill();
-          c.strokeStyle = 'rgba(0,0,0,0.16)'; c.lineWidth = 1.5;
-          roundRect(c, -stoneW/2+1.5, -stoneH/2+1.5, stoneW-3, stoneH-3, 4);
+          c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1.5;
+          tracePts(c, stonePts, 0, 0, stoneW/2-1.5, (stoneH-3)/(stoneW-3));
           c.stroke();
           c.restore();
         }
@@ -662,24 +740,40 @@ function buildMapCanvas() {
     c.beginPath(); c.ellipse(r.x, r.y, r.r*1.1, r.r*0.5, 0, 0, 7); c.fill();
   }
 
-  // ---- bushes: layered leaf clusters ----
+  // ---- bushes: irregular leaf-cluster silhouette, not a rounded box ----
   for (const b of BUSHES) {
+    const cx = b.x + b.w/2, cy = b.y + b.h/2;
+    const rad = Math.max(b.w, b.h)/2;
+    const squash = Math.min(b.w, b.h) / Math.max(b.w, b.h);
+    const rotBush = b.w >= b.h ? 0 : Math.PI/2;
+    const bushPts = blobPoints(rnd, 9, 0.3);   // same outline reused for shadow/fill/stroke
     c.fillStyle = 'rgba(0,0,0,0.28)';
-    roundRect(c, b.x + 6, b.y + 10, b.w, b.h, 44); c.fill();
+    tracePts(c, bushPts, cx + 6, cy + 10, rad*1.06, squash, rotBush);
+    c.fill();
     c.fillStyle = 'rgba(26,92,48,0.85)';
-    roundRect(c, b.x, b.y, b.w, b.h, 44); c.fill();
+    tracePts(c, bushPts, cx, cy, rad*1.06, squash, rotBush);
+    c.fill();
     const leaves = 10 + Math.floor((b.w * b.h) / 6000);
     for (let i = 0; i < leaves; i++) {
       const lx = b.x + 22 + rnd()*(b.w - 44);
       const ly = b.y + 22 + rnd()*(b.h - 44);
       const lr = 16 + rnd()*18;
       c.fillStyle = i % 3 === 0 ? 'rgba(76,175,102,0.75)' : 'rgba(46,138,74,0.8)';
-      c.beginPath(); c.arc(lx, ly, lr, 0, 7); c.fill();
+      blobPath(c, lx, ly, lr, rnd, { pts:6, jitter:0.45 });
+      c.fill();
       c.fillStyle = 'rgba(158,230,170,0.35)';
-      c.beginPath(); c.arc(lx - lr*0.3, ly - lr*0.35, lr*0.4, 0, 7); c.fill();
+      blobPath(c, lx - lr*0.3, ly - lr*0.35, lr*0.4, rnd, { pts:5, jitter:0.5 });
+      c.fill();
+    }
+    // small berry/flower accents scattered through the foliage
+    for (let i = 0; i < 4; i++) {
+      const bx2 = b.x + 20 + rnd()*(b.w - 40), by2 = b.y + 20 + rnd()*(b.h - 40);
+      c.fillStyle = rnd() > 0.5 ? 'rgba(255,120,140,0.6)' : 'rgba(255,224,140,0.55)';
+      c.beginPath(); c.arc(bx2, by2, 3 + rnd()*2.5, 0, 7); c.fill();
     }
     c.strokeStyle = 'rgba(120,220,150,0.35)'; c.lineWidth = 3;
-    roundRect(c, b.x, b.y, b.w, b.h, 44); c.stroke();
+    tracePts(c, bushPts, cx, cy, rad*1.06, squash, rotBush);
+    c.stroke();
   }
 
   // ---- jungle camp pads: trampled lair ground with bone/rubble scatter ----
@@ -980,23 +1074,41 @@ function drawTree(ctx, t) {
   const dark  = t.tone ? '#123b22' : '#0f3530';
   const mid   = t.tone ? '#1c5230' : '#175046';
   const light = t.tone ? '#2d6f3e' : '#24695b';
+  // irregular ground shadow instead of a perfect ellipse
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.beginPath(); ctx.ellipse(gx + 8, gy + 3, r*1.0, r*0.4, 0, 0, 7); ctx.fill();
-  // trunk
+  tracePts(ctx, t.canopy[0], gx + 8, gy + 3, r, 0.4, t.sway);
+  ctx.fill();
+  // trunk with a bark-grain wobble instead of a flat rectangle
+  const trunkH = r*0.75 + 4;
   ctx.fillStyle = '#33241a';
-  ctx.fillRect(gx - 6, gy - r*0.75, 12, r*0.75 + 4);
+  ctx.beginPath();
+  ctx.moveTo(gx - 7, gy);
+  ctx.quadraticCurveTo(gx - 8, gy - trunkH*0.5, gx - 5, gy - trunkH);
+  ctx.lineTo(gx + 5, gy - trunkH);
+  ctx.quadraticCurveTo(gx + 8, gy - trunkH*0.5, gx + 7, gy);
+  ctx.closePath(); ctx.fill();
   ctx.fillStyle = '#4a3526';
-  ctx.fillRect(gx - 6, gy - r*0.75, 5, r*0.75 + 4);
-  // canopy
+  ctx.beginPath();
+  ctx.moveTo(gx - 3, gy);
+  ctx.quadraticCurveTo(gx - 4, gy - trunkH*0.5, gx - 2, gy - trunkH);
+  ctx.lineTo(gx + 1, gy - trunkH);
+  ctx.quadraticCurveTo(gx, gy - trunkH*0.5, gx - 1, gy);
+  ctx.closePath(); ctx.fill();
+  // canopy: three irregular lobed blobs (precomputed shapes, live position)
   const cy = gy - r*1.05;
+  const [o1, o2, o3] = t.canopyOff;
   ctx.fillStyle = dark;
-  ctx.beginPath(); ctx.arc(gx + sway, cy, r*0.92, 0, 7); ctx.fill();
+  tracePts(ctx, t.canopy[0], gx + sway, cy, r*0.92);
+  ctx.fill();
   ctx.fillStyle = mid;
-  ctx.beginPath(); ctx.arc(gx + sway - r*0.17, cy - r*0.18, r*0.7, 0, 7); ctx.fill();
+  tracePts(ctx, t.canopy[1], gx + sway + o2[0]*r, cy + o2[1]*r, r*0.7);
+  ctx.fill();
   ctx.fillStyle = light;
-  ctx.beginPath(); ctx.arc(gx + sway - r*0.28, cy - r*0.3, r*0.4, 0, 7); ctx.fill();
+  tracePts(ctx, t.canopy[2], gx + sway + o3[0]*r, cy + o3[1]*r, r*0.4);
+  ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(gx + sway, cy, r*0.92, 0, 7); ctx.stroke();
+  tracePts(ctx, t.canopy[0], gx + sway, cy, r*0.92);
+  ctx.stroke();
 }
 
 // standing boulder
