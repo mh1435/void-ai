@@ -94,6 +94,22 @@ const Render3D = (() => {
 
   // ---------------- ground + fog of war ----------------
   function buildGround() {
+    // backdrop: the fixed camera offset means a hero standing near a map
+    // corner/edge (e.g. right at spawn) puts a large chunk of the frustum
+    // — especially on a wide phone aspect ratio — looking past the WORLD x
+    // WORLD ground plane's edge into pure emptiness, which rendered as a
+    // flat, hard-edged block of the scene background color (looked like a
+    // solid black half of the screen). A large dark plane just beneath the
+    // real ground fills that empty space with plausible "distant terrain"
+    // that scene.fog then fades to the background color, instead of nothing.
+    const voidGeo = new THREE.PlaneGeometry(WORLD * 8, WORLD * 8, 1, 1);
+    voidGeo.rotateX(-Math.PI / 2);
+    const voidMat = new THREE.MeshStandardMaterial({ color: 0x12241f, roughness: 1 });
+    const voidMesh = new THREE.Mesh(voidGeo, voidMat);
+    voidMesh.position.y = -4;
+    voidMesh.receiveShadow = true;
+    scene.add(voidMesh);
+
     const geo = new THREE.PlaneGeometry(WORLD, WORLD, 1, 1);
     geo.rotateX(-Math.PI / 2);
     const tex = new THREE.CanvasTexture(mapCanvas);
