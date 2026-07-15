@@ -75,18 +75,27 @@ html, body {
   animation: twinkle 4s ease-in-out infinite alternate;
 }
 @keyframes twinkle { from { opacity: 0.4; } to { opacity: 1; } }
-.selBox { text-align: center; padding: 20px; max-width: 720px; width: 100%; }
+/* every piece scales off viewport HEIGHT (clamp(min, vh-based, max)) so the
+   whole panel fits without scrolling on a short landscape-phone browser
+   viewport — the usual case where a browser's address bar eats a big
+   fraction of the available height */
+.selBox { text-align: center; padding: clamp(8px, 2vh, 20px) 20px; max-width: 720px; width: 100%; }
 .logo {
-  font-size: clamp(40px, 8vw, 64px); letter-spacing: 8px; font-weight: 800;
+  font-size: clamp(24px, min(7vw, 6vh), 60px); letter-spacing: 8px; font-weight: 800;
   color: #fff; text-shadow: 0 0 30px rgba(125, 249, 255, 0.6);
+  margin-bottom: clamp(0px, 0.5vh, 4px);
 }
 .logo span { color: #7df9ff; }
-.tagline { color: #8fa3b8; margin-bottom: 18px; letter-spacing: 2px; }
+.tagline {
+  color: #8fa3b8; margin-bottom: clamp(6px, 2vh, 18px); letter-spacing: 2px;
+  font-size: clamp(11px, 1.8vh, 15px);
+}
 #heroGrid {
-  display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-bottom: 14px;
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: clamp(6px, 1.4vh, 12px);
+  max-width: 640px; margin: 0 auto clamp(8px, 1.6vh, 14px);
 }
 .heroCard {
-  width: 104px; padding: 10px 6px 8px; border-radius: 12px; cursor: pointer;
+  width: 100%; padding: clamp(6px, 1.2vh, 10px) 4px clamp(5px, 1vh, 8px); border-radius: 12px; cursor: pointer;
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
   border: 2px solid rgba(255, 255, 255, 0.06);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
@@ -98,24 +107,28 @@ html, body {
   background: linear-gradient(160deg, rgba(125, 249, 255, 0.14), rgba(125, 249, 255, 0.04));
   box-shadow: 0 0 18px rgba(125, 249, 255, 0.35), 0 8px 20px rgba(0, 0, 0, 0.5);
 }
-.heroCard canvas { width: 72px; height: 72px; }
-.heroName { font-weight: 700; font-size: 17px; margin-top: 2px; }
-.heroRole { font-size: 12px; color: #8fa3b8; letter-spacing: 1px; text-transform: uppercase; }
+.heroCard canvas { width: clamp(42px, 8vh, 72px); height: clamp(42px, 8vh, 72px); }
+.heroName { font-weight: 700; font-size: clamp(12px, 2vh, 17px); margin-top: 2px; }
+.heroRole {
+  font-size: clamp(9px, 1.3vh, 12px); color: #8fa3b8; letter-spacing: 1px; text-transform: uppercase;
+}
 #selInfo {
-  min-height: 110px; font-size: 14px; color: #b8c6d4; line-height: 1.45;
-  background: rgba(255, 255, 255, 0.03); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px;
+  min-height: clamp(64px, 13vh, 110px); font-size: clamp(12px, 1.7vh, 14px); color: #b8c6d4; line-height: 1.4;
+  background: rgba(255, 255, 255, 0.03); border-radius: 10px; padding: clamp(6px, 1.2vh, 10px) 14px;
+  margin-bottom: clamp(6px, 1.6vh, 14px);
   text-align: left;
 }
 #selInfo .passive { color: #ffd166; }
 #selInfo .sk b { color: #7df9ff; }
 #btnStart {
-  font-family: inherit; font-size: 20px; font-weight: 800; letter-spacing: 3px;
-  padding: 14px 44px; border-radius: 10px; border: none; cursor: pointer;
+  font-family: inherit; font-size: clamp(15px, 2.4vh, 20px); font-weight: 800; letter-spacing: 3px;
+  padding: clamp(9px, 1.8vh, 14px) 44px; border-radius: 10px; border: none; cursor: pointer;
   background: linear-gradient(135deg, #1d9bf0, #7df9ff); color: #04121d;
   box-shadow: 0 0 24px rgba(125, 249, 255, 0.45);
 }
 #btnStart:active { transform: scale(0.96); }
-.hint { margin-top: 14px; font-size: 12px; color: #5c7089; line-height: 1.5; }
+.hint { margin-top: clamp(6px, 1.6vh, 14px); font-size: 12px; color: #5c7089; line-height: 1.5; }
+@media (max-height: 420px) { .hint { display: none; } }
 
 /* ================= HUD ================= */
 #hud { display: none; position: fixed; inset: 0; z-index: 10; pointer-events: none; }
