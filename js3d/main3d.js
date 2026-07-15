@@ -18,11 +18,17 @@
 
 import * as THREE from './vendor/three.module.min.js';
 import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
-import { VRMLoaderPlugin } from './vendor/three-vrm.module.min.js';
+import { clone as skeletonClone } from './vendor/utils/SkeletonUtils.js';
 
 window.THREE = THREE;
+// render3d.js is a classic (non-module) script, so it can't import — expose
+// the skinned-mesh clone helper the same way THREE itself is exposed
+window.SkeletonClone = skeletonClone;
 
-const POOL_SIZE = 10; // max simultaneous heroes in a 5v5 match
+// the distinct KayKit models the six heroes are drawn from (CC0 — see
+// assets/models/kaykit/KAYKIT_LICENSE.txt). Loaded once each, then cloned
+// per hero unit in render3d.js.
+const HERO_MODEL_FILES = ['Knight', 'Mage', 'Rogue', 'Rogue_Hooded', 'Barbarian'];
 
 window.addEventListener('load', async () => {
   const loadingEl = document.getElementById('loading3d');
@@ -31,29 +37,21 @@ window.addEventListener('load', async () => {
 
   try {
     const loader = new GLTFLoader();
-    loader.register((parser) => new VRMLoaderPlugin(parser));
 
-    setPct('downloading character model…');
-    const res = await fetch('assets/models/hero.vrm');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const buffer = await res.arrayBuffer();
-
-    const pool = [];
-    for (let i = 0; i < POOL_SIZE; i++) {
-      setPct('preparing characters ' + (i + 1) + '/' + POOL_SIZE);
-      // parseAsync re-parses the already-downloaded bytes into a fully
-      // independent scene graph + VRM instance each time — simpler and
-      // safer than trying to clone a skinned VRM's bone/humanoid mapping
-      const gltf = await loader.parseAsync(buffer.slice(0), '');
-      pool.push({ scene: gltf.scene, vrm: gltf.userData.vrm });
+    const models = {};
+    for (let i = 0; i < HERO_MODEL_FILES.length; i++) {
+      const name = HERO_MODEL_FILES[i];
+      setPct('loading characters ' + (i + 1) + '/' + HERO_MODEL_FILES.length);
+      const gltf = await loader.loadAsync('assets/models/kaykit/' + name + '.glb');
+      models[name] = { scene: gltf.scene, animations: gltf.animations };
     }
 
     loadingEl.style.display = 'none';
     // UI.init() (which wires up the hero-select "ENTER THE ARENA" button)
-    // is deliberately deferred until the pool is actually ready — starting
+    // is deliberately deferred until the models are actually ready — starting
     // a match before then would leave the player staring at a blank scene
     UI.init();
-    Render3D.init(pool);
+    Render3D.init(models);
 
     let last = performance.now();
     function frame(now) {
