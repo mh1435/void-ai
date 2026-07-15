@@ -4,9 +4,11 @@
 // Reads the exact same G/UI state the 2D renderer (js/game.js render())
 // reads — same units, same fog of war, same HP/mana — and draws it with a
 // real Three.js scene instead of flat canvas shapes. Heroes use a real
-// rigged, animated GLTF character model (CC0, see assets/models); every
-// other entity is built from proper 3D geometry (extruded/lofted shapes
-// with real volume and lighting), not flat 2D primitives.
+// anime-style VRM character model (see assets/models for its license),
+// hand-posed each frame via its standardized humanoid bones since VRM
+// avatars carry no baked-in animation clips; every other entity is built
+// from proper 3D geometry (extruded/lofted shapes with real volume and
+// lighting), not flat 2D primitives.
 //
 // World-to-scene mapping: game (x, y) in [0, WORLD] -> scene (x, 0, z)
 // centered at the origin, i.e. scene.x = x - WORLD/2, scene.z = y - WORLD/2.
@@ -18,7 +20,7 @@ const Render3D = (() => {
 
   let scene, camera, renderer, clock;
   let groundMesh, fogMesh, fogTexture;
-  let heroTemplate = null;           // { scene, animations }
+  let heroPool = null;                // [{ scene, vrm }, ...] — one per hero slot, assigned permanently
   const unitMeshes = new Map();      // unit.id -> entry
   const projMeshes = new Map();      // projectile obj -> mesh
   const fxMeshes = [];               // transient effects
@@ -27,9 +29,22 @@ const Render3D = (() => {
   const TEAM_HEX = { blue: 0x3fa9ff, red: 0xff4d5e };
   const TEAM_HEX_D = { blue: 0x1c5c94, red: 0x8f2430 };
 
-  function init(gltf) {
-    heroTemplate = { scene: gltf.scene, animations: gltf.animations };
+  function init(pool) {
+    heroPool = pool;
+    // capture each bone's true bind-pose quaternion exactly once, before
+    // any animation ever touches it — createHero() can run more than once
+    // per hero (fog-of-war hide/show, or after the death-collapse pose),
+    // and re-capturing "rest" from whatever pose the bones were last left
+    // in would corrupt every animation after the first hide/death
+    for (const entry of heroPool) {
+      entry.restQuats = {};
+      for (const name of BONE_NAMES) {
+        const b = entry.vrm.humanoid.getNormalizedBoneNode(name);
+        if (b) entry.restQuats[name] = b.quaternion.clone();
+      }
+    }
     camOffset = new THREE.Vector3(0, 640, 500);
+    _q = new THREE.Quaternion();
     camTarget = new THREE.Vector3();
 
     scene = new THREE.Scene();
@@ -168,21 +183,37 @@ const Render3D = (() => {
     return g;
   }
 
-  // ---------------- hero (real GLTF model) instances ----------------
-  const ANIM = ['Idle','Walking','Running','Punch','Death','Jump'];
+  // ---------------- hero (real VRM character) instances ----------------
+  // The VRM avatar has no baked-in game animations (see README), so motion
+  // is hand-authored here: each frame we rotate its VRM "normalized" bones
+  // — a virtual rig three-vrm keeps consistent regardless of the avatar's
+  // raw bind pose — directly, as a function of the hero's live sim state.
+  const HERO_SCALE = 58;
+  const ARM_DOWN = 1.4; // Z-rotation bringing a T-pose arm down to the side
+  const BONE_NAMES = ['hips','spine','chest','head',
+    'leftUpperArm','rightUpperArm','leftLowerArm','rightLowerArm',
+    'leftUpperLeg','rightUpperLeg','leftLowerLeg','rightLowerLeg'];
+
   function createHero(u) {
-    const root = window.cloneSkinned(heroTemplate.scene);
-    root.scale.setScalar(34);
+    const idx = G.heroes.indexOf(u);
+    const { scene: root, vrm } = heroPool[idx];
+    root.scale.setScalar(HERO_SCALE);
     root.traverse(o => {
       if (o.isMesh) {
         o.castShadow = true; o.receiveShadow = true;
-        if (o.material && o.material.name === 'Main') {
-          o.material = o.material.clone();
-        }
+        if (o.material && /CLOTH/i.test(o.material.name)) o.material = o.material.clone();
       }
     });
     const tint = new THREE.Color(u.def.color);
-    root.traverse(o => { if (o.isMesh && o.material && o.material.name === 'Main') o.material.color.copy(tint); });
+    root.traverse(o => { if (o.isMesh && o.material && /CLOTH/i.test(o.material.name)) o.material.color.copy(tint); });
+
+    const bones = {};
+    const rest = {};
+    const restQuats = heroPool[idx].restQuats;
+    for (const name of BONE_NAMES) {
+      const b = vrm.humanoid.getNormalizedBoneNode(name);
+      if (b && restQuats[name]) { bones[name] = b; rest[name] = restQuats[name].clone(); }
+    }
 
     const group = new THREE.Group();
     group.add(root);
@@ -194,43 +225,91 @@ const Render3D = (() => {
     ring.rotation.x = -Math.PI/2; ring.position.y = 1;
     group.add(ring);
 
-    const mixer = new THREE.AnimationMixer(root);
-    const actions = {};
-    for (const clip of heroTemplate.animations) {
-      if (ANIM.includes(clip.name)) actions[clip.name] = mixer.clipAction(clip);
-    }
-    if (actions.Death) { actions.Death.setLoop(THREE.LoopOnce); actions.Death.clampWhenFinished = true; }
-    if (actions.Punch) { actions.Punch.setLoop(THREE.LoopOnce); actions.Punch.clampWhenFinished = true; }
-
     scene.add(group);
     const bar = makeBar(58);
-    return { group, root, mixer, actions, current: null, hpBar: bar, barHeight: 92, ring, team: u.team, kind:'hero' };
+    return {
+      group, root, vrm, bones, rest, animT: 0, punchT: 0,
+      hpBar: bar, barHeight: HERO_SCALE * 1.7, ring, team: u.team, kind: 'hero',
+    };
   }
 
-  function playAnim(e, name, fade = 0.15) {
-    if (e.current === name || !e.actions[name]) return;
-    const next = e.actions[name];
-    if (e.current && e.actions[e.current]) e.actions[e.current].fadeOut(fade);
-    next.reset().fadeIn(fade).play();
-    e.current = name;
+  // small helper: rotate a bone by (x,y,z) radians on top of its rest pose
+  // (lazily instantiated in init(), same THREE-not-defined-yet reason as camOffset above)
+  let _q;
+  function poseBone(e, name, x, y, z) {
+    const b = e.bones[name];
+    if (!b) return;
+    _q.setFromEuler(new THREE.Euler(x, y, z));
+    b.quaternion.copy(e.rest[name]).multiply(_q);
   }
 
   function updateHero(e, u, dt) {
     const [x, z] = toScene(u.x, u.y);
     e.group.position.set(x, 0, z);
-    e.group.rotation.y = -u.facing + Math.PI/2;
+    e.group.rotation.y = -u.facing;
     e.ring.material.opacity = u.isPlayer ? 1 : 0.7;
 
-    if (u.dead) { playAnim(e, 'Death', 0.1); }
-    else if (u._hitT !== undefined && G.time - u._hitT < 0.15) playAnim(e, 'Punch', 0.05);
-    else if (u.atkTimer > (u.atkCd/u.asMult) * 0.6) playAnim(e, 'Punch', 0.08);
-    else if (u.moving) playAnim(e, u._moving === false ? 'Walking' : 'Running', 0.15);
-    else playAnim(e, 'Idle', 0.2);
-
-    e.mixer.update(dt);
     e.group.visible = !u.dead || (G.time - (u._deathT || (u._deathT = G.time))) < 1.4;
     e.hpBar.visible = e.group.visible;
     if (e.group.visible) { e.hpBar.position.set(x, e.barHeight, z); updateBar(e.hpBar, u); }
+
+    if (!e.group.visible) return;
+
+    if (u.dead) {
+      const k = Math.min(1, (G.time - u._deathT) / 0.6);
+      poseBone(e, 'hips', -k * 1.1, 0, 0);
+      poseBone(e, 'spine', -k * 0.5, 0, 0);
+      poseBone(e, 'head', k * 0.3, 0, 0);
+      poseBone(e, 'leftUpperArm', -k * 0.3, 0, -ARM_DOWN);
+      poseBone(e, 'rightUpperArm', -k * 0.3, 0, ARM_DOWN);
+      e.group.position.y = -k * HERO_SCALE * 0.25;
+    } else {
+      e.group.position.y = 0;
+      const attacking = (u._hitT !== undefined && G.time - u._hitT < 0.15) || u.atkTimer > (u.atkCd / u.asMult) * 0.6;
+      if (attacking) e.punchT = 0.28;
+      e.punchT = Math.max(0, e.punchT - dt);
+
+      const running = u.moving && u._moving !== false;
+      const walking = u.moving && !running;
+      const speed = running ? 7 : walking ? 4.5 : 0;
+      e.animT += dt * speed;
+
+      // the model's rest pose is a T-pose (arms straight out); ARM_DOWN is
+      // the fixed Z-rotation that brings each arm down to hang naturally at
+      // the side — every arm pose below is built on top of this base, not
+      // on top of the raw T-pose, or the character stands with arms flung
+      // out sideways the whole match
+      if (speed > 0) {
+        const s = Math.sin(e.animT), c = Math.cos(e.animT);
+        const legAmp = running ? 0.55 : 0.32, armAmp = running ? 0.5 : 0.28;
+        poseBone(e, 'leftUpperLeg', s * legAmp, 0, 0);
+        poseBone(e, 'rightUpperLeg', -s * legAmp, 0, 0);
+        poseBone(e, 'leftLowerLeg', Math.max(0, -c) * legAmp * 0.9, 0, 0);
+        poseBone(e, 'rightLowerLeg', Math.max(0, c) * legAmp * 0.9, 0, 0);
+        poseBone(e, 'leftUpperArm', -s * armAmp, 0, -ARM_DOWN + 0.2);
+        poseBone(e, 'rightUpperArm', s * armAmp, 0, ARM_DOWN - 0.2);
+        poseBone(e, 'hips', 0, 0, Math.sin(e.animT * 2) * 0.03);
+        poseBone(e, 'spine', 0.06, 0, 0);
+      } else {
+        const breathe = Math.sin(G.time * 1.6 + u.id) * 0.03;
+        poseBone(e, 'spine', breathe, 0, 0);
+        poseBone(e, 'leftUpperArm', 0, 0, -ARM_DOWN + breathe * 0.3);
+        poseBone(e, 'rightUpperArm', 0, 0, ARM_DOWN - breathe * 0.3);
+        poseBone(e, 'leftUpperLeg', 0, 0, 0);
+        poseBone(e, 'rightUpperLeg', 0, 0, 0);
+        poseBone(e, 'leftLowerLeg', 0, 0, 0);
+        poseBone(e, 'rightLowerLeg', 0, 0, 0);
+      }
+
+      if (e.punchT > 0) {
+        const k = 1 - e.punchT / 0.28;
+        const thrust = Math.sin(k * Math.PI); // wind up then release
+        poseBone(e, 'rightUpperArm', -thrust * 1.3, -thrust * 0.3, ARM_DOWN - thrust * 1.1);
+        poseBone(e, 'chest', 0, -thrust * 0.15, 0);
+      }
+    }
+
+    e.vrm.update(dt);
   }
 
   function updateBar(bar, u) {
@@ -490,5 +569,5 @@ const Render3D = (() => {
     renderer.render(scene, camera);
   }
 
-  return { init, render };
+  return { init, render, _debug: () => ({ scene, unitMeshes, heroPool }) };
 })();
