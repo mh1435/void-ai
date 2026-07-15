@@ -173,6 +173,7 @@ function dealDamage(src, tgt, amount, dtype, opts = {}) {
   }
 
   tgt.hp -= amt;
+  tgt._hitT = G.time;   // white hit-flash for the renderer
   if (tgt.recallT > 0) tgt.recallT = 0;
 
   const credit = src && src.type === 'hero' ? src : (src && src.owner && src.owner.type === 'hero' ? src.owner : null);
@@ -187,10 +188,12 @@ function dealDamage(src, tgt, amount, dtype, opts = {}) {
 
   if (!opts.noText && credit && (credit === G.player || tgt === G.player)) {
     FX.push({ type:'text', x:tgt.x + (Math.random()*30-15), y:tgt.y - tgt.radius - 8,
-      text: String(Math.round(amt + (amount - amt > 0 ? 0 : 0)) || Math.round(amt)),
+      text: String(Math.round(amt)),
       color: dtype === 'phys' ? '#ffcf6b' : dtype === 'magic' ? '#b79bff' : '#fff',
+      big: amt > 150,
       dur:0.7, t:0 });
   }
+  if (tgt === G.player && amt > 0) UI.hitShake = Math.min(1, (UI.hitShake || 0) + Math.min(0.5, amt / 300));
 
   if (tgt.hp <= 0) {
     Game.onDeath(tgt, credit || src);
@@ -213,7 +216,7 @@ function healUnit(src, tgt, amount) {
 const A = {
   damage: (h, u, amt, type) => {
     const hpBefore = u.hp;
-    dealDamage(h, u, amt, type);
+    dealDamage(h, u, amt * (h && h.castMult ? h.castMult : 1), type);
     return u.dead && hpBefore > 0;
   },
   heal: (h, u, amt) => healUnit(h, u, amt),
@@ -308,6 +311,8 @@ class Hero extends Unit {
     this.items = [];
     this.buildIdx = 0;
     this.cds = [0, 0, 0];
+    this.skillLv = [1, 0, 0];   // S1 learned at spawn; spend points on the rest
+    this.skillPoints = 0;
     this.kills = 0; this.deaths = 0; this.assists = 0; this.cs = 0;
     this.streak = 0;
     this.recallT = 0;
@@ -350,6 +355,7 @@ class Hero extends Unit {
     while (this.level < CFG.maxLevel && this.xp >= xpToNext(this.level)) {
       this.xp -= xpToNext(this.level);
       this.level++;
+      this.skillPoints++;
       const hpFrac = this.hp / this.hpMax();
       this.applyLevelStats();
       this.hp = Math.max(this.hp, this.hpMax() * Math.max(hpFrac, 0.4));
@@ -358,18 +364,34 @@ class Hero extends Unit {
     }
   }
 
-  skillUnlocked(i) { return i === 0 ? this.level >= 1 : i === 1 ? this.level >= 2 : this.level >= 4; }
+  skillUnlocked(i) { return this.skillLv[i] > 0; }
   skillReady(i) {
     return this.skillUnlocked(i) && this.cds[i] <= 0 && !this.dead && !this.stunned &&
            this.mana >= this.def.skills[i].mana;
   }
 
+  // MLBB-style leveling: ult caps at 3 and gates on hero level 4/8/12,
+  // basic skills cap at 5 and can't outrun your hero level
+  canUpgrade(i) {
+    if (i === 2) return this.skillLv[2] < 3 && this.level >= 4 + this.skillLv[2] * 4;
+    return this.skillLv[i] < 5 && this.skillLv[i] < this.level;
+  }
+
+  upgradeSkill(i) {
+    if (this.skillPoints <= 0 || !this.canUpgrade(i)) return false;
+    this.skillPoints--;
+    this.skillLv[i]++;
+    if (this.isPlayer) Sfx.play('buy');
+    return true;
+  }
+
   cast(i, aim) {
     if (!this.skillReady(i)) return false;
     const sk = this.def.skills[i];
+    this.castMult = 1 + 0.12 * (this.skillLv[i] - 1);  // read by A.damage
     const ok = sk.cast(this, aim);
     if (ok === false) return false;
-    this.cds[i] = sk.cd * (1 - this.cdr);
+    this.cds[i] = sk.cd * (1 - this.cdr) * (1 - 0.05 * (this.skillLv[i] - 1));
     this.mana -= sk.mana;
     this.recallT = 0;
     if (this.def.onSkillCast) this.def.onSkillCast(this);
