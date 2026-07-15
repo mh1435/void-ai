@@ -321,8 +321,13 @@ const Render3D = (() => {
     const parts = { animated: [] };
 
     switch (heroId) {
-      case 'kael': { // a held blade + a second sheathed across the back
+      case 'kael': { // wraith-assassin silhouette: hooded tattered cloak, ember eye-glow, a held blade + a second sheathed across the back
         pauldrons(vrm, dark, 0.8);
+        cape(vrm, dark, 1.05);
+        const hood = new THREE.Mesh(eGeo('kaelHood', () => new THREE.ConeGeometry(0.115, 0.2, 10, 1, true)), clothMat(dark, { flatShading: true }));
+        attach(vrm, 'head', hood, [0, 0.06, -0.015], [0.12, 0, 0]);
+        const eyeGlow = orb(colorHex, 0.018, 2.2);
+        attach(vrm, 'head', eyeGlow, [0, -0.005, 0.09]);
         const blade = () => {
           const g = new THREE.Group();
           const blade = new THREE.Mesh(eGeo('kaelBlade', () => {
@@ -371,8 +376,16 @@ const Render3D = (() => {
         attach(vrm, 'leftLowerArm', shield, [0, 0.05, 0.08], [0, 0, 0], 1);
         break;
       }
-      case 'lyra': { // recurve bow + quiver, gold feathered pauldrons
+      case 'lyra': { // radiant armored archer: ornate gold breastplate + gemmed pauldrons + a trailing sash, recurve bow + quiver
         pauldrons(vrm, dark, 0.85);
+        const gemL = orb(colorHex, 0.028, 1.8);
+        attach(vrm, 'leftUpperArm', gemL, [0, 0.13, 0.02]);
+        const gemR = orb(colorHex, 0.028, 1.8);
+        attach(vrm, 'rightUpperArm', gemR, [0, 0.13, 0.02]);
+        const breastplate = new THREE.Mesh(eGeo('lyraChest', () => new THREE.CylinderGeometry(0.145, 0.17, 0.26, 8, 1, true, -1.3, 2.6)),
+          metalMat(0xf0e0a0, { emissive: colorHex, emissiveIntensity: 0.18 }));
+        attach(vrm, 'chest', breastplate, [0, 0.02, 0.02]);
+        cape(vrm, dark, 0.65);
         const bow = new THREE.Group();
         const limb = eGeo('bowLimb', () => new THREE.TorusGeometry(0.34, 0.014, 6, 16, Math.PI * 0.85));
         const bowMesh = new THREE.Mesh(limb, metalMat(dark));
