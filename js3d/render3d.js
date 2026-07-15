@@ -31,6 +31,20 @@ const Render3D = (() => {
 
   function init(models) {
     heroModels = models; // { Knight: { scene, animations }, Mage: {...}, ... }
+    // Normalise skin weights on every source mesh once (geometry is shared by
+    // all clones of a model). Some mobile GPUs render vertices whose bone
+    // weights don't sum to 1 as flung "spikes" stretching off the character —
+    // the classic cause of a stray stretched limb. This makes the rig robust
+    // across devices. Also disable frustum culling on the source so a wrong
+    // skinned bounding sphere can't pop the whole character off-screen.
+    for (const name in heroModels) {
+      heroModels[name].scene.traverse(o => {
+        if (o.isSkinnedMesh) {
+          o.frustumCulled = false;
+          if (o.geometry && o.geometry.attributes.skinWeight) o.normalizeSkinWeights();
+        }
+      });
+    }
     camOffset = new THREE.Vector3(0, 640, 500);
     camTarget = new THREE.Vector3();
 
@@ -256,9 +270,12 @@ const Render3D = (() => {
     const group = new THREE.Group();
     group.add(root);
 
+    // MOBA-style selection ring: ally (your team) reads blue, enemy reads red,
+    // relative to the player — the same friend/foe cue MLBB uses on the ground.
+    const ally = G.player && u.team === G.player.team;
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(24, 28, 24),
-      new THREE.MeshBasicMaterial({ color: TEAM_HEX[u.team], transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({ color: ally ? 0x49b0ff : 0xff4d5e, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
     );
     ring.rotation.x = -Math.PI/2; ring.position.y = 1;
     group.add(ring);
@@ -276,6 +293,7 @@ const Render3D = (() => {
     if (clips.death) { clips.death.setLoop(THREE.LoopOnce, 1); clips.death.clampWhenFinished = true; }
     if (clips.attack) { clips.attack.setLoop(THREE.LoopOnce, 1); clips.attack.clampWhenFinished = false; }
     if (clips.idle) clips.idle.play();
+    mixer.update(0); // pose immediately so the first rendered frame isn't a raw T-pose
 
     scene.add(group);
     const bar = makeBar(58);
@@ -486,18 +504,50 @@ const Render3D = (() => {
     fxMeshes.push({ mesh, t: 0, dur: 0.5, r0: 10, r1: 90 });
   }
 
+  // floating combat text (damage / heal / IMMUNE) — the iconic MOBA number
+  // pop. The sim already emits these as 'text' FX (for the player's own
+  // damage dealt/taken); we draw each as a camera-facing sprite that rises
+  // and fades, rendered on top of everything like MLBB's damage numbers.
+  function makeTextSprite(text, color, big) {
+    const cv = document.createElement('canvas');
+    cv.width = 256; cv.height = 128;
+    const c = cv.getContext('2d');
+    c.font = 'bold ' + (big ? 92 : 68) + 'px Rajdhani, Arial, sans-serif';
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.lineWidth = 9; c.lineJoin = 'round'; c.strokeStyle = 'rgba(0,0,0,0.8)';
+    c.strokeText(text, 128, 64);
+    c.fillStyle = color || '#ffffff';
+    c.fillText(text, 128, 64);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+    const h = big ? 52 : 38;
+    sp.scale.set(h * 2, h, 1);
+    sp.renderOrder = 20;
+    return sp;
+  }
+
+  function spawnTextFX(x, y, text, color, big) {
+    const sp = makeTextSprite(text, color, big);
+    const [sx, sz] = toScene(x, y);
+    const baseY = 95;
+    sp.position.set(sx, baseY, sz);
+    scene.add(sp);
+    fxMeshes.push({ mesh: sp, t: 0, dur: 0.9, kind: 'text', baseY });
+  }
+
   function syncFxFromEngine() {
     // FX is the shared 2D engine's effects array; it's mutated by splice as
     // entries expire (not just appended to), so track "already spawned" per
     // entry rather than by array index/length — an index-based cursor would
     // silently stop working the first time anything ahead of it expires.
-    // Only ring events get a 3D counterpart (flashes/slashes/text are
-    // skipped — the model's own hit-flash and animations cover that read).
+    // Ring events become ground rings; text events become floating combat
+    // numbers. (flashes/slashes are still skipped — the model's own attack
+    // animation and hit read cover those.)
     for (const e of FX) {
-      if (e.type === 'ring' && !e._seen3d) {
-        e._seen3d = true;
-        spawnRingFX(e.x, e.y, e.color);
-      }
+      if (e._seen3d) continue;
+      if (e.type === 'ring') { e._seen3d = true; spawnRingFX(e.x, e.y, e.color); }
+      else if (e.type === 'text') { e._seen3d = true; spawnTextFX(e.x, e.y, e.text, e.color, e.big); }
     }
   }
 
@@ -506,10 +556,22 @@ const Render3D = (() => {
       const f = fxMeshes[i];
       f.t += dt;
       const k = f.t / f.dur;
-      if (k >= 1) { scene.remove(f.mesh); f.mesh.geometry.dispose(); fxMeshes.splice(i, 1); continue; }
-      const r = f.r0 + (f.r1 - f.r0) * k;
-      f.mesh.scale.setScalar(r);
-      f.mesh.material.opacity = (1 - k) * 0.9;
+      if (k >= 1) {
+        scene.remove(f.mesh);
+        if (f.kind === 'text') f.mesh.material.map.dispose();
+        else f.mesh.geometry.dispose();
+        f.mesh.material.dispose();
+        fxMeshes.splice(i, 1);
+        continue;
+      }
+      if (f.kind === 'text') {
+        f.mesh.position.y = f.baseY + k * 60;            // rise
+        f.mesh.material.opacity = k < 0.65 ? 1 : 1 - (k - 0.65) / 0.35; // hold then fade
+      } else {
+        const r = f.r0 + (f.r1 - f.r0) * k;
+        f.mesh.scale.setScalar(r);
+        f.mesh.material.opacity = (1 - k) * 0.9;
+      }
     }
   }
 
