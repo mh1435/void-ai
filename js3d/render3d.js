@@ -224,10 +224,23 @@ const Render3D = (() => {
     thane: 0xcfd6dc, // silver-grey, wolf fighter
   };
 
+  // Per-hero build multiplier — MOBA heroes read by role at a glance partly
+  // through silhouette size: the tank towers, the assassin is lean, the
+  // fighter is broad. Kept subtle so proportions stay natural.
+  const HERO_BUILD = {
+    kael:  0.95, // lean assassin
+    nyra:  0.97, // slight mage
+    grom:  1.16, // hulking tank
+    lyra:  1.0,  // marksman baseline
+    vex:   0.98, // support
+    thane: 1.08, // broad fighter
+  };
+
   function createHero(u) {
     const idx = G.heroes.indexOf(u);
     const { scene: root, vrm } = heroPool[idx];
-    root.scale.setScalar(HERO_SCALE);
+    const build = HERO_BUILD[u.def.id] || 1;
+    root.scale.setScalar(HERO_SCALE * build);
     const tint = new THREE.Color(u.def.color);
     const darkCloth = tint.clone().multiplyScalar(0.5); // darker shade for lower garments
     const hair = new THREE.Color(HERO_HAIR[u.def.id] || 0x3a2a20);
@@ -290,7 +303,7 @@ const Render3D = (() => {
     const bar = makeBar(58);
     return {
       group, root, vrm, bones, rest, animT: 0, punchT: 0, equip,
-      hpBar: bar, barHeight: HERO_SCALE * 1.7, ring, team: u.team, kind: 'hero',
+      hpBar: bar, barHeight: HERO_SCALE * 1.7 * build, ring, team: u.team, kind: 'hero',
     };
   }
 
