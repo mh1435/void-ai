@@ -68,7 +68,7 @@ const UI = {
       'announce','killfeed','topTimer','topBlue','topRed','goldVal','kdaVal','csVal',
       'hpFill','mpFill','xpFill','lvlBadge','portGlyph','itemsRow','shopPanel','shopGrid','shopGold',
       'btnShop','btnCloseShop','deathOverlay','deathTimer','scoreboard','btnScore','endTitle','btnRestart',
-      'heroGrid','btnStart','selInfo','lowHp'];
+      'heroGrid','btnStart','selInfo','lowHp','endSub','endStats'];
     for (const id of ids) this.els[id] = document.getElementById(id);
 
     this.resize();
@@ -368,10 +368,23 @@ const UI = {
     setTimeout(() => { el.classList.add('fade'); setTimeout(() => el.remove(), 600); }, 2600);
   },
 
-  feed(killer, victim, team) {
+  // small colored badge for a kill-feed entry: a hero's own portrait color, or a
+  // neutral turret glyph when a structure gets the kill
+  feedIcon(hero) {
+    if (!hero) {
+      return '<span class="feedIcon turret" style="background:#3a424b">🗼</span>';
+    }
+    return '<span class="feedIcon" style="background:' + hero.def.color + '">' +
+      HERO_INITIAL[hero.def.id] + '</span>';
+  },
+
+  feed(killerHero, victim, team) {
     const el = document.createElement('div');
     el.className = 'feedLine';
-    el.innerHTML = '<span style="color:' + TEAM_COLOR[team] + '">' + killer + '</span> ⚔ <span>' + victim + '</span>';
+    const killerName = killerHero ? killerHero.name : 'a turret';
+    el.innerHTML = this.feedIcon(killerHero) +
+      '<span style="color:' + TEAM_COLOR[team] + '">' + killerName + '</span> ⚔ ' +
+      this.feedIcon(victim) + '<span>' + victim.name + '</span>';
     this.els.killfeed.appendChild(el);
     while (this.els.killfeed.children.length > 4) this.els.killfeed.firstChild.remove();
     setTimeout(() => el.remove(), 5000);
@@ -381,6 +394,18 @@ const UI = {
     this.els.end.style.display = 'flex';
     this.els.endTitle.textContent = won ? 'VICTORY' : 'DEFEAT';
     this.els.endTitle.className = won ? 'win' : 'lose';
+    this.els.endSub.textContent = 'Void Core destroyed at ' +
+      Math.floor(G.time/60) + ':' + String(Math.floor(G.time%60)).padStart(2,'0');
+
+    const row = h => '<tr class="' + (h.isPlayer ? 'me' : '') + '">' +
+      '<td class="hn" style="color:' + h.def.color + '">' + h.name + '</td>' +
+      '<td>' + h.level + '</td><td>' + h.kills + '/' + h.deaths + '/' + h.assists + '</td>' +
+      '<td>' + h.cs + '</td><td class="gold">' + Math.floor(h.gold) + '</td></tr>';
+    const side = (team, label) =>
+      '<table class="endTable ' + team + '"><caption>' + label + (team === (G.player.team) ? ' (You)' : '') + '</caption>' +
+      '<tr><th>Hero</th><th>Lv</th><th>K/D/A</th><th>CS</th><th>Gold</th></tr>' +
+      G.heroes.filter(h => h.team === team).map(row).join('') + '</table>';
+    this.els.endStats.innerHTML = side('blue', 'Blue Team') + side('red', 'Red Team');
   },
 
   // ---------- per-frame HUD refresh ----------
@@ -481,6 +506,11 @@ const UI = {
     if (G.boss && !G.boss.dead) {
       c.fillStyle = '#c77dff';
       c.beginPath(); c.arc(G.boss.x*S, G.boss.y*S, 4, 0, 7); c.fill();
+    }
+    // fog of war (dims terrain/structures outside explored & current vision;
+    // hero markers are drawn on top so allies and spotted enemies stay crisp)
+    if (typeof fogMask !== 'undefined' && fogMask) {
+      c.drawImage(fogMask, 0, 0, this.mmCanvas.width, this.mmCanvas.height);
     }
     // heroes
     for (const h of G.heroes) {

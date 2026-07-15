@@ -32,6 +32,10 @@ const CFG = {
   bossRespawn: 180,
   jungleRespawn: 55,
   viewHeight: 1000,        // world units visible vertically
+  visionHero: 700,
+  visionTower: 720,
+  visionCore: 620,
+  visionMinion: 380,
 };
 
 function xpToNext(level) { return 150 + level * 95; }
@@ -371,3 +375,5 @@ const HEROES = [
 ];
 
 function heroById(id){ return HEROES.find(h => h.id === id); }
+
+const HERO_INITIAL = { kael:'K', nyra:'N', grom:'G', lyra:'L', vex:'V', thane:'T' };

@@ -149,7 +149,16 @@ html, body {
   position: absolute; top: 60px; right: 12px; text-align: right; pointer-events: none;
   font-size: 14px; font-weight: 600;
 }
-.feedLine { background: rgba(0, 0, 0, 0.5); border-radius: 6px; padding: 2px 10px; margin-bottom: 4px; }
+.feedLine {
+  background: rgba(0, 0, 0, 0.5); border-radius: 6px; padding: 2px 8px; margin-bottom: 4px;
+  display: flex; align-items: center; gap: 4px; justify-content: flex-end;
+}
+.feedIcon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 5px; font-size: 10px; font-weight: 800;
+  color: #04121d; flex-shrink: 0;
+}
+.feedIcon.turret { font-size: 11px; }
 
 /* portrait + bars */
 #portrait {
@@ -378,13 +387,37 @@ html, body {
 
 /* ================= END SCREEN ================= */
 #end {
-  display: none; position: fixed; inset: 0; z-index: 40;
-  background: rgba(4, 8, 14, 0.9);
-  flex-direction: column; align-items: center; justify-content: center; gap: 30px;
+  display: none; position: fixed; inset: 0; z-index: 40; overflow-y: auto;
+  background:
+    radial-gradient(60% 60% at 50% 0%, rgba(125, 249, 255, 0.08), transparent 70%),
+    rgba(4, 8, 14, 0.94);
+  flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  padding: 30px 16px;
 }
 #endTitle { font-size: clamp(52px, 12vw, 96px); letter-spacing: 12px; font-weight: 800; }
 #endTitle.win { color: var(--gold); text-shadow: 0 0 40px rgba(255, 209, 102, 0.7); }
 #endTitle.lose { color: #ff5c5c; text-shadow: 0 0 40px rgba(255, 30, 50, 0.6); }
+#endSub { color: #8fa3b8; letter-spacing: 2px; font-size: 14px; margin-top: -10px; }
+#endStats {
+  display: flex; flex-wrap: wrap; gap: 14px; justify-content: center;
+  max-width: 900px; width: 100%;
+}
+.endTable {
+  border-collapse: collapse; font-size: 14px; min-width: 320px; flex: 1;
+  background: var(--panel); border-radius: 12px; overflow: hidden;
+  box-shadow: var(--panelShadow);
+}
+.endTable caption {
+  caption-side: top; text-align: left; font-weight: 800; letter-spacing: 2px;
+  padding: 10px 14px; font-size: 13px; text-transform: uppercase;
+}
+.endTable.blue caption { color: var(--blue); border-bottom: 1px solid rgba(63,169,255,0.3); }
+.endTable.red caption { color: var(--red); border-bottom: 1px solid rgba(255,77,94,0.3); }
+.endTable th { text-align: left; color: #5c7089; font-size: 11px; text-transform: uppercase; padding: 4px 12px; }
+.endTable td { padding: 5px 12px; }
+.endTable td.hn { font-weight: 700; }
+.endTable td.gold { color: var(--gold); }
+.endTable tr.me { background: rgba(125, 249, 255, 0.08); }
 #btnRestart {
   font-family: inherit; font-size: 18px; font-weight: 800; letter-spacing: 3px;
   padding: 12px 36px; border-radius: 10px; border: 1px solid var(--edge); cursor: pointer;

@@ -16,14 +16,39 @@ function inBushIdx(u) {
   return -1;
 }
 
-// A hero hidden in a bush is invisible to enemies outside that bush (unless very close)
+// Fog of war: a hero is only visible to the enemy team if one of that team's
+// units (hero/tower/core/minion) currently has it within vision range, and a
+// hero standing in a bush is invisible to anyone outside that same bush unless
+// they're right on top of it. `viewer` may be a unit (its .team is used) or
+// a team string directly.
 function isVisibleTo(target, viewer) {
-  if (target.team === viewer.team) return true;
+  const viewerTeam = viewer.team || viewer;
+  if (target.team === viewerTeam) return true;
   if (target.type !== 'hero') return true;
+  const circles = G.vision && G.vision[viewerTeam];
+  if (!circles) return true; // fog not initialized yet (e.g. pre-match)
   const bi = inBushIdx(target);
-  if (bi === -1) return true;
-  if (inBushIdx(viewer) === bi) return true;
-  return dist(target, viewer) < 180;
+  for (const c of circles) {
+    if (bi !== -1) {
+      if (inBushIdx(c) === bi || dist(target, c) < 180) return true;
+    } else if (dist(target, c) < c.r) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// team-wide vision circles, recomputed once per simulation tick
+function computeVisionCircles(team) {
+  const out = [];
+  for (const u of G.units) {
+    if (u.team !== team || u.dead) continue;
+    if (u.type === 'hero') out.push({ x:u.x, y:u.y, r:CFG.visionHero });
+    else if (u.type === 'tower') out.push({ x:u.x, y:u.y, r:CFG.visionTower });
+    else if (u.type === 'core') out.push({ x:u.x, y:u.y, r:CFG.visionCore });
+    else if (u.type === 'minion') out.push({ x:u.x, y:u.y, r:CFG.visionMinion });
+  }
+  return out;
 }
 
 // ---------------- Base unit ----------------

@@ -21,6 +21,7 @@ const G = {
   cam: { x: 0, y: 0, zoom: 1 },
   aimPreview: null,
   firstBlood: false,
+  vision: { blue: [], red: [] },
 };
 
 const Game = {
@@ -71,6 +72,8 @@ const Game = {
     }
 
     buildMapCanvas();
+    initFog();
+    G.vision = { blue: computeVisionCircles('blue'), red: computeVisionCircles('red') };
     UI.onGameStart();
     UI.announce('Welcome to Void Arena!', '#7df9ff');
     UI.announce('Destroy the enemy Void Core!', '#fff');
@@ -79,6 +82,9 @@ const Game = {
   update(dt) {
     if (!G.running || G.over) return;
     G.time += dt;
+
+    // fog of war: recomputed once per tick, used by this tick's AI and this frame's render
+    G.vision = { blue: computeVisionCircles('blue'), red: computeVisionCircles('red') };
 
     // minion waves
     G.waveTimer -= dt;
@@ -247,7 +253,7 @@ const Game = {
         }
       }
       u.recentDamagers = {};
-      UI.feed(killerName, u.name, killerHero ? killerHero.team : (u.team === 'blue' ? 'red' : 'blue'));
+      UI.feed(killerHero, u, killerHero ? killerHero.team : (u.team === 'blue' ? 'red' : 'blue'));
       if (u.isPlayer) { UI.announce('You have been slain!', '#ff5c5c'); Sfx.play('death'); }
       else if (killerHero && killerHero.isPlayer) { UI.announce('You killed ' + u.name + '!', '#ffe27d'); Sfx.play('kill'); }
       shareXp(u, CFG.heroKillXp * 0.4);
@@ -313,6 +319,56 @@ function shuffle(a) {
 let mapCanvas = null;
 const YS = 0.72;      // 2.5D ground foreshortening: world y compresses to y*YS on screen
 const TREES = [];     // placed by buildMapCanvas, drawn upright each frame
+
+// ---- fog of war ----
+// fogExplored: low-res, persistent, never cleared — once the player's team
+// has seen a spot it stays dimly visible forever, like the classic MOBA minimap fog.
+// fogMask: rebuilt every frame from fogExplored + this frame's live vision circles,
+// then drawn as a translucent black layer over both the main view and the minimap.
+const FOG_RES = 256;
+const FOG_S = FOG_RES / WORLD;
+let fogExplored = null, fogMask = null;
+
+function initFog() {
+  fogExplored = document.createElement('canvas');
+  fogExplored.width = FOG_RES; fogExplored.height = FOG_RES;
+  fogMask = document.createElement('canvas');
+  fogMask.width = FOG_RES; fogMask.height = FOG_RES;
+}
+
+function updateFogMask() {
+  if (!fogExplored || !G.player) return;
+  const circles = G.vision[G.player.team] || [];
+
+  const ec = fogExplored.getContext('2d');
+  for (const c of circles) {
+    const g = ec.createRadialGradient(c.x*FOG_S, c.y*FOG_S, 0, c.x*FOG_S, c.y*FOG_S, c.r*FOG_S);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.75, 'rgba(255,255,255,1)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ec.fillStyle = g;
+    ec.beginPath(); ec.arc(c.x*FOG_S, c.y*FOG_S, c.r*FOG_S, 0, 7); ec.fill();
+  }
+
+  const mc = fogMask.getContext('2d');
+  mc.globalCompositeOperation = 'source-over';
+  mc.fillStyle = 'rgba(4,7,11,0.92)';
+  mc.fillRect(0, 0, FOG_RES, FOG_RES);
+  // dim (but don't fully clear) areas the team has explored before
+  mc.globalCompositeOperation = 'destination-out';
+  mc.globalAlpha = 0.55;
+  mc.drawImage(fogExplored, 0, 0);
+  mc.globalAlpha = 1;
+  // fully clear current live vision
+  for (const c of circles) {
+    const g = mc.createRadialGradient(c.x*FOG_S, c.y*FOG_S, c.r*FOG_S*0.5, c.x*FOG_S, c.y*FOG_S, c.r*FOG_S);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    mc.fillStyle = g;
+    mc.beginPath(); mc.arc(c.x*FOG_S, c.y*FOG_S, c.r*FOG_S, 0, 7); mc.fill();
+  }
+  mc.globalCompositeOperation = 'source-over';
+}
 
 function mulberry32(a) {
   return function () {
@@ -384,6 +440,18 @@ function buildMapCanvas() {
     c.fillStyle = rnd() > 0.5 ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.05)';
     c.beginPath(); c.arc(rnd()*WORLD, rnd()*WORLD, 3 + rnd()*7, 0, 7); c.fill();
   }
+
+  // mowed-lawn stripes: alternating faint diagonal bands, the classic
+  // groundskeeper texture on every MOBA's open grass
+  c.save();
+  c.translate(WORLD/2, WORLD/2);
+  c.rotate(-Math.PI/4);
+  const stripeW = 130;
+  for (let i = -14; i < 14; i++) {
+    c.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.018)' : 'rgba(0,0,0,0.022)';
+    c.fillRect(i*stripeW, -WORLD, stripeW, WORLD*2);
+  }
+  c.restore();
 
   // ---- trees (kept clear of lanes, bases, camps, boss pit) ----
   const clearOf = (x, y) =>
@@ -497,6 +565,40 @@ function buildMapCanvas() {
       c.beginPath(); c.arc(b.x + Math.cos(a)*265, b.y + Math.sin(a)*265, 7, 0, 7); c.fill();
     }
     c.globalAlpha = 1;
+
+    // fortress wall ring with a gate opening facing the lanes toward map center
+    const gateAngle = Math.atan2(1600 - b.y, 1600 - b.x);
+    const gateHalf = 0.55;
+    const wallR = 300;
+    c.strokeStyle = '#2a2f38'; c.lineWidth = 26; c.lineCap = 'butt';
+    c.beginPath(); c.arc(b.x, b.y, wallR, gateAngle + gateHalf, gateAngle - gateHalf + Math.PI*2); c.stroke();
+    c.strokeStyle = '#454d59'; c.lineWidth = 20;
+    c.beginPath(); c.arc(b.x, b.y, wallR, gateAngle + gateHalf, gateAngle - gateHalf + Math.PI*2); c.stroke();
+    c.strokeStyle = tc; c.globalAlpha = 0.4; c.lineWidth = 3;
+    c.beginPath(); c.arc(b.x, b.y, wallR + 12, gateAngle + gateHalf, gateAngle - gateHalf + Math.PI*2); c.stroke();
+    c.globalAlpha = 1;
+    // merlons (crenellations) along the wall top
+    const startA = gateAngle + gateHalf, endA = gateAngle - gateHalf + Math.PI*2;
+    const merlons = 26;
+    for (let i = 0; i <= merlons; i++) {
+      const a = startA + (endA - startA) * (i / merlons);
+      if (i % 2 === 0) continue;
+      c.save();
+      c.translate(b.x + Math.cos(a)*wallR, b.y + Math.sin(a)*wallR);
+      c.rotate(a);
+      c.fillStyle = '#5a6371';
+      c.fillRect(-6, -14, 12, 14);
+      c.restore();
+    }
+    // gate pillars flanking the opening
+    for (const ga of [gateAngle + gateHalf, gateAngle - gateHalf]) {
+      const px = b.x + Math.cos(ga)*wallR, py = b.y + Math.sin(ga)*wallR;
+      c.fillStyle = '#575f6b';
+      c.beginPath(); c.arc(px, py, 17, 0, 7); c.fill();
+      c.strokeStyle = tc; c.lineWidth = 2.5; c.globalAlpha = 0.6;
+      c.beginPath(); c.arc(px, py, 17, 0, 7); c.stroke();
+      c.globalAlpha = 1;
+    }
   }
 
   // boulders are drawn upright at render time; leave a worn patch on the ground
@@ -756,6 +858,13 @@ function render(ctx) {
     }
     ctx.globalAlpha = 1;
   }
+
+  // fog of war: darkens anything outside the player's team's current/explored vision
+  updateFogMask();
+  ctx.save();
+  ctx.scale(1, YS);
+  ctx.drawImage(fogMask, 0, 0, WORLD, WORLD);
+  ctx.restore();
 
   ctx.restore();
 
