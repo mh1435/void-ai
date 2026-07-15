@@ -318,7 +318,6 @@ function shuffle(a) {
 
 let mapCanvas = null;
 const YS = 0.72;      // 2.5D ground foreshortening: world y compresses to y*YS on screen
-const TREES = [];     // placed by buildMapCanvas, drawn upright each frame
 
 // ---- fog of war ----
 // fogExplored: low-res, persistent, never cleared — once the player's team
@@ -520,37 +519,6 @@ function buildMapCanvas() {
     c.fillRect(i*stripeW, -WORLD, stripeW, WORLD*2);
   }
   c.restore();
-
-  // ---- trees (kept clear of lanes, bases, camps, boss pit) ----
-  const clearOf = (x, y) =>
-    distToLanes(x, y) > 190 &&
-    dist({x, y}, CORES.blue) > 460 && dist({x, y}, CORES.red) > 460 &&
-    CAMPS.every(cp => dist({x, y}, cp) > 190) &&
-    dist({x, y}, BOSS_SPOT) > 260 &&
-    ROCKS.every(r => dist({x, y}, r) > r.r + 90) &&
-    BUSHES.every(b => x > b.x - 80 && x < b.x + b.w + 80 && y > b.y - 80 && y < b.y + b.h + 80 ? false : true);
-  TREES.length = 0;
-  let planted = 0, tries = 0;
-  while (planted < 110 && tries < 4000) {
-    tries++;
-    const x = 80 + rnd()*(WORLD - 160), y = 80 + rnd()*(WORLD - 160);
-    if (!clearOf(x, y)) continue;
-    planted++;
-    const r = 40 + rnd()*42;
-    // precompute irregular canopy lobe shapes once so the foliage outline
-    // stays stable frame to frame instead of re-jittering every render
-    const canopy = [
-      blobPoints(rnd, 9, 0.35),
-      blobPoints(rnd, 8, 0.4),
-      blobPoints(rnd, 7, 0.45),
-    ];
-    const canopyOff = [[0,0], [-0.17 + rnd()*0.06, -0.18 + rnd()*0.06], [-0.28 + rnd()*0.08, -0.3 + rnd()*0.08]];
-    TREES.push({ x, y, r, tone: rnd() > 0.5 ? 0 : 1, sway: rnd()*6.28, canopy, canopyOff });
-    // only an irregular dirt patch goes into the static ground; the tree itself is drawn upright at render time
-    c.fillStyle = 'rgba(20,30,20,0.35)';
-    blobPath(c, x, y, r*0.85, rnd, { pts:7, jitter:0.4, squash:0.46 });
-    c.fill();
-  }
 
   // ---- river (anti-diagonal band with depth + ripples) ----
   c.save();
@@ -977,12 +945,10 @@ function render(ctx) {
     if (u.type === 'hero' && !isVisibleTo(u, G.player)) continue;
     list.push(u);
   }
-  for (const t of TREES) if (inView(t.x, t.y)) list.push({ y: t.y, _tree: t });
   for (const r of ROCKS) if (inView(r.x, r.y)) list.push({ y: r.y, _rock: r });
   list.sort((a, b) => a.y - b.y);
   for (const d of list) {
-    if (d._tree) drawTree(ctx, d._tree);
-    else if (d._rock) drawRock(ctx, d._rock);
+    if (d._rock) drawRock(ctx, d._rock);
     else drawUnit(ctx, d);
   }
 
@@ -1064,51 +1030,6 @@ function render(ctx) {
 
   // low-hp / big-hit screen shake decays every frame
   if (UI.hitShake) UI.hitShake = Math.max(0, UI.hitShake - 0.06);
-}
-
-// standing tree with trunk + layered canopy, gentle sway
-function drawTree(ctx, t) {
-  const gx = t.x, gy = t.y * YS;
-  const r = t.r;
-  const sway = 2.5 * Math.sin(G.time*0.7 + t.sway);
-  const dark  = t.tone ? '#123b22' : '#0f3530';
-  const mid   = t.tone ? '#1c5230' : '#175046';
-  const light = t.tone ? '#2d6f3e' : '#24695b';
-  // irregular ground shadow instead of a perfect ellipse
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  tracePts(ctx, t.canopy[0], gx + 8, gy + 3, r, 0.4, t.sway);
-  ctx.fill();
-  // trunk with a bark-grain wobble instead of a flat rectangle
-  const trunkH = r*0.75 + 4;
-  ctx.fillStyle = '#33241a';
-  ctx.beginPath();
-  ctx.moveTo(gx - 7, gy);
-  ctx.quadraticCurveTo(gx - 8, gy - trunkH*0.5, gx - 5, gy - trunkH);
-  ctx.lineTo(gx + 5, gy - trunkH);
-  ctx.quadraticCurveTo(gx + 8, gy - trunkH*0.5, gx + 7, gy);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#4a3526';
-  ctx.beginPath();
-  ctx.moveTo(gx - 3, gy);
-  ctx.quadraticCurveTo(gx - 4, gy - trunkH*0.5, gx - 2, gy - trunkH);
-  ctx.lineTo(gx + 1, gy - trunkH);
-  ctx.quadraticCurveTo(gx, gy - trunkH*0.5, gx - 1, gy);
-  ctx.closePath(); ctx.fill();
-  // canopy: three irregular lobed blobs (precomputed shapes, live position)
-  const cy = gy - r*1.05;
-  const [o1, o2, o3] = t.canopyOff;
-  ctx.fillStyle = dark;
-  tracePts(ctx, t.canopy[0], gx + sway, cy, r*0.92);
-  ctx.fill();
-  ctx.fillStyle = mid;
-  tracePts(ctx, t.canopy[1], gx + sway + o2[0]*r, cy + o2[1]*r, r*0.7);
-  ctx.fill();
-  ctx.fillStyle = light;
-  tracePts(ctx, t.canopy[2], gx + sway + o3[0]*r, cy + o3[1]*r, r*0.4);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 3;
-  tracePts(ctx, t.canopy[0], gx + sway, cy, r*0.92);
-  ctx.stroke();
 }
 
 // standing boulder

@@ -6,12 +6,69 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Void Arena — 5v5 MOBA</title>
+<title>Void Arena — 3D Mode (Beta)</title>
 <link rel="stylesheet" href="style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./js3d/vendor/three.module.min.js"
+  }
+}
+</script>
+<style>
+  /* the 2D canvas only exists here to satisfy shared game.js/ui.js code
+     paths that reference it (camera-bounds math, etc.) — it's never shown */
+  #game { display: none; }
+  #game3d { position: fixed; inset: 0; display: block; background: #060a10; }
+  #loading3d {
+    position: fixed; inset: 0; z-index: 200; background: #05080f;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  }
+  #loading3d .spin {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 4px solid rgba(125,249,255,0.2); border-top-color: #7df9ff;
+    animation: spin3d 0.9s linear infinite;
+  }
+  @keyframes spin3d { to { transform: rotate(360deg); } }
+  #loading3d p { color: #fff; font-weight: 700; letter-spacing: 1px; }
+  #loading3d .loadPct { color: #7df9ff; font-size: 13px; }
+  #loadError {
+    display: none; position: fixed; inset: 0; z-index: 200; background: #05080f;
+    flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 20px;
+  }
+  #loadError p { color: #ff5c5c; font-weight: 700; }
+  #loadError span { color: #8fa3b8; font-size: 13px; max-width: 420px; }
+  #loadError a { color: #7df9ff; margin-top: 10px; }
+  .betaTag {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(199,125,255,0.15); border: 1px solid rgba(199,125,255,0.4);
+    color: #e0aaff; font-size: 11px; font-weight: 800; letter-spacing: 2px;
+    padding: 3px 10px; border-radius: 20px; z-index: 5;
+  }
+  .backLink {
+    position: absolute; top: 12px; right: 14px; z-index: 5;
+    color: #8fa3b8; font-size: 12px; text-decoration: none; letter-spacing: 1px;
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 5px 10px;
+  }
+  .backLink:hover { color: #fff; border-color: rgba(255,255,255,0.4); }
+</style>
 </head>
 <body>
 
 <canvas id="game"></canvas>
+<canvas id="game3d"></canvas>
+
+<div id="loading3d">
+  <div class="spin"></div>
+  <p>Loading character model…</p>
+  <span class="loadPct">0%</span>
+</div>
+
+<div id="loadError">
+  <p>Couldn't load the 3D character model.</p>
+  <span>This can happen offline or on a very restricted network. The full 2D game still works normally.</span>
+  <a href="index.html">← Back to Void Arena (2D)</a>
+</div>
 
 <!-- ============ ROTATE-DEVICE LOCK ============ -->
 <div id="rotatePrompt">
@@ -22,14 +79,15 @@
 
 <!-- ============ HERO SELECT ============ -->
 <div id="select">
+  <span class="betaTag">3D BETA</span>
+  <a class="backLink" href="index.html">← 2D version</a>
   <div class="selBox">
     <h1 class="logo">VOID <span>ARENA</span></h1>
-    <p class="tagline">5v5 lane battle · destroy the enemy Void Core</p>
+    <p class="tagline">3D mode · real animated character model · same 5v5 battle</p>
     <div id="heroGrid"></div>
     <div id="selInfo"></div>
     <button id="btnStart">ENTER THE ARENA</button>
     <p class="hint">Mobile: joystick + tap/drag skill buttons &nbsp;·&nbsp; Desktop: WASD move, 1/2/3 skills (aim with mouse), Space attack, B recall, F quick-buy, P shop, Tab score</p>
-    <a href="3d.html" class="try3dLink">🧊 Try the new 3D Mode (Beta) →</a>
   </div>
 </div>
 
@@ -119,6 +177,7 @@
 <script src="js/ai.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/game.js"></script>
-<script src="js/main.js"></script>
+<script src="js3d/render3d.js"></script>
+<script type="module" src="js3d/main3d.js"></script>
 </body>
 </html>
