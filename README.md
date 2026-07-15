@@ -56,21 +56,20 @@ only the rendering layer (`js3d/render3d.js`) is new, so gameplay, fog of war, a
 HUD all work identically to the 2D version. The 2D game at `index.html` is untouched and
 remains the main, complete version — 3D is an added mode, not a replacement.
 
-Heroes are a real anime-style VRM avatar (`assets/models/hero.vrm`), tinted per hero —
-pixiv's official sample model for their [`three-vrm`](https://github.com/pixiv/three-vrm)
-library, licensed for commercial use, modification and redistribution, no attribution
-required (license terms are embedded in the file itself; see
-`assets/models/hero_VRM_LICENSE.md`). Three.js, GLTFLoader and `@pixiv/three-vrm` are all
-MIT licensed — see the `*_LICENSE.txt` files in `js3d/vendor/`.
+Heroes are stylised low-poly fantasy characters from the **KayKit Adventurers** pack
+(`assets/models/kaykit/`) by Kay Lousberg — **CC0 / public domain**, free for personal and
+commercial use with no attribution required (see `assets/models/kaykit/KAYKIT_LICENSE.txt`).
+Each role gets a fitting model: Knight (tank), Mage (mage), Rogue (marksman), Hooded Rogue
+(assassin), Barbarian (fighter). Three.js, GLTFLoader and SkeletonUtils are all MIT licensed
+— see the `*_LICENSE.txt` files in `js3d/vendor/`.
 
-The VRM avatar has no baked-in game animations, so Idle/Walk/Run/Punch/Death are hand-built
-in `js3d/render3d.js` by rotating the model's standardized VRM humanoid bones directly each
-frame, rather than played from motion-captured clips — simpler motion than a fully animated
-rig would give, by design of this first pass.
+The KayKit models are fully rigged and ship 75 baked animation clips, so Idle/Walk/Run/Attack/
+Death are played from real animations via a `THREE.AnimationMixer` in `js3d/render3d.js`, with
+cross-fades between states and a per-hero attack clip (sword chop, cast, crossbow shot, …).
+Each hero unit is an independent `SkeletonUtils.clone()` of its model so they animate
+separately, and materials are cloned + lightly tinted toward the hero's signature colour.
 
-Being a beta: it's one shared character model recolored per hero rather than six unique
-designs (free rigged/animated humanoid models are scarce), and towers/minions/environment
-are built from real 3D geometry rather than a second licensed model pack.
+Towers/minions/environment are built from real 3D geometry rather than a second model pack.
 
 ## 🧱 Code layout
 
@@ -86,7 +85,7 @@ js/ui.js        input (joystick, drag-aim skills, keyboard), HUD, minimap, SFX (
 js/main.js      2D bootstrap + requestAnimationFrame loop
 js3d/render3d.js  3D renderer: reads the same G/UI state as js/game.js's render()
 js3d/main3d.js    3D bootstrap: loads the character model, then starts the loop
-js3d/vendor/      self-hosted Three.js + GLTFLoader + @pixiv/three-vrm (no CDN dependency)
+js3d/vendor/      self-hosted Three.js + GLTFLoader + SkeletonUtils (no CDN dependency)
 ```
 
 ## 🛣 Roadmap → multiplayer

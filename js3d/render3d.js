@@ -20,7 +20,7 @@ const Render3D = (() => {
 
   let scene, camera, renderer, clock;
   let groundMesh, fogMesh, fogTexture;
-  let heroPool = null;                // [{ scene, vrm }, ...] — one per hero slot, assigned permanently
+  let heroModels = null;              // { modelName: { scene, animations } } — KayKit templates, cloned per hero
   const unitMeshes = new Map();      // unit.id -> entry
   const projMeshes = new Map();      // projectile obj -> mesh
   const fxMeshes = [];               // transient effects
@@ -29,22 +29,9 @@ const Render3D = (() => {
   const TEAM_HEX = { blue: 0x3fa9ff, red: 0xff4d5e };
   const TEAM_HEX_D = { blue: 0x1c5c94, red: 0x8f2430 };
 
-  function init(pool) {
-    heroPool = pool;
-    // capture each bone's true bind-pose quaternion exactly once, before
-    // any animation ever touches it — createHero() can run more than once
-    // per hero (fog-of-war hide/show, or after the death-collapse pose),
-    // and re-capturing "rest" from whatever pose the bones were last left
-    // in would corrupt every animation after the first hide/death
-    for (const entry of heroPool) {
-      entry.restQuats = {};
-      for (const name of BONE_NAMES) {
-        const b = entry.vrm.humanoid.getNormalizedBoneNode(name);
-        if (b) entry.restQuats[name] = b.quaternion.clone();
-      }
-    }
+  function init(models) {
+    heroModels = models; // { Knight: { scene, animations }, Mage: {...}, ... }
     camOffset = new THREE.Vector3(0, 640, 500);
-    _q = new THREE.Quaternion();
     camTarget = new THREE.Vector3();
 
     scene = new THREE.Scene();
@@ -199,87 +186,72 @@ const Render3D = (() => {
     return g;
   }
 
-  // ---------------- hero (real VRM character) instances ----------------
-  // The VRM avatar has no baked-in game animations (see README), so motion
-  // is hand-authored here: each frame we rotate its VRM "normalized" bones
-  // — a virtual rig three-vrm keeps consistent regardless of the avatar's
-  // raw bind pose — directly, as a function of the hero's live sim state.
-  const HERO_SCALE = 58;
-  const ARM_DOWN = 1.4; // Z-rotation bringing a T-pose arm down to the side
-  const BONE_NAMES = ['hips','spine','chest','head',
-    'leftUpperArm','rightUpperArm','leftLowerArm','rightLowerArm',
-    'leftUpperLeg','rightUpperLeg','leftLowerLeg','rightLowerLeg'];
+  // ---------------- hero (KayKit fantasy character) instances ----------------
+  // Heroes are stylised low-poly fantasy characters from the KayKit Adventurers
+  // pack (CC0 / public domain — see assets/models/kaykit/KAYKIT_LICENSE.txt).
+  // Every model is fully rigged and ships baked animation clips, so — unlike
+  // the old VRM avatar, which had none and had to be hand-posed bone by bone —
+  // we just drive a THREE.AnimationMixer and cross-fade between each model's
+  // own Idle / Walk / Run / Attack / Death clips.
+  const HERO_SCALE = 17; // KayKit chars are ~2.5u tall; brings them to game scale
 
-  // Per-hero hair colour — the shared avatar ships with one brown hair, so
-  // recolouring it per hero (dark for the assassin, gold for the marksman,
-  // violet for the mage…) is the single biggest thing that stops all six
-  // heroes reading as the same person. Keyed here rather than in the shared
-  // 2D hero data since it's a purely 3D-render concern.
-  const HERO_HAIR = {
-    kael:  0x241a17, // near-black, wraith assassin
-    nyra:  0x9a86ff, // pale violet, storm mage
-    grom:  0x3a2e22, // dark iron-brown, tank
-    lyra:  0xf6d67a, // gold blonde, radiant archer
-    vex:   0xd9c2ff, // ghostly lavender-white, void caster
-    thane: 0xcfd6dc, // silver-grey, wolf fighter
+  // hero id -> which KayKit model plays it (role-appropriate silhouette)
+  const HERO_MODEL = {
+    kael:  'Rogue_Hooded', // hooded rogue = assassin
+    nyra:  'Mage',         // robed spellcaster
+    grom:  'Knight',       // armoured tank
+    lyra:  'Rogue',        // nimble marksman
+    vex:   'Mage',         // second caster, tinted apart from Nyra
+    thane: 'Barbarian',    // broad brawler
   };
 
-  // Per-hero build multiplier — MOBA heroes read by role at a glance partly
-  // through silhouette size: the tank towers, the assassin is lean, the
-  // fighter is broad. Kept subtle so proportions stay natural.
+  // subtle per-hero build so silhouettes still read by role at a glance
   const HERO_BUILD = {
-    kael:  0.95, // lean assassin
-    nyra:  0.97, // slight mage
-    grom:  1.16, // hulking tank
-    lyra:  1.0,  // marksman baseline
-    vex:   0.98, // support
-    thane: 1.08, // broad fighter
+    kael: 0.98, nyra: 0.98, grom: 1.14, lyra: 1.0, vex: 0.98, thane: 1.1,
+  };
+
+  // light colour push toward each hero's signature colour — keeps the model's
+  // own textured detail but reinforces identity (and pulls the two Mages,
+  // Nyra vs Vex, visibly apart). 0 = untinted original texture.
+  const HERO_TINT = { amount: 0.28 };
+
+  // baked clip names used from the pack's 75 (see kaykit_inspect.html)
+  const CLIP = { idle: 'Idle', walk: 'Walking_A', run: 'Running_A', death: 'Death_A' };
+  const HERO_ATTACK_CLIP = {
+    kael:  '1H_Melee_Attack_Stab',   // quick dagger jab
+    nyra:  'Spellcast_Shoot',        // cast
+    grom:  '1H_Melee_Attack_Chop',   // sword swing
+    lyra:  '1H_Ranged_Shoot',        // crossbow shot
+    vex:   'Spellcast_Shoot',        // cast
+    thane: '2H_Melee_Attack_Chop',   // heavy axe
   };
 
   function createHero(u) {
-    const idx = G.heroes.indexOf(u);
-    const { scene: root, vrm } = heroPool[idx];
+    const modelName = HERO_MODEL[u.def.id] || 'Knight';
+    const src = heroModels[modelName];
     const build = HERO_BUILD[u.def.id] || 1;
+
+    // SkeletonUtils.clone() deep-clones the skinned mesh AND its skeleton, so
+    // each hero animates independently — a plain Object3D.clone() would share
+    // one skeleton and every hero of the same model would move in lockstep.
+    const root = SkeletonClone(src.scene);
     root.scale.setScalar(HERO_SCALE * build);
+
+    // clone materials per hero (the source materials are shared across every
+    // clone of a model) and push each lightly toward the hero's colour, so the
+    // two Mages read as different heroes and every hero keeps its identity
     const tint = new THREE.Color(u.def.color);
-    const darkCloth = tint.clone().multiplyScalar(0.5); // darker shade for lower garments
-    const hair = new THREE.Color(HERO_HAIR[u.def.id] || 0x3a2a20);
-    const hairShade = hair.clone().multiplyScalar(0.6);
-    // Every mesh on this avatar carries a material ARRAY ([base, outline]) —
-    // the outfit/hair are MToon (toon-shaded) materials. Each pool slot is a
-    // fully independent parse permanently bound to one hero, so we tint in
-    // place (idempotent: colours are SET, not multiplied, so re-running on a
-    // fog hide/show doesn't compound). Tinting by copy() also means it's safe
-    // to reassign a pool slot to a different hero on "play again".
     root.traverse(o => {
       if (!o.isMesh) return;
       o.castShadow = true; o.receiveShadow = true;
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      for (const m of mats) {
-        if (!m || !m.name || /Outline/i.test(m.name)) continue; // leave the dark edge lines alone
-        if (/Tops.*CLOTH/i.test(m.name)) {
-          m.color.copy(tint); // shirt carries the hero's signature colour
-        } else if (/CLOTH/i.test(m.name)) {
-          m.color.copy(darkCloth); // skirt + shoes: darker shade so the outfit isn't one flat block
-        } else if (/HAIR/i.test(m.name)) {
-          // the avatar's brown hair texture can't be *lightened* to blonde /
-          // lavender by a colour multiply, so drop the base map and let MToon
-          // render the hair as a clean two-tone toon colour instead — this is
-          // what actually makes each hero read as a distinct person.
-          if (m.map) { m.map = null; m.needsUpdate = true; }
-          m.color.copy(hair);
-          if (m.shadeColorFactor) m.shadeColorFactor.copy(hairShade);
-        }
-      }
+      o.frustumCulled = false; // skinned bounds can be wrong at this scale; don't cull
+      const mats = (Array.isArray(o.material) ? o.material : [o.material]).map(m => {
+        const c = m.clone();
+        if (c.color) c.color.lerp(tint, HERO_TINT.amount);
+        return c;
+      });
+      o.material = Array.isArray(o.material) ? mats : mats[0];
     });
-
-    const bones = {};
-    const rest = {};
-    const restQuats = heroPool[idx].restQuats;
-    for (const name of BONE_NAMES) {
-      const b = vrm.humanoid.getNormalizedBoneNode(name);
-      if (b && restQuats[name]) { bones[name] = b; rest[name] = restQuats[name].clone(); }
-    }
 
     const group = new THREE.Group();
     group.add(root);
@@ -291,289 +263,82 @@ const Render3D = (() => {
     ring.rotation.x = -Math.PI/2; ring.position.y = 1;
     group.add(ring);
 
-    // equipment is bone-attached to this pool slot's VRM instance, which is
-    // permanent and reused across the whole match — build it exactly once
-    // per hero, not on every createHero() call (fog-of-war hide/show, or a
-    // respawn's mesh-recreation cycle would otherwise stack duplicate
-    // weapons/armor onto the same bones every time the hero comes back into view)
-    if (!heroPool[idx].equip) heroPool[idx].equip = buildEquipment(u.def.id, u.def.color, vrm);
-    const equip = heroPool[idx].equip;
+    // baked-clip animation: one mixer per hero, actions built from the shared
+    // clips (retargeted by bone name onto this clone's identical skeleton)
+    const mixer = new THREE.AnimationMixer(root);
+    const clips = {};
+    const find = (n) => THREE.AnimationClip.findByName(src.animations, n);
+    for (const key of ['idle', 'walk', 'run', 'death']) {
+      const c = find(CLIP[key]); if (c) clips[key] = mixer.clipAction(c);
+    }
+    const atk = find(HERO_ATTACK_CLIP[u.def.id] || '1H_Melee_Attack_Chop');
+    if (atk) clips.attack = mixer.clipAction(atk);
+    if (clips.death) { clips.death.setLoop(THREE.LoopOnce, 1); clips.death.clampWhenFinished = true; }
+    if (clips.attack) { clips.attack.setLoop(THREE.LoopOnce, 1); clips.attack.clampWhenFinished = false; }
+    if (clips.idle) clips.idle.play();
 
     scene.add(group);
     const bar = makeBar(58);
     return {
-      group, root, vrm, bones, rest, animT: 0, punchT: 0, equip,
-      hpBar: bar, barHeight: HERO_SCALE * 1.7 * build, ring, team: u.team, kind: 'hero',
+      group, root, mixer, clips, current: clips.idle ? 'idle' : null,
+      attackEnd: 0, wasAttacking: false,
+      hpBar: bar, barHeight: HERO_SCALE * build * 2.6, ring, team: u.team, kind: 'hero',
     };
   }
 
-  // ---------------- MLBB-style fantasy equipment ----------------
-  // Weapons, armor and a cape/cloak — proper hard-surface props, not part of
-  // the avatar's own body — built from combined primitive geometry (exactly
-  // how hard-surface equipment is normally built; a sword blade IS basically
-  // a tapered box) and attached to the character's real skeleton bones, so
-  // they follow the hand/shoulders/back through every animation.
-  const equipGeo = {};
-  function eGeo(key, factory) { return equipGeo[key] || (equipGeo[key] = factory()); }
-
-  function metalMat(color, opts = {}) {
-    return new THREE.MeshStandardMaterial({ color, metalness: 0.75, roughness: 0.32, ...opts });
-  }
-  function glowMat(color, intensity = 1.1) {
-    return new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: intensity, roughness: 0.4 });
-  }
-  function clothMat(color, opts = {}) {
-    return new THREE.MeshStandardMaterial({ color, roughness: 0.85, side: THREE.DoubleSide, ...opts });
-  }
-
-  // attach a mesh/group to a bone by name; returns the mesh (already parented)
-  function attach(vrm, boneName, obj, pos, rot, scale) {
-    const bone = vrm.humanoid.getRawBoneNode(boneName);
-    if (!bone) return obj;
-    if (pos) obj.position.set(...pos);
-    if (rot) obj.rotation.set(...rot);
-    if (scale) obj.scale.setScalar(scale);
-    bone.add(obj);
-    return obj;
-  }
-
-  function pauldrons(vrm, color, size = 1) {
-    const geo = eGeo('pauldron', () => new THREE.SphereGeometry(1, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.6));
-    const mat = metalMat(color, { emissive: color, emissiveIntensity: 0.25 });
-    const l = new THREE.Mesh(geo, mat); l.castShadow = true;
-    const r = new THREE.Mesh(geo, mat); r.castShadow = true;
-    attach(vrm, 'leftUpperArm', l, [0, 0.08, 0], [0, 0, Math.PI], 0.11 * size);
-    attach(vrm, 'rightUpperArm', r, [0, 0.08, 0], [0, 0, Math.PI], 0.11 * size);
-    return [l, r];
-  }
-
-  function cape(vrm, color, len = 1) {
-    const geo = eGeo('cape', () => {
-      const g = new THREE.CylinderGeometry(0.5, 0.62, 1, 12, 4, true, Math.PI * 0.5, Math.PI);
-      return g;
-    });
-    const mat = clothMat(color, { emissive: color, emissiveIntensity: 0.12 });
-    const m = new THREE.Mesh(geo, mat);
-    m.castShadow = true;
-    attach(vrm, 'chest', m, [0, -0.28 * len, -0.06], [0, 0, 0], 0.34 * len);
-    return m;
-  }
-
-  function orb(color, radius, intensity = 1.3) {
-    const m = new THREE.Mesh(eGeo('orbSm', () => new THREE.OctahedronGeometry(1, 1)), glowMat(color, intensity));
-    m.scale.setScalar(radius);
-    return m;
-  }
-
-  function buildEquipment(heroId, colorHex, vrm) {
-    const color = new THREE.Color(colorHex);
-    const dark = color.clone().multiplyScalar(0.35);
-    const parts = { animated: [] };
-
-    switch (heroId) {
-      case 'kael': { // wraith-assassin silhouette: hooded tattered cloak, ember eye-glow, a held blade + a second sheathed across the back
-        pauldrons(vrm, dark, 0.8);
-        cape(vrm, dark, 1.05);
-        const hood = new THREE.Mesh(eGeo('kaelHood', () => new THREE.ConeGeometry(0.115, 0.2, 10, 1, true)), clothMat(dark, { flatShading: true }));
-        attach(vrm, 'head', hood, [0, 0.06, -0.015], [0.12, 0, 0]);
-        const eyeGlow = orb(colorHex, 0.018, 2.2);
-        attach(vrm, 'head', eyeGlow, [0, -0.005, 0.09]);
-        const blade = () => {
-          const g = new THREE.Group();
-          const blade = new THREE.Mesh(eGeo('kaelBlade', () => {
-            const shape = new THREE.Shape();
-            shape.moveTo(0, 0); shape.lineTo(0.045, 0.02); shape.lineTo(0.05, 0.5);
-            shape.lineTo(0, 0.58); shape.lineTo(-0.03, 0.5); shape.lineTo(-0.02, 0.02);
-            shape.closePath();
-            return new THREE.ExtrudeGeometry(shape, { depth: 0.018, bevelEnabled: false });
-          }), metalMat(0xe8e8ee, { emissive: colorHex, emissiveIntensity: 0.35 }));
-          const guard = new THREE.Mesh(eGeo('kaelGuard', () => new THREE.BoxGeometry(0.1, 0.02, 0.03)), metalMat(dark));
-          const hilt = new THREE.Mesh(eGeo('kaelHilt', () => new THREE.CylinderGeometry(0.02, 0.02, 0.13, 6)), metalMat(dark));
-          hilt.position.y = -0.08;
-          g.add(blade, guard, hilt);
-          return g;
-        };
-        attach(vrm, 'rightHand', blade(), [0.02, -0.03, -0.01], [0, 0, -0.1], 1);
-        // sheathed diagonally across the back
-        attach(vrm, 'chest', blade(), [-0.11, -0.02, -0.09], [1.35, 0, 0.55], 1);
-        break;
-      }
-      case 'nyra': { // staff with a floating glowing orb + light cloak
-        pauldrons(vrm, dark, 0.75);
-        cape(vrm, dark, 0.8);
-        const staff = new THREE.Group();
-        const pole = new THREE.Mesh(eGeo('staffPole', () => new THREE.CylinderGeometry(0.018, 0.022, 1.1, 8)), metalMat(dark));
-        const head = new THREE.Mesh(eGeo('staffHead', () => new THREE.TorusGeometry(0.09, 0.018, 8, 16)), metalMat(color));
-        head.position.y = 0.56; head.rotation.x = Math.PI/2;
-        const gem = orb(colorHex, 0.075, 1.6);
-        gem.position.y = 0.56;
-        staff.add(pole, head, gem);
-        attach(vrm, 'rightHand', staff, [0, -0.05, 0.03], [0.1, 0, 0.05], 1);
-        parts.animated.push({ mesh: gem, kind: 'pulse' });
-        break;
-      }
-      case 'grom': { // heavy shoulder armor + round shield + chest plate
-        pauldrons(vrm, dark, 1.5);
-        const chest = new THREE.Mesh(eGeo('gromChest', () => new THREE.CylinderGeometry(0.16, 0.19, 0.32, 8, 1, true, -1.1, 2.2)),
-          metalMat(dark, { emissive: colorHex, emissiveIntensity: 0.2 }));
-        attach(vrm, 'chest', chest, [0, 0, 0.02], [0, 0, 0], 1);
-        const shield = new THREE.Group();
-        const face = new THREE.Mesh(eGeo('shieldFace', () => new THREE.CylinderGeometry(0.22, 0.22, 0.04, 10)), metalMat(dark));
-        face.rotation.x = Math.PI/2;
-        const boss = new THREE.Mesh(eGeo('shieldBoss', () => new THREE.SphereGeometry(0.07, 10, 8)), metalMat(color, { emissive: colorHex, emissiveIntensity: 0.4 }));
-        boss.position.z = 0.03;
-        shield.add(face, boss);
-        attach(vrm, 'leftLowerArm', shield, [0, 0.05, 0.08], [0, 0, 0], 1);
-        break;
-      }
-      case 'lyra': { // radiant armored archer: ornate gold breastplate + gemmed pauldrons + a trailing sash, recurve bow + quiver
-        pauldrons(vrm, dark, 0.85);
-        const gemL = orb(colorHex, 0.028, 1.8);
-        attach(vrm, 'leftUpperArm', gemL, [0, 0.13, 0.02]);
-        const gemR = orb(colorHex, 0.028, 1.8);
-        attach(vrm, 'rightUpperArm', gemR, [0, 0.13, 0.02]);
-        const breastplate = new THREE.Mesh(eGeo('lyraChest', () => new THREE.CylinderGeometry(0.145, 0.17, 0.26, 8, 1, true, -1.3, 2.6)),
-          metalMat(0xf0e0a0, { emissive: colorHex, emissiveIntensity: 0.18 }));
-        attach(vrm, 'chest', breastplate, [0, 0.02, 0.02]);
-        cape(vrm, dark, 0.65);
-        const bow = new THREE.Group();
-        const limb = eGeo('bowLimb', () => new THREE.TorusGeometry(0.34, 0.014, 6, 16, Math.PI * 0.85));
-        const bowMesh = new THREE.Mesh(limb, metalMat(dark));
-        bowMesh.rotation.z = Math.PI/2 + (Math.PI - Math.PI*0.85)/2;
-        bow.add(bowMesh);
-        attach(vrm, 'spine', bow, [0.16, 0.12, -0.07], [0.2, 1.5, 0], 1);
-        const quiver = new THREE.Mesh(eGeo('quiver', () => new THREE.CylinderGeometry(0.045, 0.05, 0.34, 8)), clothMat(dark));
-        attach(vrm, 'spine', quiver, [-0.1, 0.1, -0.08], [0.35, 0, 0.25], 1);
-        break;
-      }
-      case 'vex': { // hooded cloak + orbiting void orbs
-        cape(vrm, dark, 1.15);
-        pauldrons(vrm, dark, 0.6);
-        for (let i = 0; i < 3; i++) {
-          const o = orb(colorHex, 0.05, 1.5);
-          scene.add(o);
-          parts.animated.push({ mesh: o, kind: 'orbit', phase: i * (Math.PI*2/3) });
-        }
-        break;
-      }
-      case 'thane': { // wolf-pelt mantle + clawed gauntlets
-        const mantle = new THREE.Mesh(eGeo('mantle', () => new THREE.ConeGeometry(0.24, 0.3, 8, 1, true)), clothMat(dark, { flatShading: true }));
-        mantle.rotation.x = Math.PI;
-        attach(vrm, 'chest', mantle, [0, 0.12, -0.02], [0, 0, 0], 1);
-        const claw = (mirroredSign) => {
-          const g = new THREE.Group();
-          for (let i = -1; i <= 1; i++) {
-            const c = new THREE.Mesh(eGeo('claw', () => new THREE.ConeGeometry(0.012, 0.09, 4)), metalMat(0xe8e8ee));
-            c.position.set(i * 0.02, -0.05, 0.02);
-            c.rotation.x = -Math.PI/2.3;
-            g.add(c);
-          }
-          g.scale.x = mirroredSign;
-          return g;
-        };
-        attach(vrm, 'rightHand', claw(1), [0, -0.06, 0.02], [0, 0, 0], 1);
-        attach(vrm, 'leftHand', claw(-1), [0, -0.06, 0.02], [0, 0, 0], 1);
-        break;
-      }
-    }
-    return parts;
-  }
-
-  // small helper: rotate a bone by (x,y,z) radians on top of its rest pose
-  // (lazily instantiated in init(), same THREE-not-defined-yet reason as camOffset above)
-  let _q;
-  function poseBone(e, name, x, y, z) {
-    const b = e.bones[name];
-    if (!b) return;
-    _q.setFromEuler(new THREE.Euler(x, y, z));
-    b.quaternion.copy(e.rest[name]).multiply(_q);
-  }
-
-  function updateEquipment(e, x, z) {
-    for (const a of e.equip.animated) {
-      if (a.kind === 'pulse') {
-        const s = 1 + 0.18 * Math.sin(G.time * 3.2);
-        a.mesh.scale.setScalar(s * (a.mesh.userData.baseScale || (a.mesh.userData.baseScale = a.mesh.scale.x)));
-      } else if (a.kind === 'orbit') {
-        const ang = G.time * 1.6 + a.phase;
-        const r = HERO_SCALE * 0.75;
-        a.mesh.position.set(x + Math.cos(ang) * r, HERO_SCALE * 0.95 + Math.sin(G.time * 2 + a.phase) * 6, z + Math.sin(ang) * r);
-      }
-    }
+  // ---------------- hero animation state machine ----------------
+  // Cross-fade the base locomotion loop (idle/walk/run) and layer a one-shot
+  // attack / death clip on top via the mixer.
+  function setAction(e, name, fade = 0.18) {
+    if (e.current === name) return;
+    const next = e.clips[name];
+    if (!next) return;
+    const prev = e.current && e.clips[e.current];
+    next.enabled = true;
+    next.setEffectiveTimeScale(1);
+    next.setEffectiveWeight(1);
+    next.reset();
+    next.play();
+    if (prev && prev !== next) prev.crossFadeTo(next, fade, false);
+    e.current = name;
   }
 
   function updateHero(e, u, dt) {
     const [x, z] = toScene(u.x, u.y);
     e.group.position.set(x, 0, z);
-    e.group.rotation.y = -u.facing;
+    // KayKit models face +Z in bind pose; the game's facing=0 points +X, and
+    // the scene is Y-up, so this maps facing onto the model's forward correctly.
+    e.group.rotation.y = -u.facing + Math.PI / 2;
     e.ring.material.opacity = u.isPlayer ? 1 : 0.7;
 
     e.group.visible = !u.dead || (G.time - (u._deathT || (u._deathT = G.time))) < 1.4;
     e.hpBar.visible = e.group.visible;
     if (e.group.visible) { e.hpBar.position.set(x, e.barHeight, z); updateBar(e.hpBar, u); }
-
-    // equipment pieces that float independently (orbiting orbs) aren't bone
-    // children, so they don't inherit e.group's visibility automatically
-    for (const a of e.equip.animated) if (a.mesh.parent === scene) a.mesh.visible = e.group.visible;
-
-    if (e.group.visible) updateEquipment(e, x, z);
-    if (!e.group.visible) return;
+    if (!e.group.visible) { return; }
 
     if (u.dead) {
-      const k = Math.min(1, (G.time - u._deathT) / 0.6);
-      poseBone(e, 'hips', -k * 1.1, 0, 0);
-      poseBone(e, 'spine', -k * 0.5, 0, 0);
-      poseBone(e, 'head', k * 0.3, 0, 0);
-      poseBone(e, 'leftUpperArm', -k * 0.3, 0, -ARM_DOWN);
-      poseBone(e, 'rightUpperArm', -k * 0.3, 0, ARM_DOWN);
-      e.group.position.y = -k * HERO_SCALE * 0.25;
+      setAction(e, 'death', 0.12);
     } else {
-      e.group.position.y = 0;
-      const attacking = (u._hitT !== undefined && G.time - u._hitT < 0.15) || u.atkTimer > (u.atkCd / u.asMult) * 0.6;
-      if (attacking) e.punchT = 0.28;
-      e.punchT = Math.max(0, e.punchT - dt);
-
-      const running = u.moving && u._moving !== false;
-      const walking = u.moving && !running;
-      const speed = running ? 7 : walking ? 4.5 : 0;
-      e.animT += dt * speed;
-
-      // the model's rest pose is a T-pose (arms straight out); ARM_DOWN is
-      // the fixed Z-rotation that brings each arm down to hang naturally at
-      // the side — every arm pose below is built on top of this base, not
-      // on top of the raw T-pose, or the character stands with arms flung
-      // out sideways the whole match
-      if (speed > 0) {
-        const s = Math.sin(e.animT), c = Math.cos(e.animT);
-        const legAmp = running ? 0.55 : 0.32, armAmp = running ? 0.5 : 0.28;
-        poseBone(e, 'leftUpperLeg', s * legAmp, 0, 0);
-        poseBone(e, 'rightUpperLeg', -s * legAmp, 0, 0);
-        poseBone(e, 'leftLowerLeg', Math.max(0, -c) * legAmp * 0.9, 0, 0);
-        poseBone(e, 'rightLowerLeg', Math.max(0, c) * legAmp * 0.9, 0, 0);
-        poseBone(e, 'leftUpperArm', -s * armAmp, 0, -ARM_DOWN + 0.2);
-        poseBone(e, 'rightUpperArm', s * armAmp, 0, ARM_DOWN - 0.2);
-        poseBone(e, 'hips', 0, 0, Math.sin(e.animT * 2) * 0.03);
-        poseBone(e, 'spine', 0.06, 0, 0);
-      } else {
-        const breathe = Math.sin(G.time * 1.6 + u.id) * 0.03;
-        poseBone(e, 'spine', breathe, 0, 0);
-        poseBone(e, 'leftUpperArm', 0, 0, -ARM_DOWN + breathe * 0.3);
-        poseBone(e, 'rightUpperArm', 0, 0, ARM_DOWN - breathe * 0.3);
-        poseBone(e, 'leftUpperLeg', 0, 0, 0);
-        poseBone(e, 'rightUpperLeg', 0, 0, 0);
-        poseBone(e, 'leftLowerLeg', 0, 0, 0);
-        poseBone(e, 'rightLowerLeg', 0, 0, 0);
+      // a one-shot attack clip fires on the rising edge of "attacking" and
+      // owns the body until its clip finishes, then locomotion resumes
+      const attacking = (u._hitT !== undefined && G.time - u._hitT < 0.15) ||
+        u.atkTimer > (u.atkCd / u.asMult) * 0.6;
+      if (e.clips.attack && attacking && !e.wasAttacking) {
+        e.attackEnd = G.time + Math.min(e.clips.attack.getClip().duration, 0.7);
+        setAction(e, 'attack', 0.06);
       }
+      e.wasAttacking = attacking;
 
-      if (e.punchT > 0) {
-        const k = 1 - e.punchT / 0.28;
-        const thrust = Math.sin(k * Math.PI); // wind up then release
-        poseBone(e, 'rightUpperArm', -thrust * 1.3, -thrust * 0.3, ARM_DOWN - thrust * 1.1);
-        poseBone(e, 'chest', 0, -thrust * 0.15, 0);
+      if (G.time < e.attackEnd) {
+        // let the attack play out (setAction already switched us to it)
+      } else {
+        const running = u.moving && u._moving !== false;
+        const walking = u.moving && !running;
+        setAction(e, running ? 'run' : walking ? 'walk' : 'idle');
       }
     }
 
-    e.vrm.update(dt);
+    e.mixer.update(dt);
   }
 
   function updateBar(bar, u) {
@@ -833,5 +598,5 @@ const Render3D = (() => {
     renderer.render(scene, camera);
   }
 
-  return { init, render, _debug: () => ({ scene, unitMeshes, heroPool, camera, renderer }) };
+  return { init, render, _debug: () => ({ scene, unitMeshes, heroModels, camera, renderer }) };
 })();
