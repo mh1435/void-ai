@@ -56,10 +56,17 @@ only the rendering layer (`js3d/render3d.js`) is new, so gameplay, fog of war, a
 HUD all work identically to the 2D version. The 2D game at `index.html` is untouched and
 remains the main, complete version — 3D is an added mode, not a replacement.
 
-Heroes are a real rigged, animated character model — **RobotExpressive.glb**, by
-[Tomás Laulhé](https://www.patreon.com/quaternius) (**CC0 1.0** — public domain, free for
-any use), tinted per hero. Both files, plus their license notes, live in
-`assets/models/` and `js3d/vendor/THREE_LICENSE.txt`.
+Heroes are a real anime-style VRM avatar (`assets/models/hero.vrm`), tinted per hero —
+pixiv's official sample model for their [`three-vrm`](https://github.com/pixiv/three-vrm)
+library, licensed for commercial use, modification and redistribution, no attribution
+required (license terms are embedded in the file itself; see
+`assets/models/hero_VRM_LICENSE.md`). Three.js, GLTFLoader and `@pixiv/three-vrm` are all
+MIT licensed — see the `*_LICENSE.txt` files in `js3d/vendor/`.
+
+The VRM avatar has no baked-in game animations, so Idle/Walk/Run/Punch/Death are hand-built
+in `js3d/render3d.js` by rotating the model's standardized VRM humanoid bones directly each
+frame, rather than played from motion-captured clips — simpler motion than a fully animated
+rig would give, by design of this first pass.
 
 Being a beta: it's one shared character model recolored per hero rather than six unique
 designs (free rigged/animated humanoid models are scarce), and towers/minions/environment
@@ -79,7 +86,7 @@ js/ui.js        input (joystick, drag-aim skills, keyboard), HUD, minimap, SFX (
 js/main.js      2D bootstrap + requestAnimationFrame loop
 js3d/render3d.js  3D renderer: reads the same G/UI state as js/game.js's render()
 js3d/main3d.js    3D bootstrap: loads the character model, then starts the loop
-js3d/vendor/      self-hosted Three.js + GLTFLoader/SkeletonUtils (no CDN dependency)
+js3d/vendor/      self-hosted Three.js + GLTFLoader + @pixiv/three-vrm (no CDN dependency)
 ```
 
 ## 🛣 Roadmap → multiplayer
