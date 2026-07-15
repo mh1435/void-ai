@@ -210,18 +210,55 @@ const Render3D = (() => {
     'leftUpperArm','rightUpperArm','leftLowerArm','rightLowerArm',
     'leftUpperLeg','rightUpperLeg','leftLowerLeg','rightLowerLeg'];
 
+  // Per-hero hair colour — the shared avatar ships with one brown hair, so
+  // recolouring it per hero (dark for the assassin, gold for the marksman,
+  // violet for the mage…) is the single biggest thing that stops all six
+  // heroes reading as the same person. Keyed here rather than in the shared
+  // 2D hero data since it's a purely 3D-render concern.
+  const HERO_HAIR = {
+    kael:  0x241a17, // near-black, wraith assassin
+    nyra:  0x9a86ff, // pale violet, storm mage
+    grom:  0x3a2e22, // dark iron-brown, tank
+    lyra:  0xf6d67a, // gold blonde, radiant archer
+    vex:   0xd9c2ff, // ghostly lavender-white, void caster
+    thane: 0xcfd6dc, // silver-grey, wolf fighter
+  };
+
   function createHero(u) {
     const idx = G.heroes.indexOf(u);
     const { scene: root, vrm } = heroPool[idx];
     root.scale.setScalar(HERO_SCALE);
+    const tint = new THREE.Color(u.def.color);
+    const darkCloth = tint.clone().multiplyScalar(0.5); // darker shade for lower garments
+    const hair = new THREE.Color(HERO_HAIR[u.def.id] || 0x3a2a20);
+    const hairShade = hair.clone().multiplyScalar(0.6);
+    // Every mesh on this avatar carries a material ARRAY ([base, outline]) —
+    // the outfit/hair are MToon (toon-shaded) materials. Each pool slot is a
+    // fully independent parse permanently bound to one hero, so we tint in
+    // place (idempotent: colours are SET, not multiplied, so re-running on a
+    // fog hide/show doesn't compound). Tinting by copy() also means it's safe
+    // to reassign a pool slot to a different hero on "play again".
     root.traverse(o => {
-      if (o.isMesh) {
-        o.castShadow = true; o.receiveShadow = true;
-        if (o.material && /CLOTH/i.test(o.material.name)) o.material = o.material.clone();
+      if (!o.isMesh) return;
+      o.castShadow = true; o.receiveShadow = true;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (!m || !m.name || /Outline/i.test(m.name)) continue; // leave the dark edge lines alone
+        if (/Tops.*CLOTH/i.test(m.name)) {
+          m.color.copy(tint); // shirt carries the hero's signature colour
+        } else if (/CLOTH/i.test(m.name)) {
+          m.color.copy(darkCloth); // skirt + shoes: darker shade so the outfit isn't one flat block
+        } else if (/HAIR/i.test(m.name)) {
+          // the avatar's brown hair texture can't be *lightened* to blonde /
+          // lavender by a colour multiply, so drop the base map and let MToon
+          // render the hair as a clean two-tone toon colour instead — this is
+          // what actually makes each hero read as a distinct person.
+          if (m.map) { m.map = null; m.needsUpdate = true; }
+          m.color.copy(hair);
+          if (m.shadeColorFactor) m.shadeColorFactor.copy(hairShade);
+        }
       }
     });
-    const tint = new THREE.Color(u.def.color);
-    root.traverse(o => { if (o.isMesh && o.material && /CLOTH/i.test(o.material.name)) o.material.color.copy(tint); });
 
     const bones = {};
     const rest = {};
