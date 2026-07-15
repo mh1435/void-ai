@@ -589,8 +589,11 @@ function render(ctx) {
   if (!G.running) return;
 
   const z = G.cam.zoom;
+  const shakeAmt = (UI.hitShake || 0) * 10;
+  const shakeX = shakeAmt ? (Math.random()*2-1)*shakeAmt : 0;
+  const shakeY = shakeAmt ? (Math.random()*2-1)*shakeAmt : 0;
   ctx.save();
-  ctx.translate(cv.width/2 - G.cam.x*z, cv.height/2 - G.cam.y*YS*z);
+  ctx.translate(cv.width/2 - G.cam.x*z + shakeX, cv.height/2 - G.cam.y*YS*z + shakeY);
   ctx.scale(z, z);
 
   // ground plane, foreshortened by the 2.5D camera tilt
@@ -742,14 +745,22 @@ function render(ctx) {
     } else if (e.type === 'text') {
       ctx.globalAlpha = 1 - k;
       ctx.fillStyle = e.color;
-      ctx.font = 'bold 22px Rajdhani, sans-serif';
+      const fsize = e.big ? 30 : 22;
+      ctx.font = 'bold ' + fsize + 'px Rajdhani, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(e.text, e.x, e.y*YS - 36);
+      if (e.big) {
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 3;
+        ctx.strokeText(e.text, e.x, e.y*YS - 40 - k*10);
+      }
+      ctx.fillText(e.text, e.x, e.y*YS - 36 - (e.big ? k*10 : 0));
     }
     ctx.globalAlpha = 1;
   }
 
   ctx.restore();
+
+  // low-hp / big-hit screen shake decays every frame
+  if (UI.hitShake) UI.hitShake = Math.max(0, UI.hitShake - 0.06);
 }
 
 // standing tree with trunk + layered canopy, gentle sway
@@ -1092,6 +1103,17 @@ function drawHero(ctx, h) {
 
   drawHeroHead(ctx, h.def.id);
   drawHeroWeapon(ctx, h, side);
+
+  // white hit-flash pulse
+  if (h._hitT !== undefined && G.time - h._hitT < 0.14) {
+    const fk = 1 - (G.time - h._hitT) / 0.14;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = fk * 0.65;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(0, -24, 22, 0, 7); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
 
   ctx.restore();
 

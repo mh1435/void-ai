@@ -18,6 +18,16 @@ function botThink(h) {
     if (h.buyItem(next)) h.buildIdx++;
   }
 
+  // skill points: prioritize the ult whenever it's off cooldown-gate,
+  // otherwise round-robin the two basics like a typical MLBB build
+  while (h.skillPoints > 0) {
+    let order = [2, 0, 1];
+    if (!h.canUpgrade(2)) order = h.skillLv[0] <= h.skillLv[1] ? [0, 1] : [1, 0];
+    const pick = order.find(i => h.canUpgrade(i));
+    if (pick === undefined) break;
+    h.upgradeSkill(pick);
+  }
+
   const hpFrac = h.hp / h.hpMax();
   const enemyHero = nearestEnemy(h, 700, u => u.type === 'hero');
   const anyEnemy = nearestEnemy(h, 600);

@@ -86,6 +86,15 @@ const UI = {
     this.canvas.height = window.innerHeight * dpr;
     this.canvas.style.width = window.innerWidth + 'px';
     this.canvas.style.height = window.innerHeight + 'px';
+    this.updateScale();
+  },
+
+  // HUD panels are designed at a ~900x420 landscape reference; scale the whole
+  // HUD uniformly to that so it fits phones, tablets and desktop windows alike
+  // without any control overflowing the screen or shrinking below a tappable size
+  updateScale() {
+    const s = clamp(Math.min(window.innerWidth / 900, window.innerHeight / 420), 0.72, 1.3);
+    document.documentElement.style.setProperty('--ui-scale', s);
   },
 
   // ---------- hero select ----------
@@ -199,11 +208,20 @@ const UI = {
     G.aimPreview = null;
     const defs = G.player.def.skills;
     defs.forEach((sk, i) => {
+      const maxLv = i === 2 ? 3 : 5;
       const b = document.createElement('div');
       b.className = 'skillBtn sk' + i + (i === 2 ? ' ult' : '');
-      b.innerHTML = '<span class="icon">' + sk.icon + '</span><div class="cdOverlay"></div><div class="cdText"></div><div class="lock">🔒</div>';
+      b.innerHTML = '<span class="icon">' + sk.icon + '</span><div class="cdOverlay"></div><div class="cdText"></div>' +
+        '<div class="lock">🔒</div><div class="upBadge">+</div>' +
+        '<div class="pips">' + Array.from({length: maxLv}, () => '<i></i>').join('') + '</div>';
       holder.appendChild(b);
       this.skillEls.push(b);
+      const upBadge = b.querySelector('.upBadge');
+      upBadge.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation();
+        Sfx.ensure();
+        G.player.upgradeSkill(i);
+      });
       let pid = null, sx = 0, sy = 0, dragging = false;
       b.addEventListener('pointerdown', e => {
         e.preventDefault();
@@ -395,13 +413,20 @@ const UI = {
         const ov = b.querySelector('.cdOverlay');
         const tx = b.querySelector('.cdText');
         if (cd > 0) {
-          ov.style.height = (cd / (sk.cd * (1 - p.cdr)) * 100) + '%';
+          ov.style.height = (cd / (sk.cd * (1 - p.cdr) * (1 - 0.05*(p.skillLv[i]-1))) * 100) + '%';
           tx.textContent = cd > 1 ? Math.ceil(cd) : cd.toFixed(1);
         } else { ov.style.height = '0%'; tx.textContent = ''; }
         b.classList.toggle('noMana', !locked && p.mana < sk.mana);
         b.classList.toggle('ready', !locked && cd <= 0 && p.mana >= sk.mana && !p.dead);
+
+        const pips = b.querySelectorAll('.pips i');
+        pips.forEach((pip, pi) => pip.classList.toggle('lit', pi < p.skillLv[i]));
+        const canUp = p.skillPoints > 0 && p.canUpgrade(i);
+        b.classList.toggle('canUp', canUp);
+        b.querySelector('.upBadge').style.display = canUp ? 'flex' : 'none';
       });
     }
+    this.els.lvlBadge.classList.toggle('hasPoints', p.skillPoints > 0);
 
     // low-HP warning vignette
     this.els.lowHp.style.opacity = (!p.dead && p.hp < p.hpMax() * 0.3) ? 1 : 0;

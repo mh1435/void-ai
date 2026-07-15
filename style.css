@@ -11,6 +11,8 @@
   --panel: linear-gradient(180deg, rgba(18, 28, 42, 0.92), rgba(8, 13, 20, 0.92));
   --edge: rgba(125, 249, 255, 0.28);
   --panelShadow: 0 4px 16px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  /* set from JS (UI.updateScale) so the whole HUD fits any screen — phone, tablet, desktop */
+  --ui-scale: 1;
 }
 
 html, body {
@@ -98,11 +100,13 @@ html, body {
 #hud > * { pointer-events: auto; }
 
 #topbar {
-  position: absolute; top: calc(6px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+  position: absolute; top: calc(6px + env(safe-area-inset-top)); left: 50%;
+  transform: translateX(-50%) scale(var(--ui-scale));
   display: flex; align-items: center; gap: 16px;
   background: var(--panel); border: 1px solid var(--edge); border-radius: 20px;
   padding: 4px 18px; font-size: 18px; font-weight: 700;
   box-shadow: var(--panelShadow);
+  white-space: nowrap;
 }
 .tKills { display: flex; align-items: center; gap: 6px; }
 .tKills i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
@@ -112,15 +116,18 @@ html, body {
 
 #statsMini {
   position: absolute; top: calc(6px + env(safe-area-inset-top)); right: 10px;
+  transform: scale(var(--ui-scale)); transform-origin: top right;
   display: flex; gap: 14px; font-size: 14px;
   background: var(--panel); border: 1px solid var(--edge); border-radius: 16px; padding: 4px 14px;
   box-shadow: var(--panelShadow);
+  white-space: nowrap;
 }
 #statsMini .gold b { color: var(--gold); }
 #statsMini .kda b, #statsMini .cs b { color: #cfe0ef; }
 
 #minimap {
   position: absolute; top: calc(6px + env(safe-area-inset-top)); left: 10px;
+  transform: scale(var(--ui-scale)); transform-origin: top left;
   border: 1px solid var(--edge); border-radius: 8px;
   width: 140px; height: 140px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
@@ -146,7 +153,8 @@ html, body {
 
 /* portrait + bars */
 #portrait {
-  position: absolute; bottom: calc(10px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+  position: absolute; bottom: calc(10px + env(safe-area-inset-bottom)); left: 50%;
+  transform: translateX(-50%) scale(var(--ui-scale));
   display: flex; align-items: center; gap: 8px;
   background: var(--panel); border: 1px solid var(--edge); border-radius: 14px; padding: 6px 12px;
   pointer-events: none;
@@ -158,6 +166,11 @@ html, body {
   position: absolute; bottom: -3px; right: -3px; background: #0a1420; border: 1px solid var(--gold);
   color: var(--gold); font-size: 11px; font-weight: 800; border-radius: 50%;
   width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+}
+#lvlBadge.hasPoints { animation: lvlPulse 1s ease-in-out infinite; }
+@keyframes lvlPulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(255, 209, 102, 0.7); }
+  50%      { box-shadow: 0 0 10px 3px rgba(255, 209, 102, 0.7); }
 }
 .bars { width: 150px; display: flex; flex-direction: column; gap: 3px; }
 .bar { height: 9px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden; }
@@ -189,6 +202,7 @@ html, body {
 /* action cluster: MLBB-style arc — attack in the corner, skills fanned around it */
 #actions {
   position: absolute; right: 10px; bottom: calc(12px + env(safe-area-inset-bottom));
+  transform: scale(var(--ui-scale)); transform-origin: bottom right;
   width: 330px; height: 264px;
   touch-action: none;
   pointer-events: none;
@@ -211,6 +225,7 @@ html, body {
 .miniBtn.buy { flex-direction: column; font-size: 13px; border-color: rgba(255, 209, 102, 0.4); opacity: 0.55; }
 #btnBuy {
   position: absolute; left: 12px; top: calc(160px + env(safe-area-inset-top));
+  transform: scale(var(--ui-scale)); transform-origin: top left;
   width: 54px; height: 54px;
 }
 #btnBuy .itIcon { font-size: 17px; }
@@ -261,6 +276,29 @@ html, body {
   position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
   background: rgba(0, 0, 0, 0.6); font-size: 18px; pointer-events: none;
 }
+/* skill level pips, MLBB-style, along the bottom edge of the icon */
+.pips {
+  position: absolute; left: 50%; bottom: 3px; transform: translateX(-50%);
+  display: flex; gap: 2px; pointer-events: none; z-index: 2;
+}
+.pips i {
+  width: 6px; height: 6px; border-radius: 1px;
+  background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.25);
+  display: block;
+}
+.pips i.lit { background: #7df9ff; border-color: #7df9ff; }
+.skillBtn.ult .pips i.lit { background: var(--gold); border-color: var(--gold); }
+/* upgrade "+" badge, appears when a skill point is ready to spend */
+.upBadge {
+  display: none; position: absolute; top: -6px; right: -6px; z-index: 3;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #4dff8a, #12a34a);
+  border: 2px solid #0a1420; color: #04210f; font-weight: 900; font-size: 15px;
+  align-items: center; justify-content: center; cursor: pointer;
+  box-shadow: 0 0 10px rgba(77, 255, 138, 0.7);
+  animation: upBadgePulse 1s ease-in-out infinite;
+}
+@keyframes upBadgePulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
 #btnAttack {
   width: 92px; height: 92px; border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #4a1520, #200810);
@@ -354,9 +392,8 @@ html, body {
 }
 #btnRestart:active { transform: scale(0.95); }
 
-@media (max-width: 720px) {
-  #minimap { width: 108px; height: 108px; }
-  #btnBuy { top: calc(126px + env(safe-area-inset-top)); }
-  .bars { width: 110px; }
+/* below this the HUD scale alone (see UI.updateScale) can't shrink further
+   without buttons becoming untappable, so drop the least essential readout */
+@media (max-width: 480px) {
   #statsMini .cs { display: none; }
 }
