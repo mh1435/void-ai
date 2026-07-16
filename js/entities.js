@@ -539,6 +539,19 @@ class Hero extends Unit {
       this.recallT = 0;
       this._moving = true;
       this.moving = true;
+      this.navTarget = null; // manual joystick/keys override a tapped destination
+    } else if (this.navTarget && !this.stunned) {
+      // minimap tap-to-move: walk toward the tapped destination
+      const dx = this.navTarget.x - this.x, dy = this.navTarget.y - this.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 45) { this.navTarget = null; this._moving = false; }
+      else {
+        this.x += (dx/d) * this.ms * dt;
+        this.y += (dy/d) * this.ms * dt;
+        this.facing = Math.atan2(dy, dx);
+        this.recallT = 0;
+        this._moving = true; this.moving = true;
+      }
     } else {
       this._moving = false;
       // idle or attack held: auto-attack nearest visible enemy in range

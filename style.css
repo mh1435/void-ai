@@ -521,3 +521,21 @@ html, body {
   box-shadow: 0 0 8px rgba(0,0,0,0.5);
 }
 .buffPip b { font-size: 11px; color: #e8eef5; font-weight: 700; }
+
+/* ================= OBJECTIVE (BEHEMOTH) TIMER ================= */
+#objTimer {
+  position: absolute; left: 50%; top: calc(46px + env(safe-area-inset-top));
+  transform: translateX(-50%) scale(var(--ui-scale));
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(24, 12, 38, 0.85); border: 1px solid rgba(199,125,255,0.45);
+  border-radius: 20px; padding: 3px 12px; z-index: 6; pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+#objTimer .objIcon { font-size: 14px; }
+#objTimer b { color: #e0aaff; font-size: 13px; font-weight: 800; letter-spacing: 1px; }
+#objTimer.up { border-color: #c77dff; animation: objUp 1.2s ease-in-out infinite; }
+#objTimer.up b { color: #fff; }
+@keyframes objUp {
+  0%, 100% { box-shadow: 0 0 6px rgba(199,125,255,0.5); }
+  50%      { box-shadow: 0 0 16px 3px rgba(199,125,255,0.8); }
+}

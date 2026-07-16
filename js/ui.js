@@ -78,6 +78,22 @@ const UI = {
     this.bindJoystick();
     this.bindButtons();
     this.bindKeyboard();
+    this.bindMinimap();
+  },
+
+  // tap the minimap to send your hero there (MLBB-style map travel)
+  bindMinimap() {
+    const mm = this.mmCanvas;
+    mm.style.touchAction = 'none';
+    mm.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (!G.player || G.player.dead) return;
+      const r = mm.getBoundingClientRect();
+      const wx = clamp((e.clientX - r.left) / r.width * WORLD, 30, WORLD - 30);
+      const wy = clamp((e.clientY - r.top) / r.height * WORLD, 30, WORLD - 30);
+      G.player.navTarget = { x: wx, y: wy };
+      Sfx.ensure();
+    });
   },
 
   resize() {
@@ -182,6 +198,7 @@ const UI = {
     this.buildSkillButtons();
     this.buildSpellButton();
     this.buildBuffRow();
+    this.buildObjTimer();
     if (this.spellBtn) {
       const sp = battleSpellById(G.player.battleSpell);
       this.spellBtn.querySelector('.icon').textContent = sp ? sp.icon : '';
@@ -333,6 +350,16 @@ const UI = {
     row.id = 'buffRow';
     this.els.hud.appendChild(row);
     this.buffRow = row;
+  },
+
+  // ---------- objective (Void Behemoth) timer ----------
+  buildObjTimer() {
+    if (this.objTimer) return;
+    const el = document.createElement('div');
+    el.id = 'objTimer';
+    el.innerHTML = '<span class="objIcon">🐉</span><b>--:--</b>';
+    this.els.hud.appendChild(el);
+    this.objTimer = el;
   },
 
   bindButtons() {
@@ -563,6 +590,21 @@ const UI = {
       this.buffRow.innerHTML = html;
     }
 
+    // objective (Void Behemoth) timer
+    if (this.objTimer) {
+      const alive = G.boss && !G.boss.dead;
+      const b = this.objTimer.querySelector('b');
+      if (alive) {
+        this.objTimer.classList.add('up');
+        b.textContent = 'UP';
+      } else {
+        this.objTimer.classList.remove('up');
+        const t = Math.max(0, G.bossTimer);
+        const bm = Math.floor(t / 60), bs = Math.floor(t % 60);
+        b.textContent = bm + ':' + (bs < 10 ? '0' : '') + bs;
+      }
+    }
+
     // low-HP warning vignette
     this.els.lowHp.style.opacity = (!p.dead && p.hp < p.hpMax() * 0.3) ? 1 : 0;
 
@@ -612,10 +654,28 @@ const UI = {
       c.fillStyle = TEAM_COLOR[team];
       c.beginPath(); c.arc(core.x*S, core.y*S, 5, 0, 7); c.fill();
     }
+    // buff camps (coloured; hollow while respawning)
+    for (const cc of G.camps) {
+      if (!cc.camp.buff) continue;
+      const col = (typeof BUFF_CAMPS !== 'undefined' && BUFF_CAMPS[cc.camp.buff]) ? BUFF_CAMPS[cc.camp.buff].color : '#c77dff';
+      const alive = cc.mon && !cc.mon.dead;
+      const bx = cc.camp.x*S, by = cc.camp.y*S;
+      c.beginPath(); c.arc(bx, by, 3.5, 0, 7);
+      if (alive) { c.fillStyle = col; c.fill(); }
+      else { c.strokeStyle = col; c.lineWidth = 1.5; c.globalAlpha = 0.5; c.stroke(); c.globalAlpha = 1; }
+    }
     // boss
     if (G.boss && !G.boss.dead) {
       c.fillStyle = '#c77dff';
-      c.beginPath(); c.arc(G.boss.x*S, G.boss.y*S, 4, 0, 7); c.fill();
+      c.beginPath(); c.arc(G.boss.x*S, G.boss.y*S, 5, 0, 7); c.fill();
+      c.strokeStyle = '#e0aaff'; c.lineWidth = 1.5; c.stroke();
+    }
+    // tap-to-move destination marker
+    if (G.player && G.player.navTarget) {
+      const nx = G.player.navTarget.x*S, ny = G.player.navTarget.y*S;
+      const pulse = 3 + Math.sin(G.time*8)*1.5;
+      c.strokeStyle = '#7df9ff'; c.lineWidth = 1.5;
+      c.beginPath(); c.arc(nx, ny, pulse, 0, 7); c.stroke();
     }
     // fog of war (dims terrain/structures outside explored & current vision;
     // hero markers are drawn on top so allies and spotted enemies stay crisp)
