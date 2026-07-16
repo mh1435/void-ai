@@ -217,11 +217,12 @@ const Render3D = (() => {
     lyra:  'Rogue',        // nimble marksman
     vex:   'Mage',         // second caster, tinted apart from Nyra
     thane: 'Barbarian',    // broad brawler
+    isolde:'Rogue_Hooded', // hooded frost caster (icy tint sets her apart from Kael)
   };
 
   // subtle per-hero build so silhouettes still read by role at a glance
   const HERO_BUILD = {
-    kael: 0.98, nyra: 0.98, grom: 1.14, lyra: 1.0, vex: 0.98, thane: 1.1,
+    kael: 0.98, nyra: 0.98, grom: 1.14, lyra: 1.0, vex: 0.98, thane: 1.1, isolde: 0.98,
   };
 
   // light colour push toward each hero's signature colour — keeps the model's
@@ -238,6 +239,7 @@ const Render3D = (() => {
     lyra:  '1H_Ranged_Shoot',        // crossbow shot
     vex:   'Spellcast_Shoot',        // cast
     thane: '2H_Melee_Attack_Chop',   // heavy axe
+    isolde:'Spellcast_Shoot',        // frost cast
   };
 
   function createHero(u) {

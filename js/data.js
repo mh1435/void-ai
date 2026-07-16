@@ -430,8 +430,45 @@ const HEROES = [
   ],
   onBasicHit(h,t,dmg){ A.heal(h, h, dmg*0.12); },
 },
+{
+  id:'isolde', name:'Isolde', title:'the Rimewarden', role:'Mage', color:'#5fd0ff',
+  melee:false, atkRange:440, atkCd:1.2,
+  hp:[580,80], mana:[430,50], ad:[50,4.4], sp:0, armor:[14,2.0], mr:[16,2.2], ms:240, regen:[1.4,0.22],
+  build:['orb','boots','staff','orb','aegis','staff'],
+  passive:'Deep Chill — her skills chill enemies; her basic attacks deal bonus magic damage to chilled targets.',
+  skills:[
+    { name:'Ice Lance', icon:'❄', cd:6, mana:60, range:720,
+      desc:'Hurl a shard of ice, damaging and chilling the first enemy hit.',
+      cast(h,aim){
+        A.shot(h, aim, { speed:950, range:720, size:14, color:'#8fe6ff',
+          onHit(u){ A.damage(h, u, 100 + h.level*19 + h.sp*0.8, 'magic'); u.addBuff({id:'chill', dur:1.8, slow:0.35}); } });
+        Sfx.play('bolt');
+      }},
+    { name:'Frost Nova', icon:'✳', cd:9, mana:75, range:260,
+      desc:'Erupt in frost, damaging and heavily chilling nearby enemies.',
+      cast(h,aim){
+        A.aoe(h, h.x, h.y, 260, (u)=>{ A.damage(h, u, 80 + h.level*14 + h.sp*0.5, 'magic'); u.addBuff({id:'chill', dur:2.2, slow:0.5}); });
+        A.fx({type:'ring', x:h.x, y:h.y, r0:20, r1:260, dur:0.45, color:'#8fe6ff'});
+        Sfx.play('skill');
+      }},
+    { name:'Glacial Tomb', icon:'❆', cd:42, mana:130, range:560,
+      desc:'Call a blizzard on an area: sustained magic damage and a deep chill.',
+      cast(h,aim){
+        A.zone(h, aim.tx, aim.ty, { r:200, dur:3.5, tick:0.5, color:'#5fd0ff',
+          onTick(u){ A.damage(h, u, 34 + h.level*6 + h.sp*0.28, 'magic'); u.addBuff({id:'chill', dur:0.7, slow:0.45}); } });
+        A.fx({type:'ring', x:aim.tx, y:aim.ty, r0:30, r1:200, dur:0.5, color:'#8fe6ff'});
+        Sfx.play('ult');
+      }},
+  ],
+  onBasicHit(h,t){
+    if (t.hasBuff && t.hasBuff('chill')) {
+      A.damage(h, t, 30 + h.level*7 + h.sp*0.45, 'magic');
+      A.fx({type:'flash', x:t.x, y:t.y, r0:26, dur:0.2, color:'#8fe6ff'});
+    }
+  },
+},
 ];
 
 function heroById(id){ return HEROES.find(h => h.id === id); }
 
-const HERO_INITIAL = { kael:'K', nyra:'N', grom:'G', lyra:'L', vex:'V', thane:'T' };
+const HERO_INITIAL = { kael:'K', nyra:'N', grom:'G', lyra:'L', vex:'V', thane:'T', isolde:'I' };
