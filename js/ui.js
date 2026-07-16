@@ -117,49 +117,106 @@ const UI = {
   selectedHero: 'kael',
   selectedSpell: 'flicker',
   buildHeroSelect() {
+    if (this._lobbyBuilt) return;
+    this._lobbyBuilt = true;
     const grid = this.els.heroGrid;
     grid.innerHTML = '';
+    this.heroCards = {};
+
+    // ---- roster cards ----
     for (const h of HEROES) {
       const card = document.createElement('div');
       card.className = 'heroCard';
-      card.dataset.id = h.id;
+      card.dataset.id = h.id; card.dataset.role = h.role;
       const cv = document.createElement('canvas');
       cv.width = 120; cv.height = 120;
       const c = cv.getContext('2d');
-      // spotlight backdrop
       const g = c.createRadialGradient(60, 50, 8, 60, 60, 55);
       g.addColorStop(0, 'rgba(255,255,255,0.14)');
       g.addColorStop(0.6, lighten(h.color, 0.05) + '');
       g.addColorStop(1, 'rgba(0,0,0,0)');
-      c.globalAlpha = 0.35;
-      c.fillStyle = g;
+      c.globalAlpha = 0.35; c.fillStyle = g;
       c.beginPath(); c.arc(60, 60, 55, 0, 7); c.fill();
       c.globalAlpha = 1;
       drawHeroCardArt(c, h, 60, 104, 1.5);
       card.appendChild(cv);
-      const nm = document.createElement('div');
-      nm.className = 'heroName';
-      nm.textContent = h.name;
-      const rl = document.createElement('div');
-      rl.className = 'heroRole';
-      rl.textContent = h.role;
+      const nm = document.createElement('div'); nm.className = 'heroName'; nm.textContent = h.name;
+      const rl = document.createElement('div'); rl.className = 'heroRole'; rl.textContent = h.role;
       card.appendChild(nm); card.appendChild(rl);
-      card.addEventListener('click', () => {
-        this.selectedHero = h.id;
-        document.querySelectorAll('.heroCard').forEach(x => x.classList.toggle('sel', x.dataset.id === h.id));
-        this.els.selInfo.innerHTML =
-          '<b>' + h.name + ' — ' + h.title + '</b> · ' + h.role + '<br>' +
-          '<span class="passive">Passive: ' + h.passive + '</span><br>' +
-          h.skills.map((s, i) => '<span class="sk"><b>' + ['S1','S2','ULT'][i] + ' ' + s.name + ':</b> ' + s.desc + '</span>').join('<br>');
-      });
+      card.addEventListener('click', () => this.selectHero(h.id));
       grid.appendChild(card);
+      this.heroCards[h.id] = card;
     }
-    grid.firstChild.click();
-    this.buildSpellPicker();
-    this.els.btnStart.addEventListener('click', () => {
-      Sfx.ensure();
-      Game.start(this.selectedHero);
+
+    // ---- role filter tabs ----
+    const roles = ['All', ...Array.from(new Set(HEROES.map(h => h.role)))];
+    const tabs = document.createElement('div'); tabs.id = 'roleTabs';
+    roles.forEach((role, i) => {
+      const t = document.createElement('div');
+      t.className = 'roleTab' + (i === 0 ? ' sel' : '');
+      t.textContent = role; t.dataset.role = role;
+      t.addEventListener('click', () => {
+        tabs.querySelectorAll('.roleTab').forEach(x => x.classList.toggle('sel', x === t));
+        for (const h of HEROES) this.heroCards[h.id].style.display = (role === 'All' || h.role === role) ? '' : 'none';
+      });
+      tabs.appendChild(t);
     });
+
+    // ---- left showcase panel ----
+    const show = document.createElement('div'); show.id = 'heroShowcase';
+    show.innerHTML =
+      '<canvas id="showArt" width="240" height="210"></canvas>' +
+      '<div id="showName"></div><div id="showTitle"></div>' +
+      '<div id="showSkills"></div><div id="showDesc"></div>';
+
+    // ---- right roster panel ----
+    const roster = document.createElement('div'); roster.id = 'heroRoster';
+    roster.appendChild(tabs);
+    roster.appendChild(grid);
+
+    // ---- assemble two-column lobby ----
+    const main = document.createElement('div'); main.id = 'lobbyMain';
+    main.appendChild(show); main.appendChild(roster);
+    const box = this.els.btnStart.parentNode; // .selBox
+    box.insertBefore(main, this.els.selInfo);
+    this.els.selInfo.style.display = 'none';
+
+    // battle-spell picker + start button live under the roster
+    this.buildSpellPicker();
+    const sp = document.getElementById('spellPick');
+    if (sp) roster.appendChild(sp);
+    roster.appendChild(this.els.btnStart);
+
+    this.selectHero(HEROES[0].id);
+    this.els.btnStart.addEventListener('click', () => { Sfx.ensure(); Game.start(this.selectedHero); });
+  },
+
+  selectHero(id) {
+    this.selectedHero = id;
+    const h = heroById(id);
+    if (this.heroCards) Object.values(this.heroCards).forEach(c => c.classList.toggle('sel', c.dataset.id === id));
+    const cv = document.getElementById('showArt');
+    if (cv) {
+      const c = cv.getContext('2d');
+      c.clearRect(0, 0, cv.width, cv.height);
+      const g = c.createRadialGradient(120, 78, 10, 120, 110, 140);
+      g.addColorStop(0, lighten(h.color, 0.14));
+      g.addColorStop(0.65, 'rgba(20,30,45,0.35)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      c.globalAlpha = 0.55; c.fillStyle = g;
+      c.beginPath(); c.arc(120, 105, 130, 0, 7); c.fill();
+      c.globalAlpha = 1;
+      drawHeroCardArt(c, h, 120, 196, 3.1);
+    }
+    const set = (sel, html) => { const el = document.getElementById(sel); if (el) el.innerHTML = html; };
+    set('showName', h.name);
+    set('showTitle', '<span>' + h.title + '</span> · <b style="color:' + h.color + '">' + h.role + '</b>');
+    set('showSkills', h.skills.map((s, i) =>
+      '<div class="showSkill"><span class="ssIcon">' + s.icon + '</span><span class="ssLbl">' + ['S1','S2','ULT'][i] + '</span></div>'
+    ).join(''));
+    set('showDesc',
+      '<div class="dLine"><b class="dPassive">PASSIVE</b> ' + h.passive + '</div>' +
+      h.skills.map((s, i) => '<div class="dLine"><b>' + ['S1','S2','ULT'][i] + ' · ' + s.name + '</b> ' + s.desc + '</div>').join(''));
   },
 
   // battle-spell chooser on the hero-select screen (built once)

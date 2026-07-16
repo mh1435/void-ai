@@ -79,7 +79,7 @@ html, body {
    whole panel fits without scrolling on a short landscape-phone browser
    viewport — the usual case where a browser's address bar eats a big
    fraction of the available height */
-.selBox { text-align: center; padding: clamp(8px, 2vh, 20px) 20px; max-width: 860px; width: 100%; }
+.selBox { text-align: center; padding: clamp(8px, 2vh, 20px) 20px; max-width: 1180px; width: 100%; }
 .logo {
   font-size: clamp(24px, min(7vw, 6vh), 60px); letter-spacing: 8px; font-weight: 800;
   color: #fff; text-shadow: 0 0 30px rgba(125, 249, 255, 0.6);
@@ -91,8 +91,8 @@ html, body {
   font-size: clamp(11px, 1.8vh, 15px);
 }
 #heroGrid {
-  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: clamp(5px, 1.2vh, 10px);
-  max-width: 820px; margin: 0 auto clamp(6px, 1.4vh, 12px);
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(62px, 9vh, 92px), 1fr));
+  gap: clamp(5px, 1.1vh, 9px); width: 100%; max-width: 760px; margin: 0 auto clamp(6px, 1.2vh, 10px);
 }
 .heroCard {
   width: 100%; padding: clamp(6px, 1.2vh, 10px) 4px clamp(5px, 1vh, 8px); border-radius: 12px; cursor: pointer;
@@ -555,3 +555,49 @@ html, body {
 .mvpBanner .mvpKda { font-size: 15px; color: #cdd7e2; font-weight: 700; }
 .endTables { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
 tr.mvpRow td { background: rgba(255,209,102,0.10); }
+
+/* ================= HERO-SELECT LOBBY (two-panel) ================= */
+#lobbyMain {
+  display: flex; gap: clamp(10px, 1.8vh, 20px); align-items: stretch;
+  text-align: left; margin-bottom: clamp(5px, 1.2vh, 12px);
+}
+#heroShowcase {
+  flex: 0 0 33%; display: flex; flex-direction: column; align-items: center;
+  background: linear-gradient(180deg, rgba(20,30,46,0.55), rgba(8,13,20,0.5));
+  border: 1px solid var(--edge); border-radius: 14px;
+  padding: clamp(7px, 1.4vh, 15px); box-shadow: var(--panelShadow);
+}
+#showArt { width: clamp(104px, 20vh, 190px); height: auto; }
+#showName { font-size: clamp(17px, 2.8vh, 26px); font-weight: 800; letter-spacing: 1px; margin-top: 2px; color: #fff; }
+#showTitle { font-size: clamp(10px, 1.5vh, 14px); color: #8fa3b8; margin-bottom: clamp(4px, 0.9vh, 8px); }
+#showTitle b { letter-spacing: 1px; }
+#showSkills { display: flex; gap: clamp(5px, 1vh, 9px); justify-content: center; margin-bottom: clamp(5px, 1vh, 9px); }
+.showSkill {
+  width: clamp(32px, 5.2vh, 46px); height: clamp(32px, 5.2vh, 46px); border-radius: 10px;
+  background: radial-gradient(circle at 35% 30%, #1c3550, #0c1725);
+  border: 1.5px solid rgba(125,249,255,0.4);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.showSkill .ssIcon { font-size: clamp(14px, 2.2vh, 20px); line-height: 1; }
+.showSkill .ssLbl { font-size: 8px; color: #7df9ff; letter-spacing: 1px; margin-top: 1px; }
+#showDesc {
+  font-size: clamp(10px, 1.35vh, 12.5px); color: #b8c6d4; line-height: 1.32; text-align: left;
+  overflow-y: auto; max-height: clamp(58px, 13vh, 150px); width: 100%;
+}
+#showDesc .dLine { margin-bottom: 3px; }
+#showDesc b { color: #7df9ff; }
+#showDesc b.dPassive { color: #ffd166; }
+
+#heroRoster { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+#roleTabs { display: flex; gap: clamp(4px, 0.8vh, 7px); flex-wrap: wrap; justify-content: center; margin-bottom: clamp(6px, 1.1vh, 10px); }
+.roleTab {
+  font-size: clamp(9px, 1.4vh, 13px); letter-spacing: 1px; cursor: pointer;
+  padding: clamp(3px, 0.6vh, 6px) clamp(8px, 1.3vh, 14px); border-radius: 16px;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #b8c6d4;
+  transition: border-color 0.15s, background 0.15s;
+}
+.roleTab.sel { background: rgba(125,249,255,0.16); border-color: #7df9ff; color: #fff; }
+
+/* the battle-spell picker + start button sit under the roster column */
+#heroRoster #spellPick { margin: 2px auto clamp(5px,1vh,10px); }
+#heroRoster #btnStart { margin-top: 2px; }
