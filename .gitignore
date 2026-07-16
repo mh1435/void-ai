@@ -1,0 +1,4 @@
+
+# Python bytecode from running the local static server
+__pycache__/
+*.pyc
