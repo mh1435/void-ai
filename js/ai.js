@@ -71,6 +71,37 @@ function botThink(h) {
       h.cast(2, aim);
     }
   }
+
+  botBattleSpell(h);
+}
+
+// bots use their battle spell situationally, matched to what it does
+function botBattleSpell(h) {
+  if (!h.bsReady()) return;
+  const hpFrac = h.hp / h.hpMax();
+  const enemyHero = nearestEnemy(h, 520, u => u.type === 'hero');
+  switch (h.battleSpell) {
+    case 'heal':
+      if (hpFrac < 0.4 && enemyHero) h.castBattleSpell(null);
+      break;
+    case 'execute':
+      if (enemyHero && enemyHero.hp < enemyHero.hpMax() * 0.42) h.castBattleSpell(aimAt(h, enemyHero));
+      break;
+    case 'flicker':
+      // blink toward base to escape when cornered while retreating
+      if (h.aiState === 'retreat' && nearestEnemy(h, 340, u => u.type === 'hero')) {
+        const c = CORES[h.team];
+        const a = Math.atan2(c.y - h.y, c.x - h.x);
+        h.castBattleSpell({ dx: Math.cos(a), dy: Math.sin(a) });
+      }
+      break;
+    case 'sprint':
+      if ((h.aiState === 'retreat' && hpFrac < 0.5) ||
+          (h.aiState === 'fight' && enemyHero && dist(h, enemyHero) > 280)) {
+        h.castBattleSpell(null);
+      }
+      break;
+  }
 }
 
 function botAct(h, dt) {

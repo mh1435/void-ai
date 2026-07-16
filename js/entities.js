@@ -338,6 +338,8 @@ class Hero extends Unit {
     this.cds = [0, 0, 0];
     this.skillLv = [1, 0, 0];   // S1 learned at spawn; spend points on the rest
     this.skillPoints = 0;
+    this.battleSpell = null;    // equipped battle-spell id (set by game.js at spawn)
+    this.bsCd = 0;              // battle-spell cooldown remaining
     this.kills = 0; this.deaths = 0; this.assists = 0; this.cs = 0;
     this.streak = 0;
     this.recallT = 0;
@@ -424,6 +426,19 @@ class Hero extends Unit {
     return true;
   }
 
+  bsReady() { return !!this.battleSpell && this.bsCd <= 0 && !this.dead && !this.stunned; }
+
+  castBattleSpell(aim) {
+    if (!this.bsReady()) return false;
+    const sp = battleSpellById(this.battleSpell);
+    if (!sp) return false;
+    const a = aim || { dx: Math.cos(this.facing), dy: Math.sin(this.facing) };
+    if (sp.cast(this, a) === false) return false; // no valid target — not consumed
+    this.bsCd = sp.cd * (1 - this.cdr * 0.5);
+    this.recallT = 0;
+    return true;
+  }
+
   buyItem(item) {
     if (this.items.length >= CFG.maxItems || this.gold < item.cost) return false;
     this.gold -= item.cost;
@@ -449,6 +464,7 @@ class Hero extends Unit {
     this.computeStats();
     this.atkTimer = Math.max(0, this.atkTimer - dt);
     for (let i = 0; i < 3; i++) this.cds[i] = Math.max(0, this.cds[i] - dt);
+    if (this.bsCd > 0) this.bsCd = Math.max(0, this.bsCd - dt);
     this.gold += CFG.passiveGoldPerSec * dt;
 
     // Grom passive

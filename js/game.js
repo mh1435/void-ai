@@ -45,15 +45,19 @@ const Game = {
     const redIds = redPool.slice(0, 5);
 
     const laneAssign = ['top', 'mid', 'bot', 'top', 'bot'];
+    const randSpell = () => BATTLE_SPELLS[(Math.random() * BATTLE_SPELLS.length) | 0].id;
     blueIds.forEach((id, i) => {
       const h = new Hero(heroById(id), 'blue', i === 0);
       h.lane = i === 0 ? 'mid' : laneAssign[i];
+      // player uses their picked spell; everyone else gets a random one
+      h.battleSpell = i === 0 ? (UI.selectedSpell || 'flicker') : randSpell();
       G.units.push(h); G.heroes.push(h);
       if (i === 0) G.player = h;
     });
     redIds.forEach((id, i) => {
       const h = new Hero(heroById(id), 'red', false);
       h.lane = ['mid', 'top', 'bot', 'top', 'bot'][i];
+      h.battleSpell = randSpell();
       G.units.push(h); G.heroes.push(h);
     });
 
@@ -289,6 +293,21 @@ const Game = {
   },
 
   playerRecall() { if (G.player && !G.player.dead) G.player.startRecall(); },
+
+  playerBattleSpell(dragDir) {
+    const h = G.player;
+    if (!h || !h.bsReady()) return;
+    let dx, dy;
+    if (dragDir) { dx = dragDir.dx; dy = dragDir.dy; }
+    else if (Input.joy.active && (Input.joy.dx || Input.joy.dy)) {
+      const d = Math.hypot(Input.joy.dx, Input.joy.dy) || 1; dx = Input.joy.dx/d; dy = Input.joy.dy/d;
+    } else {
+      const t = nearestEnemy(h, 520, u => u.type === 'hero');
+      if (t) { const d = dist(h, t) || 1; dx = (t.x - h.x)/d; dy = (t.y - h.y)/d; }
+      else { dx = Math.cos(h.facing); dy = Math.sin(h.facing); }
+    }
+    h.castBattleSpell({ dx, dy });
+  },
 
   playerBuy() {
     const h = G.player;

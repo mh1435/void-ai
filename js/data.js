@@ -116,6 +116,55 @@ const ITEMS = [
 ];
 function itemById(id){ return ITEMS.find(i => i.id === id); }
 
+// ---------------- Battle Spells ----------------
+// MLBB-style equippable "summoner" spells, independent of the hero's own kit:
+// one per hero, long cooldown, chosen in hero-select. cast(h, aim) returns
+// false to abort (spell not consumed) when there's no valid target.
+const BATTLE_SPELLS = [
+  { id:'flicker', name:'Flicker', icon:'✦', cd:100,
+    desc:'Blink a short distance in the aimed direction — the ultimate escape or engage.',
+    cast(h, aim){
+      const range = 300;
+      // don't blink into walls/out of the world
+      const nx = clamp(h.x + aim.dx*range, 40, WORLD-40);
+      const ny = clamp(h.y + aim.dy*range, 40, WORLD-40);
+      A.fx({type:'ring', x:h.x, y:h.y, r0:36, r1:8, dur:0.25, color:'#8fd8ff'});
+      h.x = nx; h.y = ny;
+      A.fx({type:'ring', x:h.x, y:h.y, r0:8, r1:44, dur:0.3, color:'#8fd8ff'});
+      Sfx.play('dash');
+    }},
+  { id:'execute', name:'Execute', icon:'☠', cd:75,
+    desc:'Deal heavy true damage to a nearby enemy hero, scaling with their missing HP. A finisher.',
+    cast(h, aim){
+      const t = A.pickHero(h, aim, 480);
+      if (!t) return false;
+      const missing = t.hpMax() - t.hp;
+      A.damage(h, t, 150 + h.level*10 + missing*0.18, 'true');
+      A.fx({type:'ring', x:t.x, y:t.y, r0:10, r1:110, dur:0.35, color:'#ff5c5c'});
+      A.fx({type:'flash', x:t.x, y:t.y, r0:34, dur:0.2, color:'#ff9c6b'});
+      Sfx.play('ult');
+    }},
+  { id:'sprint', name:'Sprint', icon:'»', cd:80,
+    desc:'Surge forward: big burst of Move Speed for 4s and cleanse all slows.',
+    cast(h, aim){
+      // clear existing slows, then apply a haste buff
+      h.buffs = h.buffs.filter(b => !b.slow);
+      h.addBuff({ id:'sprint', dur:4, msMult:1.45 });
+      A.fx({type:'ring', x:h.x, y:h.y, r0:20, r1:80, dur:0.4, color:'#7dff9b'});
+      Sfx.play('recall');
+    }},
+  { id:'heal', name:'Restore', icon:'✚', cd:100,
+    desc:'Instantly restore HP to yourself and nearby allied heroes.',
+    cast(h, aim){
+      const amt = 240 + h.level*22;
+      A.heal(h, h, amt);
+      A.aoeAlly(h, h.x, h.y, 320, u => { if (u !== h) A.heal(h, u, amt*0.7); });
+      A.fx({type:'ring', x:h.x, y:h.y, r0:20, r1:130, dur:0.5, color:'#7dff9b'});
+      Sfx.play('level');
+    }},
+];
+function battleSpellById(id){ return BATTLE_SPELLS.find(s => s.id === id); }
+
 // ---------------- Heroes ----------------
 // stat arrays are [base, perLevel]
 const HEROES = [

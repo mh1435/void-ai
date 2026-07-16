@@ -99,6 +99,7 @@ const UI = {
 
   // ---------- hero select ----------
   selectedHero: 'kael',
+  selectedSpell: 'flicker',
   buildHeroSelect() {
     const grid = this.els.heroGrid;
     grid.innerHTML = '';
@@ -138,10 +139,40 @@ const UI = {
       grid.appendChild(card);
     }
     grid.firstChild.click();
+    this.buildSpellPicker();
     this.els.btnStart.addEventListener('click', () => {
       Sfx.ensure();
       Game.start(this.selectedHero);
     });
+  },
+
+  // battle-spell chooser on the hero-select screen (built once)
+  buildSpellPicker() {
+    if (this._spellPickBuilt) return;
+    this._spellPickBuilt = true;
+    const box = this.els.btnStart.parentNode; // .selBox
+    const wrap = document.createElement('div');
+    wrap.id = 'spellPick';
+    const label = document.createElement('div');
+    label.className = 'spellPickLabel';
+    label.textContent = 'BATTLE SPELL';
+    wrap.appendChild(label);
+    const row = document.createElement('div');
+    row.className = 'spellPickRow';
+    BATTLE_SPELLS.forEach(sp => {
+      const el = document.createElement('div');
+      el.className = 'spellOpt' + (sp.id === this.selectedSpell ? ' sel' : '');
+      el.dataset.id = sp.id;
+      el.innerHTML = '<span class="spIcon">' + sp.icon + '</span><span class="spName">' + sp.name + '</span>';
+      el.title = sp.desc;
+      el.addEventListener('click', () => {
+        this.selectedSpell = sp.id;
+        row.querySelectorAll('.spellOpt').forEach(x => x.classList.toggle('sel', x.dataset.id === sp.id));
+      });
+      row.appendChild(el);
+    });
+    wrap.appendChild(row);
+    box.insertBefore(wrap, this.els.btnStart);
   },
 
   onGameStart() {
@@ -149,6 +180,12 @@ const UI = {
     this.els.end.style.display = 'none';
     this.els.hud.style.display = 'block';
     this.buildSkillButtons();
+    this.buildSpellButton();
+    if (this.spellBtn) {
+      const sp = battleSpellById(G.player.battleSpell);
+      this.spellBtn.querySelector('.icon').textContent = sp ? sp.icon : '';
+      this.spellBtn.title = sp ? sp.name : '';
+    }
     this.buildShop();
     // portrait: the hero's character bust
     const c = this.els.portGlyph.getContext('2d');
@@ -253,6 +290,41 @@ const UI = {
     });
   },
 
+  // ---------- battle-spell button (tap = smart cast, drag = aim, e.g. Flicker) ----------
+  buildSpellButton() {
+    if (this.spellBtn) return;
+    const actions = document.getElementById('actions');
+    const b = document.createElement('div');
+    b.id = 'btnSpell';
+    b.innerHTML = '<span class="icon"></span><div class="cdOverlay"></div><div class="cdText"></div>';
+    actions.appendChild(b);
+    this.spellBtn = b;
+    let pid = null, sx = 0, sy = 0, dragging = false;
+    b.addEventListener('pointerdown', e => {
+      e.preventDefault(); Sfx.ensure();
+      pid = e.pointerId; sx = e.clientX; sy = e.clientY; dragging = false;
+      b.setPointerCapture(pid);
+    });
+    b.addEventListener('pointermove', e => {
+      if (e.pointerId !== pid) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (Math.hypot(dx, dy) > 22) {
+        dragging = true;
+        const d = Math.hypot(dx, dy);
+        G.aimPreview = { dx: dx/d, dy: dy/d, range: 300, skill: 'spell' };
+      }
+    });
+    const fin = e => {
+      if (e.pointerId !== pid) return;
+      pid = null;
+      if (dragging && G.aimPreview) Game.playerBattleSpell({ dx: G.aimPreview.dx, dy: G.aimPreview.dy });
+      else Game.playerBattleSpell(null);
+      G.aimPreview = null;
+    };
+    b.addEventListener('pointerup', fin);
+    b.addEventListener('pointercancel', e => { if (e.pointerId === pid) { pid = null; G.aimPreview = null; } });
+  },
+
   bindButtons() {
     const atk = this.els.btnAttack;
     atk.addEventListener('pointerdown', e => { e.preventDefault(); Sfx.ensure(); Input.attackHeld = true; });
@@ -290,6 +362,7 @@ const UI = {
       if (k === '3') Game.playerCast(2, this.mouseAim());
       if (k === ' ') Input.attackHeld = true;
       if (k === 'b') Game.playerRecall();
+      if (k === 'd') Game.playerBattleSpell(this.mouseAim());
       if (k === 'f') { Game.playerBuy(); this.refreshShop(); }
       if (k === 'p') this.els.btnShop.click();
       if (k === 'tab') { e.preventDefault(); this.els.btnScore.click(); }
@@ -452,6 +525,18 @@ const UI = {
       });
     }
     this.els.lvlBadge.classList.toggle('hasPoints', p.skillPoints > 0);
+
+    // battle-spell button
+    if (this.spellBtn && p.battleSpell) {
+      const sp = battleSpellById(p.battleSpell);
+      const ov = this.spellBtn.querySelector('.cdOverlay');
+      const tx = this.spellBtn.querySelector('.cdText');
+      if (p.bsCd > 0 && sp) {
+        ov.style.height = clamp(p.bsCd / (sp.cd * (1 - p.cdr * 0.5)) * 100, 0, 100) + '%';
+        tx.textContent = Math.ceil(p.bsCd);
+      } else { ov.style.height = '0%'; tx.textContent = ''; }
+      this.spellBtn.classList.toggle('ready', p.bsCd <= 0 && !p.dead);
+    }
 
     // low-HP warning vignette
     this.els.lowHp.style.opacity = (!p.dead && p.hp < p.hpMax() * 0.3) ? 1 : 0;
