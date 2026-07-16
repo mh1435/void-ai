@@ -181,6 +181,7 @@ const UI = {
     this.els.hud.style.display = 'block';
     this.buildSkillButtons();
     this.buildSpellButton();
+    this.buildBuffRow();
     if (this.spellBtn) {
       const sp = battleSpellById(G.player.battleSpell);
       this.spellBtn.querySelector('.icon').textContent = sp ? sp.icon : '';
@@ -323,6 +324,15 @@ const UI = {
     };
     b.addEventListener('pointerup', fin);
     b.addEventListener('pointercancel', e => { if (e.pointerId === pid) { pid = null; G.aimPreview = null; } });
+  },
+
+  // ---------- active-buff indicator ----------
+  buildBuffRow() {
+    if (this.buffRow) return;
+    const row = document.createElement('div');
+    row.id = 'buffRow';
+    this.els.hud.appendChild(row);
+    this.buffRow = row;
   },
 
   bindButtons() {
@@ -536,6 +546,21 @@ const UI = {
         tx.textContent = Math.ceil(p.bsCd);
       } else { ov.style.height = '0%'; tx.textContent = ''; }
       this.spellBtn.classList.toggle('ready', p.bsCd <= 0 && !p.dead);
+    }
+
+    // active-buff indicator
+    if (this.buffRow) {
+      const icons = {
+        buff_crimson: ['⚔', '#ff6a4d'], buff_azure: ['◆', '#4db8ff'],
+        bosspower: ['☯', '#c77dff'], sprint: ['»', '#7dff9b'],
+      };
+      let html = '';
+      for (const b of p.buffs) {
+        const ic = icons[b.id];
+        if (ic) html += '<span class="buffPip" style="border-color:' + ic[1] + ';color:' + ic[1] +
+          '">' + ic[0] + '<b>' + Math.ceil(b.t) + '</b></span>';
+      }
+      this.buffRow.innerHTML = html;
     }
 
     // low-HP warning vignette

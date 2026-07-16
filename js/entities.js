@@ -697,6 +697,7 @@ class JungleMonster extends Unit {
     super({ team:'jungle', type:'jungle', radius: boss ? 46 : 26, melee:true });
     this.camp = camp;
     this.boss = !!boss;
+    this.buffType = camp.buff || null; // buff-camp reward id, if any
     this.homeX = camp.x; this.homeY = camp.y;
     this.x = camp.x; this.y = camp.y;
     const scale = 1 + G.time / 300 * 0.2;

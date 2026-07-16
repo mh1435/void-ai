@@ -507,3 +507,17 @@ html, body {
   border-color: #d9a6ff;
   box-shadow: 0 0 16px rgba(199,125,255,0.55), inset 0 0 12px rgba(199,125,255,0.15);
 }
+
+/* ================= ACTIVE-BUFF INDICATOR ================= */
+#buffRow {
+  position: absolute; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) scale(var(--ui-scale));
+  display: flex; gap: 6px; pointer-events: none; z-index: 6;
+}
+.buffPip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 7px; border-radius: 8px; font-size: 14px; font-weight: 800;
+  background: rgba(8, 13, 20, 0.82); border: 1.5px solid currentColor;
+  box-shadow: 0 0 8px rgba(0,0,0,0.5);
+}
+.buffPip b { font-size: 11px; color: #e8eef5; font-weight: 700; }

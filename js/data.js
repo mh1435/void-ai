@@ -90,11 +90,20 @@ const ROCKS = [
 ];
 
 const CAMPS = [
-  { x:820,  y:1780 },
+  { x:820,  y:1780, buff:'crimson' }, // blue-side buff camp
   { x:1500, y:2380 },
-  { x:1700, y:820  },
+  { x:1700, y:820,  buff:'azure' },   // red-side buff camp
   { x:2380, y:1500 },
 ];
+
+// Contested buff camps — killing one grants the killer a timed combat buff,
+// a core MOBA reason to fight over the jungle (like MLBB's buff monsters).
+const BUFF_CAMPS = {
+  crimson: { name:'Crimson Fury', color:'#ff6a4d',
+    apply: (h) => h.addBuff({ id:'buff_crimson', dur:70, adMult:1.16, asMult:1.15 }) },
+  azure:   { name:'Azure Aegis', color:'#4db8ff',
+    apply: (h) => h.addBuff({ id:'buff_azure', dur:70, sp:48, armor:22, mr:22 }) },
+};
 
 const BOSS_SPOT = { x:1600, y:1600 };
 
