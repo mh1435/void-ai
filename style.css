@@ -471,3 +471,39 @@ html, body {
 @media (max-width: 480px) {
   #statsMini .cs { display: none; }
 }
+
+/* ================= BATTLE SPELL — hero select picker ================= */
+#spellPick { margin: 6px auto 2px; text-align: center; }
+.spellPickLabel {
+  font-size: clamp(9px, 1.4vh, 12px); letter-spacing: 2px; color: #7df9ff;
+  opacity: 0.8; margin-bottom: 5px; font-weight: 700;
+}
+.spellPickRow { display: flex; gap: clamp(5px, 1vh, 9px); justify-content: center; flex-wrap: wrap; }
+.spellOpt {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: clamp(48px, 8vh, 66px); padding: clamp(4px, 0.9vh, 8px) clamp(6px, 1vh, 10px);
+  background: var(--panel); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
+  cursor: pointer; transition: border-color 0.15s, transform 0.1s;
+}
+.spellOpt:hover { border-color: rgba(125,249,255,0.4); }
+.spellOpt.sel { border-color: #7df9ff; box-shadow: 0 0 12px rgba(125,249,255,0.4); }
+.spellOpt .spIcon { font-size: clamp(16px, 2.6vh, 22px); color: #e0f7ff; line-height: 1; }
+.spellOpt .spName { font-size: clamp(9px, 1.3vh, 12px); color: #b8c6d4; margin-top: 3px; }
+
+/* ================= BATTLE SPELL — HUD button ================= */
+#btnSpell {
+  position: absolute; right: 200px; bottom: 78px;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #3a1c50, #160a25);
+  border: 2px solid rgba(199,125,255,0.55);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; cursor: pointer; overflow: hidden; touch-action: none;
+  box-shadow: 0 5px 12px rgba(0,0,0,0.5), inset 0 2px 3px rgba(255,255,255,0.08);
+  transition: box-shadow 0.25s, border-color 0.25s;
+}
+#btnSpell .icon { pointer-events: none; color: #e9d5ff; text-shadow: 0 0 8px rgba(199,125,255,0.8); }
+#btnSpell:active { transform: scale(0.94); }
+#btnSpell.ready {
+  border-color: #d9a6ff;
+  box-shadow: 0 0 16px rgba(199,125,255,0.55), inset 0 0 12px rgba(199,125,255,0.15);
+}
