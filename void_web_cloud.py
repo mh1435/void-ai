@@ -17,9 +17,15 @@ class GameHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=ROOT, **kwargs)
 
     def end_headers(self):
-        # always fetch the freshest build after a deploy
-        if self.path in ("/", "/index.html"):
-            self.send_header("Cache-Control", "no-cache")
+        # Always revalidate HTML so a deploy is picked up immediately. The HTML
+        # references its scripts with ?v=N query strings, so once the browser
+        # has the fresh HTML it fetches the current JS too. (Previously only
+        # "/" and "/index.html" were no-cache, so 3d.html stayed cached and
+        # kept loading stale script references — the "camera still shifted"
+        # bug that survived deploys.)
+        path = (self.path or "").split("?", 1)[0]
+        if path in ("/", "") or path.endswith(".html"):
+            self.send_header("Cache-Control", "no-cache, must-revalidate")
         super().end_headers()
 
     def log_message(self, fmt, *args):
