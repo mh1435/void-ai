@@ -586,24 +586,17 @@ const Render3D = (() => {
   // this classic script first runs (main3d.js, a deferred module, is what
   // sets window.THREE, and deferred modules execute after classic scripts)
   let camOffset, camTarget;
-  let camSnapped = false; // has the camera locked onto the player yet this match?
+  // Hard-follow camera: every frame, plant the camera at a fixed offset from
+  // the player and look straight at them. No lerp / no state flag — it can't
+  // drift, lag, or freeze, so the hero is ALWAYS dead-centre. (An earlier
+  // lerp+snap version worked in isolation but could get skipped by an early
+  // return in render(); this runs unconditionally and is called before any
+  // early return, so nothing can leave the camera stranded.)
   function updateCamera() {
-    if (!G.player) { camSnapped = false; return; }
+    if (!G.player || !camOffset) return;
     const [x, z] = toScene(G.player.x, G.player.y);
-    const goalPos = new THREE.Vector3(x + camOffset.x, camOffset.y, z + camOffset.z);
-    const goalTgt = new THREE.Vector3(x, 30, z);
-    if (!camSnapped) {
-      // First frame of a match: jump straight onto the hero. Otherwise the
-      // camera would fly in from the map centre and, on a phone / lower frame
-      // rate, the hero (spawned at a far corner) stays off-screen for the
-      // first couple of seconds — which looked like the character not rendering.
-      camera.position.copy(goalPos);
-      camTarget.copy(goalTgt);
-      camSnapped = true;
-    } else {
-      camTarget.lerp(goalTgt, 0.12);
-      camera.position.lerp(goalPos, 0.12);
-    }
+    camTarget.set(x, 30, z);
+    camera.position.set(x + camOffset.x, camOffset.y, z + camOffset.z);
     camera.lookAt(camTarget);
   }
 
@@ -660,6 +653,7 @@ const Render3D = (() => {
   }
 
   function render(dt) {
+    updateCamera(); // FIRST — so the camera tracks the player even on frames that early-return below
     if (!G.running) { renderer.render(scene, camera); return; }
     if (!groundMesh && mapCanvas) buildGround();
     if (!groundMesh) { renderer.render(scene, camera); return; } // one-frame gap while it builds
@@ -668,7 +662,6 @@ const Render3D = (() => {
     syncZones();
     syncFxFromEngine();
     updateFx(dt);
-    updateCamera();
     // updateFogMask() is what actually paints the fogMask canvas each tick —
     // the 2D renderer calls it as part of its own render(), which we never
     // run here, so we call it ourselves to keep the fog-of-war texture live
