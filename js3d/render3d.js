@@ -580,11 +580,24 @@ const Render3D = (() => {
   // this classic script first runs (main3d.js, a deferred module, is what
   // sets window.THREE, and deferred modules execute after classic scripts)
   let camOffset, camTarget;
+  let camSnapped = false; // has the camera locked onto the player yet this match?
   function updateCamera() {
-    if (!G.player) return;
+    if (!G.player) { camSnapped = false; return; }
     const [x, z] = toScene(G.player.x, G.player.y);
-    camTarget.lerp(new THREE.Vector3(x, 30, z), 0.12);
-    camera.position.lerp(new THREE.Vector3(x + camOffset.x, camOffset.y, z + camOffset.z), 0.12);
+    const goalPos = new THREE.Vector3(x + camOffset.x, camOffset.y, z + camOffset.z);
+    const goalTgt = new THREE.Vector3(x, 30, z);
+    if (!camSnapped) {
+      // First frame of a match: jump straight onto the hero. Otherwise the
+      // camera would fly in from the map centre and, on a phone / lower frame
+      // rate, the hero (spawned at a far corner) stays off-screen for the
+      // first couple of seconds — which looked like the character not rendering.
+      camera.position.copy(goalPos);
+      camTarget.copy(goalTgt);
+      camSnapped = true;
+    } else {
+      camTarget.lerp(goalTgt, 0.12);
+      camera.position.lerp(goalPos, 0.12);
+    }
     camera.lookAt(camTarget);
   }
 
