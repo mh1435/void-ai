@@ -500,6 +500,12 @@ const UI = {
     setTimeout(() => el.remove(), 5000);
   },
 
+  // performance score used for MVP + medals (rewards kills/assists/objectives,
+  // penalises deaths) — the same idea as MLBB's post-game rating
+  mvpScore(h) {
+    return h.kills*4 + h.assists*2 - h.deaths*1.5 + h.cs*0.03 + h.level*0.8 + Math.floor(h.gold)*0.001;
+  },
+
   showEnd(won) {
     this.els.end.style.display = 'flex';
     this.els.endTitle.textContent = won ? 'VICTORY' : 'DEFEAT';
@@ -507,15 +513,31 @@ const UI = {
     this.els.endSub.textContent = 'Void Core destroyed at ' +
       Math.floor(G.time/60) + ':' + String(Math.floor(G.time%60)).padStart(2,'0');
 
-    const row = h => '<tr class="' + (h.isPlayer ? 'me' : '') + '">' +
-      '<td class="hn" style="color:' + h.def.color + '">' + h.name + '</td>' +
+    // rank every hero by performance; top 3 get medals, and the highest
+    // scorer on the winning team is the match MVP
+    const ranked = [...G.heroes].sort((a, b) => this.mvpScore(b) - this.mvpScore(a));
+    const medal = new Map();
+    ['🥇', '🥈', '🥉'].forEach((m, i) => { if (ranked[i]) medal.set(ranked[i], m); });
+    const winTeam = won ? G.player.team : (G.player.team === 'blue' ? 'red' : 'blue');
+    const mvp = ranked.find(h => h.team === winTeam) || ranked[0];
+
+    // MVP banner
+    const mvpBanner = '<div class="mvpBanner" style="border-color:' + mvp.def.color + '">' +
+      '<span class="mvpMedal">⭐</span>' +
+      '<span class="mvpLabel">MVP</span>' +
+      '<span class="mvpName" style="color:' + mvp.def.color + '">' + mvp.name + (mvp.isPlayer ? ' (You)' : '') + '</span>' +
+      '<span class="mvpKda">' + mvp.kills + '/' + mvp.deaths + '/' + mvp.assists + '</span>' +
+      '</div>';
+
+    const row = h => '<tr class="' + (h.isPlayer ? 'me' : '') + (h === mvp ? ' mvpRow' : '') + '">' +
+      '<td class="hn" style="color:' + h.def.color + '">' + (medal.get(h) || '') + ' ' + h.name + '</td>' +
       '<td>' + h.level + '</td><td>' + h.kills + '/' + h.deaths + '/' + h.assists + '</td>' +
       '<td>' + h.cs + '</td><td class="gold">' + Math.floor(h.gold) + '</td></tr>';
     const side = (team, label) =>
       '<table class="endTable ' + team + '"><caption>' + label + (team === (G.player.team) ? ' (You)' : '') + '</caption>' +
       '<tr><th>Hero</th><th>Lv</th><th>K/D/A</th><th>CS</th><th>Gold</th></tr>' +
-      G.heroes.filter(h => h.team === team).map(row).join('') + '</table>';
-    this.els.endStats.innerHTML = side('blue', 'Blue Team') + side('red', 'Red Team');
+      G.heroes.filter(h => h.team === team).sort((a,b)=>this.mvpScore(b)-this.mvpScore(a)).map(row).join('') + '</table>';
+    this.els.endStats.innerHTML = mvpBanner + '<div class="endTables">' + side('blue', 'Blue Team') + side('red', 'Red Team') + '</div>';
   },
 
   // ---------- per-frame HUD refresh ----------
