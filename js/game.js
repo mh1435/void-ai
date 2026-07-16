@@ -1463,6 +1463,17 @@ function drawHeroHead(ctx, id) {
       ctx.beginPath(); ctx.moveTo(-8, -53); ctx.lineTo(-11, -63); ctx.lineTo(-3, -56); ctx.closePath(); ctx.fill();
       ctx.beginPath(); ctx.moveTo(8, -53); ctx.lineTo(11, -63); ctx.lineTo(3, -56); ctx.closePath(); ctx.fill();
       break;
+    case 'isolde': { // frost hood + ice crown
+      ctx.fillStyle = '#bfeaff';
+      ctx.beginPath(); ctx.arc(0, -49, 10, Math.PI*0.85, Math.PI*2.15); ctx.fill();
+      ctx.fillRect(-10, -50, 4, 15); ctx.fillRect(6, -50, 4, 15);
+      ctx.fillStyle = '#5fd0ff';
+      ctx.beginPath();
+      ctx.moveTo(-6, -56); ctx.lineTo(-4, -64); ctx.lineTo(-1, -57);
+      ctx.lineTo(0, -66); ctx.lineTo(1, -57); ctx.lineTo(4, -64); ctx.lineTo(6, -56);
+      ctx.closePath(); ctx.fill();
+      break;
+    }
   }
 }
 
@@ -1535,6 +1546,17 @@ function drawHeroWeapon(ctx, h, side) {
         ctx.beginPath(); ctx.moveTo(side*15 + i*3, -22); ctx.lineTo(side*(19 + reach) + i*3, -12); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(-side*15 + i*3, -22); ctx.lineTo(-side*19 + i*3, -12); ctx.stroke();
       }
+      break;
+    }
+    case 'isolde': { // frost staff with a crystalline shard
+      ctx.strokeStyle = '#3a6a8f'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(side*16, -8); ctx.lineTo(side*16, -50); ctx.stroke();
+      ctx.fillStyle = '#bfeaff';
+      ctx.shadowColor = '#5fd0ff'; ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(side*16, -62); ctx.lineTo(side*16 + 5, -53); ctx.lineTo(side*16, -49);
+      ctx.lineTo(side*16 - 5, -53); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
       break;
     }
   }
@@ -1639,6 +1661,20 @@ function drawHeroGlyph(ctx, id, x, y, r, facing) {
       ctx.fillStyle = '#fef08a';
       ctx.beginPath(); ctx.arc(-r*0.2, -r*0.15, 3.5, 0, 7); ctx.fill();
       ctx.beginPath(); ctx.arc(r*0.2, -r*0.15, 3.5, 0, 7); ctx.fill();
+      break;
+    case 'isolde': // snowflake
+      ctx.strokeStyle = '#bfeaff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      for (let i = 0; i < 6; i++) {
+        const a = i * Math.PI / 3;
+        const ex = Math.cos(a)*r*0.7, ey = Math.sin(a)*r*0.7;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(ex, ey); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(ex*0.6, ey*0.6); ctx.lineTo(ex*0.6 + Math.cos(a+0.6)*r*0.18, ey*0.6 + Math.sin(a+0.6)*r*0.18);
+        ctx.moveTo(ex*0.6, ey*0.6); ctx.lineTo(ex*0.6 + Math.cos(a-0.6)*r*0.18, ey*0.6 + Math.sin(a-0.6)*r*0.18);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#5fd0ff';
+      ctx.beginPath(); ctx.arc(0, 0, r*0.22, 0, 7); ctx.fill();
       break;
   }
   ctx.restore();
