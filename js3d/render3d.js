@@ -392,7 +392,11 @@ const Render3D = (() => {
         jitterGeometry(g, 0.22);
         return g;
       });
-      const mat = new THREE.MeshStandardMaterial({ color: u.boss ? 0x4a2a63 : 0x4d3a5e, roughness: 0.75, flatShading: true, emissive: 0xc77dff, emissiveIntensity: 0.12 });
+      const buffHex = (u.buffType && typeof BUFF_CAMPS !== 'undefined' && BUFF_CAMPS[u.buffType])
+        ? new THREE.Color(BUFF_CAMPS[u.buffType].color).getHex() : 0xc77dff;
+      const mat = new THREE.MeshStandardMaterial({
+        color: u.boss ? 0x4a2a63 : (u.buffType ? new THREE.Color(buffHex).multiplyScalar(0.4).getHex() : 0x4d3a5e),
+        roughness: 0.75, flatShading: true, emissive: buffHex, emissiveIntensity: u.buffType ? 0.3 : 0.12 });
       const body = new THREE.Mesh(bodyGeo, mat);
       body.scale.setScalar(26 * s); body.position.y = 26 * s; body.castShadow = true;
       group.add(body);

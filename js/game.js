@@ -203,6 +203,14 @@ const Game = {
       } else {
         if (killerHero) killerHero.gold += CFG.jungleGold;
         shareXp(u, CFG.jungleXp);
+        // buff camps grant the killer a timed combat buff
+        if (u.buffType && killerHero) {
+          const bc = BUFF_CAMPS[u.buffType];
+          if (bc) {
+            bc.apply(killerHero);
+            if (killerHero === G.player) UI.announce(bc.name + ' — buff claimed!', bc.color);
+          }
+        }
         const c = G.camps.find(c => c.mon === u);
         if (c) c.respawn = CFG.jungleRespawn;
       }
@@ -1246,6 +1254,7 @@ function drawUnit(ctx, u) {
   }
 
   if (u.type === 'jungle') {
+    const acc = (u.buffType && BUFF_CAMPS[u.buffType]) ? BUFF_CAMPS[u.buffType].color : '#c77dff';
     const lift = u.boss ? 26 : 16;
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath(); ctx.ellipse(gx, gy, u.radius*1.05, u.radius*0.42, 0, 0, 7); ctx.fill();
@@ -1254,7 +1263,7 @@ function drawUnit(ctx, u) {
     jg.addColorStop(1, u.boss ? '#3a1f52' : '#3c2c4d');
     ctx.fillStyle = jg;
     ctx.beginPath(); ctx.arc(gx, gy - lift, u.radius, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#c77dff'; ctx.lineWidth = u.boss ? 5 : 3;
+    ctx.strokeStyle = acc; ctx.lineWidth = u.boss ? 5 : (u.buffType ? 4 : 3);
     ctx.beginPath(); ctx.arc(gx, gy - lift, u.radius, 0, 7); ctx.stroke();
     // horns
     ctx.fillStyle = u.boss ? '#9d4edd' : '#7b5a99';
@@ -1269,8 +1278,8 @@ function drawUnit(ctx, u) {
     ctx.lineTo(gx + u.radius*0.25, gy - lift - u.radius*0.8);
     ctx.closePath(); ctx.fill();
     // eyes toward facing
-    ctx.fillStyle = '#e0aaff';
-    ctx.shadowColor = '#c77dff'; ctx.shadowBlur = 8;
+    ctx.fillStyle = u.buffType ? acc : '#e0aaff';
+    ctx.shadowColor = acc; ctx.shadowBlur = 8;
     const ex = Math.cos(u.facing)*u.radius*0.35, ey = Math.sin(u.facing)*u.radius*0.2;
     ctx.beginPath(); ctx.arc(gx + ex - 6, gy - lift + ey, u.boss ? 7 : 4, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.arc(gx + ex + 6, gy - lift + ey, u.boss ? 7 : 4, 0, 7); ctx.fill();
