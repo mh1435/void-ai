@@ -928,22 +928,41 @@ function render(ctx) {
     ctx.restore();
   }
 
-  // aim preview projected onto the ground
+  // aim preview: MOBA-style range ring + filled directional arrow + reticle
   if (G.aimPreview && !G.player.dead) {
     const ap = G.aimPreview;
     const h = G.player;
+    const ang = Math.atan2(ap.dy, ap.dx);
     const ex = h.x + ap.dx*ap.range, ey = h.y + ap.dy*ap.range;
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = 5;
-    ctx.setLineDash([16, 12]);
+    ctx.save();
+    // skill range ring around the hero
+    ctx.strokeStyle = 'rgba(125,249,255,0.35)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(h.x, h.y*YS, ap.range, ap.range*YS, 0, 0, 7); ctx.stroke();
+    ctx.fillStyle = 'rgba(125,249,255,0.05)';
+    ctx.beginPath(); ctx.ellipse(h.x, h.y*YS, ap.range, ap.range*YS, 0, 0, 7); ctx.fill();
+    // filled arrow: shaft + head pointing at the target
+    ctx.translate(h.x, h.y*YS);
+    ctx.scale(1, YS);
+    ctx.rotate(ang);
+    const len = Math.max(30, ap.range - 42);
+    const grad = ctx.createLinearGradient(0, 0, len + 40, 0);
+    grad.addColorStop(0, 'rgba(125,249,255,0.12)');
+    grad.addColorStop(1, 'rgba(125,249,255,0.55)');
+    ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(h.x, h.y*YS);
-    ctx.lineTo(ex, ey*YS);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.ellipse(ex, ey*YS, 30, 30*YS, 0, 0, 7);
-    ctx.stroke();
+    ctx.moveTo(20, -10); ctx.lineTo(len, -14); ctx.lineTo(len, -26);
+    ctx.lineTo(len + 42, 0);
+    ctx.lineTo(len, 26); ctx.lineTo(len, 14); ctx.lineTo(20, 10);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(200,250,255,0.8)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.restore();
+    // glowing reticle at the target point
+    ctx.strokeStyle = 'rgba(125,249,255,0.9)';
+    ctx.lineWidth = 3.5;
+    ctx.shadowColor = '#7df9ff'; ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.ellipse(ex, ey*YS, 26, 26*YS, 0, 0, 7); ctx.stroke();
+    ctx.shadowBlur = 0;
   }
 
   // recall channel ring under the hero's feet
