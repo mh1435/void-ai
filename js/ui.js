@@ -176,13 +176,19 @@ const UI = {
     roster.appendChild(tabs);
     roster.appendChild(grid);
 
-    // ---- team lineup strip (you + 4 AI teammates revealed at match start) ----
+    // ---- match-prep bar: blue side vs red side + pick countdown ----
     const strip = document.createElement('div'); strip.id = 'teamStrip';
-    strip.innerHTML = '<span class="tsLabel">YOUR TEAM · <b>BLUE SIDE</b></span>' +
-      '<div class="tsSlots">' +
-      '<div class="tsSlot me"><canvas id="tsMe" width="64" height="64"></canvas></div>' +
-      Array.from({length:4}, () => '<div class="tsSlot"><span>?</span></div>').join('') +
-      '</div>';
+    strip.innerHTML =
+      '<div class="tsGroup"><span class="tsLabel">YOUR TEAM · <b class="bl">BLUE</b></span>' +
+        '<div class="tsSlots">' +
+        '<div class="tsSlot me"><canvas id="tsMe" width="64" height="64"></canvas></div>' +
+        Array.from({length:4}, () => '<div class="tsSlot"><span>?</span></div>').join('') +
+        '</div></div>' +
+      '<div id="pickTimer"><b>45</b><span>PICK</span></div>' +
+      '<div class="tsGroup right"><span class="tsLabel"><b class="rd">RED</b> · ENEMY TEAM</span>' +
+        '<div class="tsSlots">' +
+        Array.from({length:5}, () => '<div class="tsSlot enemy"><span>?</span></div>').join('') +
+        '</div></div>';
 
     // ---- assemble two-column lobby ----
     const main = document.createElement('div'); main.id = 'lobbyMain';
@@ -200,6 +206,29 @@ const UI = {
 
     this.selectHero(HEROES[0].id);
     this.els.btnStart.addEventListener('click', () => { Sfx.ensure(); Game.start(this.selectedHero); });
+    this.startPickTimer();
+  },
+
+  // draft countdown: while the lobby is visible, tick down and auto-lock the
+  // current pick at 0 (the standard MOBA "pick phase" pressure). Resets to a
+  // fresh 45s every time the lobby is re-entered (e.g. Play Again).
+  startPickTimer() {
+    if (this._pickInt) return;
+    this.pickT = 45;
+    this._wasHidden = false;
+    this._pickInt = setInterval(() => {
+      const sel = this.els.select;
+      const visible = sel && getComputedStyle(sel).display !== 'none';
+      if (!visible) { this._wasHidden = true; return; }
+      if (this._wasHidden) { this._wasHidden = false; this.pickT = 45; }
+      this.pickT--;
+      const el = document.getElementById('pickTimer');
+      if (el) {
+        el.querySelector('b').textContent = Math.max(0, this.pickT);
+        el.classList.toggle('urgent', this.pickT <= 10);
+      }
+      if (this.pickT <= 0) { Sfx.ensure(); Game.start(this.selectedHero); }
+    }, 1000);
   },
 
   selectHero(id) {
