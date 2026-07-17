@@ -123,9 +123,11 @@ html, body {
 #selInfo .sk b { color: #7df9ff; }
 #btnStart {
   font-family: inherit; font-size: clamp(15px, 2.4vh, 20px); font-weight: 800; letter-spacing: 3px;
-  padding: clamp(9px, 1.8vh, 14px) 44px; border-radius: 10px; border: none; cursor: pointer;
-  background: linear-gradient(135deg, #1d9bf0, #7df9ff); color: #04121d;
-  box-shadow: 0 0 24px rgba(125, 249, 255, 0.45);
+  padding: clamp(9px, 1.8vh, 14px) 44px; border-radius: 10px; cursor: pointer;
+  background: linear-gradient(180deg, #ffd166, #e29b18); color: #241703;
+  border: 1px solid #ffe8b0;
+  box-shadow: 0 0 24px rgba(255, 209, 102, 0.4), inset 0 1px 0 rgba(255,255,255,0.5);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.35);
 }
 #btnStart:active { transform: scale(0.96); }
 .hint { margin-top: clamp(6px, 1.6vh, 14px); font-size: 12px; color: #5c7089; line-height: 1.5; }
@@ -601,3 +603,31 @@ tr.mvpRow td { background: rgba(255,209,102,0.10); }
 /* the battle-spell picker + start button sit under the roster column */
 #heroRoster #spellPick { margin: 2px auto clamp(5px,1vh,10px); }
 #heroRoster #btnStart { margin-top: 2px; }
+
+/* ================= LOBBY: stat bars, lane badge, team strip ================= */
+#showLane {
+  align-self: flex-start; font-size: clamp(9px, 1.3vh, 12px); font-weight: 800; letter-spacing: 1px;
+  color: #ffd166; background: rgba(255,209,102,0.1); border: 1px solid rgba(255,209,102,0.4);
+  border-radius: 12px; padding: 2px 9px; margin-bottom: 2px;
+}
+#showStats { width: 100%; margin-bottom: clamp(4px, 0.9vh, 8px); }
+.stRow { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; }
+.stLbl { flex: 0 0 62px; font-size: clamp(8.5px, 1.25vh, 11px); color: #8fa3b8; letter-spacing: 0.5px; text-align: right; }
+.stBar { flex: 1; height: clamp(4px, 0.8vh, 6px); background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+.stBar i { display: block; height: 100%; border-radius: 3px; }
+
+#teamStrip {
+  display: flex; align-items: center; justify-content: center; gap: clamp(8px, 1.4vh, 16px);
+  margin-bottom: clamp(5px, 1vh, 10px);
+}
+.tsLabel { font-size: clamp(9px, 1.4vh, 12px); letter-spacing: 2px; color: #8fa3b8; }
+.tsLabel b { color: var(--blue); }
+.tsSlots { display: flex; gap: clamp(4px, 0.8vh, 8px); }
+.tsSlot {
+  width: clamp(26px, 4.6vh, 40px); height: clamp(26px, 4.6vh, 40px); border-radius: 9px;
+  background: rgba(255,255,255,0.05); border: 1.5px solid rgba(63,169,255,0.35);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.tsSlot span { color: #43597a; font-weight: 800; font-size: clamp(11px, 1.8vh, 16px); }
+.tsSlot.me { border-color: #7df9ff; box-shadow: 0 0 10px rgba(125,249,255,0.35); }
+.tsSlot.me canvas { width: 100%; height: 100%; }

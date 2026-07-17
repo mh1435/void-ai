@@ -165,8 +165,10 @@ const UI = {
     // ---- left showcase panel ----
     const show = document.createElement('div'); show.id = 'heroShowcase';
     show.innerHTML =
+      '<div id="showLane"></div>' +
       '<canvas id="showArt" width="240" height="210"></canvas>' +
       '<div id="showName"></div><div id="showTitle"></div>' +
+      '<div id="showStats"></div>' +
       '<div id="showSkills"></div><div id="showDesc"></div>';
 
     // ---- right roster panel ----
@@ -174,10 +176,19 @@ const UI = {
     roster.appendChild(tabs);
     roster.appendChild(grid);
 
+    // ---- team lineup strip (you + 4 AI teammates revealed at match start) ----
+    const strip = document.createElement('div'); strip.id = 'teamStrip';
+    strip.innerHTML = '<span class="tsLabel">YOUR TEAM · <b>BLUE SIDE</b></span>' +
+      '<div class="tsSlots">' +
+      '<div class="tsSlot me"><canvas id="tsMe" width="64" height="64"></canvas></div>' +
+      Array.from({length:4}, () => '<div class="tsSlot"><span>?</span></div>').join('') +
+      '</div>';
+
     // ---- assemble two-column lobby ----
     const main = document.createElement('div'); main.id = 'lobbyMain';
     main.appendChild(show); main.appendChild(roster);
     const box = this.els.btnStart.parentNode; // .selBox
+    box.insertBefore(strip, this.els.selInfo);
     box.insertBefore(main, this.els.selInfo);
     this.els.selInfo.style.display = 'none';
 
@@ -211,12 +222,29 @@ const UI = {
     const set = (sel, html) => { const el = document.getElementById(sel); if (el) el.innerHTML = html; };
     set('showName', h.name);
     set('showTitle', '<span>' + h.title + '</span> · <b style="color:' + h.color + '">' + h.role + '</b>');
+    // stat bars + recommended lane badge (hero-select metadata from data.js)
+    const rt = (typeof HERO_RATING !== 'undefined' && HERO_RATING[h.id]) || { dur:5, off:5, ctl:5, dif:5, lane:'MID' };
+    set('showLane', '⚑ ' + rt.lane + ' LANE');
+    set('showStats', [['Durability', rt.dur, '#4ade80'], ['Offense', rt.off, '#ff7a5c'], ['Control', rt.ctl, '#7db7ff'], ['Difficulty', rt.dif, '#e0aaff']]
+      .map(([lbl, v, col]) =>
+        '<div class="stRow"><span class="stLbl">' + lbl + '</span>' +
+        '<span class="stBar"><i style="width:' + (v * 10) + '%;background:' + col + '"></i></span></div>').join(''));
     set('showSkills', h.skills.map((s, i) =>
       '<div class="showSkill"><span class="ssIcon">' + s.icon + '</span><span class="ssLbl">' + ['S1','S2','ULT'][i] + '</span></div>'
     ).join(''));
     set('showDesc',
       '<div class="dLine"><b class="dPassive">PASSIVE</b> ' + h.passive + '</div>' +
       h.skills.map((s, i) => '<div class="dLine"><b>' + ['S1','S2','ULT'][i] + ' · ' + s.name + '</b> ' + s.desc + '</div>').join(''));
+    // team-strip portrait
+    const ts = document.getElementById('tsMe');
+    if (ts) {
+      const c = ts.getContext('2d');
+      c.clearRect(0, 0, 64, 64);
+      const g = c.createRadialGradient(32, 24, 4, 32, 32, 34);
+      g.addColorStop(0, lighten(h.color, 0.2)); g.addColorStop(1, 'rgba(6,12,20,0.9)');
+      c.fillStyle = g; c.fillRect(0, 0, 64, 64);
+      drawHeroCardArt(c, h, 32, 58, 0.85);
+    }
   },
 
   // battle-spell chooser on the hero-select screen (built once)

@@ -472,3 +472,15 @@ const HEROES = [
 function heroById(id){ return HEROES.find(h => h.id === id); }
 
 const HERO_INITIAL = { kael:'K', nyra:'N', grom:'G', lyra:'L', vex:'V', thane:'T', isolde:'I' };
+
+// hero-select lobby metadata: 1-10 ratings shown as stat bars, plus the
+// lane each hero is best suited to (used for the recommendation badge)
+const HERO_RATING = {
+  kael:   { dur:3, off:9, ctl:4, dif:7, lane:'MID'  },
+  nyra:   { dur:3, off:8, ctl:6, dif:5, lane:'MID'  },
+  grom:   { dur:9, off:5, ctl:7, dif:3, lane:'TOP'  },
+  lyra:   { dur:3, off:9, ctl:3, dif:4, lane:'BOT'  },
+  vex:    { dur:4, off:5, ctl:8, dif:6, lane:'BOT'  },
+  thane:  { dur:7, off:7, ctl:4, dif:4, lane:'TOP'  },
+  isolde: { dur:3, off:7, ctl:9, dif:6, lane:'MID'  },
+};
