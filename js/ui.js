@@ -74,6 +74,20 @@ const UI = {
     this.resize();
     window.addEventListener('resize', () => this.resize());
 
+    // MLBB-order HUD: the shop opener lives under the minimap (top-left
+    // column with quick-buy), and the scoreboard opens by tapping the
+    // top-centre score bar — so the ☰ button is retired from the arc.
+    this.els.hud.appendChild(this.els.btnShop);
+    this.els.btnScore.style.display = 'none';
+    const topbar = document.getElementById('topbar');
+    if (topbar) topbar.addEventListener('click', () => this.els.btnScore.click());
+    // numeric readouts over the HP/MP bars
+    for (const [fill, id] of [[this.els.hpFill, 'hpNum'], [this.els.mpFill, 'mpNum']]) {
+      const n = document.createElement('span');
+      n.className = 'barNum'; n.id = id;
+      fill.parentNode.appendChild(n);
+    }
+
     this.buildHeroSelect();
     this.bindJoystick();
     this.bindButtons();
@@ -671,6 +685,9 @@ const UI = {
     // bars
     this.els.hpFill.style.width = clamp(p.hp / p.hpMax() * 100, 0, 100) + '%';
     this.els.mpFill.style.width = clamp(p.mana / p.manaMax * 100, 0, 100) + '%';
+    const hpNum = document.getElementById('hpNum'), mpNum = document.getElementById('mpNum');
+    if (hpNum) hpNum.textContent = Math.ceil(p.hp) + ' / ' + Math.ceil(p.hpMax());
+    if (mpNum) mpNum.textContent = Math.ceil(p.mana) + ' / ' + Math.ceil(p.manaMax);
     this.els.xpFill.style.width = clamp(p.xp / xpToNext(p.level) * 100, 0, 100) + '%';
     this.els.lvlBadge.textContent = p.level;
 
