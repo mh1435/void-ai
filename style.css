@@ -758,3 +758,93 @@ tr.mvpRow td { background: rgba(255,209,102,0.10); }
   border-color: rgba(255,209,102,0.3);
   box-shadow: 0 4px 16px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,236,170,0.1);
 }
+
+/* ================= OVERLAY RESTYLE: shop, scoreboard, death, banners, joystick ================= */
+
+/* --- announce: centre battle banners on a fading gold-edged strip --- */
+.ann {
+  display: inline-block; padding: 4px 34px;
+  background: linear-gradient(90deg, transparent, rgba(10,16,26,0.85) 18%, rgba(10,16,26,0.85) 82%, transparent);
+  border-top: 1px solid rgba(255,209,102,0.0); border-bottom: 1px solid rgba(255,209,102,0.0);
+  background-clip: padding-box;
+  position: relative;
+}
+.ann::before, .ann::after {
+  content: ''; position: absolute; left: 8%; right: 8%; height: 1.5px;
+  background: linear-gradient(90deg, transparent, rgba(255,209,102,0.75), transparent);
+}
+.ann::before { top: 0; }
+.ann::after { bottom: 0; }
+
+/* --- shop: ornate gold armory --- */
+#shopPanel {
+  border: 1.5px solid rgba(255,209,102,0.45);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 24px rgba(255,209,102,0.12), inset 0 1px 0 rgba(255,236,170,0.12);
+}
+.shopHead {
+  border-bottom: 1px solid rgba(255,209,102,0.3); padding-bottom: 8px;
+}
+.shopHead h3 { color: #ffd166; text-shadow: 0 0 12px rgba(255,209,102,0.4); }
+#btnCloseShop { border-color: rgba(255,209,102,0.4); }
+.shopItem {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255,255,255,0.05), transparent 60%),
+    linear-gradient(180deg, rgba(24,34,50,0.85), rgba(10,16,26,0.9));
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.shopItem.afford {
+  border-color: rgba(255,209,102,0.5);
+  box-shadow: 0 0 10px rgba(255,209,102,0.15), inset 0 1px 0 rgba(255,236,170,0.1);
+}
+.shopItem .itIcon {
+  background: linear-gradient(180deg, #3a2c10, #1a1206);
+  border: 1px solid rgba(255,209,102,0.5);
+  box-shadow: inset 0 1px 1px rgba(255,236,170,0.25);
+}
+.shopItem .itCost::before { content: '◆ '; font-size: 10px; }
+
+/* --- scoreboard: gold-framed tactical panel --- */
+#scoreboard {
+  border: 1.5px solid rgba(255,209,102,0.45);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 24px rgba(255,209,102,0.12), inset 0 1px 0 rgba(255,236,170,0.12);
+}
+#scoreboard h3 { color: #ffd166; text-shadow: 0 0 12px rgba(255,209,102,0.4); border-bottom: 1px solid rgba(255,209,102,0.3); padding-bottom: 6px; }
+#scoreboard th { border-bottom: 1px solid rgba(255,255,255,0.1); }
+#scoreboard tr.me { background: rgba(255,209,102,0.10); }
+
+/* --- death overlay: heavier vignette + framed respawn counter --- */
+#deathOverlay {
+  background: radial-gradient(ellipse at center, rgba(30,0,8,0.25) 40%, rgba(30,0,8,0.75) 100%);
+}
+#deathOverlay > div {
+  background: linear-gradient(180deg, rgba(26,8,14,0.9), rgba(12,4,8,0.9));
+  border: 1.5px solid rgba(255,77,94,0.5); border-radius: 16px;
+  padding: 18px 46px;
+  box-shadow: 0 0 40px rgba(255,0,30,0.25), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+#deathOverlay b {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 52px; height: 52px; border-radius: 50%;
+  border: 2.5px solid #ff7385; margin-top: 6px;
+  box-shadow: 0 0 14px rgba(255,77,94,0.5);
+  animation: respawnPulse 1s ease-in-out infinite;
+}
+@keyframes respawnPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255,77,94,0.4); }
+  50%      { box-shadow: 0 0 20px 4px rgba(255,77,94,0.7); }
+}
+
+/* --- joystick: metallic ring + directional ticks + glossy knob --- */
+#joyBase {
+  background:
+    radial-gradient(circle at 50% 40%, rgba(125,249,255,0.06), rgba(125,249,255,0.02) 70%),
+    repeating-conic-gradient(rgba(125,249,255,0.16) 0deg 2deg, transparent 2deg 43deg);
+  border: 2px solid rgba(125,249,255,0.3);
+  box-shadow: inset 0 0 22px rgba(0,0,0,0.5);
+}
+#joyKnob {
+  background:
+    radial-gradient(circle at 35% 30%, rgba(240,252,255,0.95), rgba(140,205,235,0.85) 55%, rgba(70,140,180,0.8));
+  border: 1.5px solid rgba(220,245,255,0.7);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.55), inset 0 -4px 8px rgba(20,60,90,0.5);
+}
