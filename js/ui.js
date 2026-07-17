@@ -684,9 +684,10 @@ const UI = {
         const ov = b.querySelector('.cdOverlay');
         const tx = b.querySelector('.cdText');
         if (cd > 0) {
-          ov.style.height = (cd / (sk.cd * (1 - p.cdr) * (1 - 0.05*(p.skillLv[i]-1))) * 100) + '%';
+          const frac = clamp(cd / (sk.cd * (1 - p.cdr) * (1 - 0.05*(p.skillLv[i]-1))), 0, 1);
+          ov.style.background = 'conic-gradient(rgba(0,0,0,0.76) ' + (frac * 360) + 'deg, transparent 0deg)';
           tx.textContent = cd > 1 ? Math.ceil(cd) : cd.toFixed(1);
-        } else { ov.style.height = '0%'; tx.textContent = ''; }
+        } else { ov.style.background = 'none'; tx.textContent = ''; }
         b.classList.toggle('noMana', !locked && p.mana < sk.mana);
         b.classList.toggle('ready', !locked && cd <= 0 && p.mana >= sk.mana && !p.dead);
 
@@ -705,9 +706,10 @@ const UI = {
       const ov = this.spellBtn.querySelector('.cdOverlay');
       const tx = this.spellBtn.querySelector('.cdText');
       if (p.bsCd > 0 && sp) {
-        ov.style.height = clamp(p.bsCd / (sp.cd * (1 - p.cdr * 0.5)) * 100, 0, 100) + '%';
+        const frac = clamp(p.bsCd / (sp.cd * (1 - p.cdr * 0.5)), 0, 1);
+        ov.style.background = 'conic-gradient(rgba(0,0,0,0.76) ' + (frac * 360) + 'deg, transparent 0deg)';
         tx.textContent = Math.ceil(p.bsCd);
-      } else { ov.style.height = '0%'; tx.textContent = ''; }
+      } else { ov.style.background = 'none'; tx.textContent = ''; }
       this.spellBtn.classList.toggle('ready', p.bsCd <= 0 && !p.dead);
     }
 
