@@ -557,6 +557,44 @@ const Render3D = (() => {
     }
   }
 
+  // ---------------- skill drag-aim preview (range ring + arrow on the ground) ----------------
+  let aim3d = null;
+  function updateAimPreview() {
+    const ap = G.aimPreview;
+    const show = !!(ap && G.player && !G.player.dead);
+    if (!aim3d) {
+      if (!show) return;
+      const mat = () => new THREE.MeshBasicMaterial({ color: 0x7df9ff, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false });
+      const group = new THREE.Group();
+      const range = new THREE.Mesh(new THREE.RingGeometry(0.975, 1, 48), mat());
+      range.rotation.x = -Math.PI/2; range.material.opacity = 0.3;
+      const shaft = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat());
+      shaft.rotation.x = -Math.PI/2; shaft.material.opacity = 0.28;
+      const head = new THREE.Mesh(new THREE.CircleGeometry(1, 3), mat());
+      head.rotation.x = -Math.PI/2; head.material.opacity = 0.5;
+      const reticle = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 32), mat());
+      reticle.rotation.x = -Math.PI/2; reticle.material.opacity = 0.85;
+      group.add(range, shaft, head, reticle);
+      group.renderOrder = 6;
+      scene.add(group);
+      aim3d = { group, range, shaft, head, reticle };
+    }
+    aim3d.group.visible = show;
+    if (!show) return;
+    const [px, pz] = toScene(G.player.x, G.player.y);
+    const r = ap.range;
+    aim3d.group.position.set(px, 6, pz);
+    aim3d.group.rotation.y = -Math.atan2(ap.dy, ap.dx);
+    aim3d.range.scale.setScalar(r);
+    const len = Math.max(24, r - 46);
+    aim3d.shaft.scale.set(len, 20, 1);
+    aim3d.shaft.position.set(len / 2 + 14, 0, 0);
+    aim3d.head.scale.setScalar(30);
+    aim3d.head.position.set(len + 26, 0, 0);
+    aim3d.reticle.scale.setScalar(28);
+    aim3d.reticle.position.set(r, 0.5, 0);
+  }
+
   function updateFx(dt) {
     for (let i = fxMeshes.length - 1; i >= 0; i--) {
       const f = fxMeshes[i];
@@ -662,6 +700,7 @@ const Render3D = (() => {
     syncZones();
     syncFxFromEngine();
     updateFx(dt);
+    updateAimPreview();
     // updateFogMask() is what actually paints the fogMask canvas each tick —
     // the 2D renderer calls it as part of its own render(), which we never
     // run here, so we call it ourselves to keep the fog-of-war texture live
