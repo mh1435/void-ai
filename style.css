@@ -654,3 +654,105 @@ tr.mvpRow td { background: rgba(255,209,102,0.10); }
   0%, 100% { box-shadow: 0 0 8px rgba(255,77,94,0.4); }
   50%      { box-shadow: 0 0 20px 4px rgba(255,77,94,0.75); }
 }
+
+/* ================= HUD RESTYLE: metallic MOBA button treatment =================
+   Layered bezels: dark metal outer ring -> highlight lip -> recessed glossy
+   face. Gold ornate frame for the ult, red battle button, gold-trim panels. */
+
+/* --- skill buttons: metal bezel + glossy face --- */
+.skillBtn {
+  background:
+    radial-gradient(circle at 50% 32%, rgba(255,255,255,0.14), transparent 42%),
+    radial-gradient(circle at 50% 115%, rgba(125,249,255,0.18), transparent 55%),
+    radial-gradient(circle at 50% 50%, #16283e 58%, #0a1523 72%, #2c3c50 78%, #131d2b 88%, #3a4a5e 96%, #0c141f 100%);
+  border: 2px solid #45586e;
+  box-shadow:
+    0 5px 12px rgba(0,0,0,0.6),
+    inset 0 2px 3px rgba(255,255,255,0.14),
+    inset 0 -3px 6px rgba(0,0,0,0.5);
+}
+.skillBtn.ready {
+  border-color: #9fe8f2;
+  box-shadow:
+    0 0 16px rgba(125,249,255,0.55),
+    0 5px 12px rgba(0,0,0,0.6),
+    inset 0 2px 3px rgba(255,255,255,0.18),
+    inset 0 0 14px rgba(125,249,255,0.16);
+}
+/* the ult: gold ornate ring */
+.skillBtn.ult {
+  background:
+    radial-gradient(circle at 50% 32%, rgba(255,236,170,0.16), transparent 42%),
+    radial-gradient(circle at 50% 115%, rgba(255,209,102,0.2), transparent 55%),
+    radial-gradient(circle at 50% 50%, #3a2c10 58%, #1c1206 72%, #6e5520 78%, #2a1e0a 88%, #8a6b28 96%, #1a1206 100%);
+  border: 2.5px solid #a8853c;
+  box-shadow:
+    0 5px 14px rgba(0,0,0,0.65),
+    inset 0 2px 3px rgba(255,236,170,0.2),
+    inset 0 -3px 6px rgba(0,0,0,0.55);
+}
+.skillBtn.ult.ready { border-color: #ffd166; }
+
+/* --- attack button: heavy red battle ring --- */
+#btnAttack {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255,140,150,0.18), transparent 45%),
+    radial-gradient(circle at 50% 50%, #57121f 56%, #2a0812 70%, #7e2231 77%, #3a0d18 87%, #93304a 96%, #23060e 100%);
+  border: 3px solid #b0455a;
+  box-shadow:
+    0 0 18px rgba(255,77,94,0.4),
+    0 6px 16px rgba(0,0,0,0.55),
+    inset 0 2px 4px rgba(255,255,255,0.14),
+    inset 0 -4px 8px rgba(0,0,0,0.55);
+}
+
+/* --- battle-spell button matches the bezel language (violet) --- */
+#btnSpell {
+  background:
+    radial-gradient(circle at 50% 32%, rgba(230,200,255,0.16), transparent 42%),
+    radial-gradient(circle at 50% 50%, #34204d 58%, #170b28 72%, #573472 78%, #22112f 88%, #6d4390 96%, #150922 100%);
+  border: 2px solid #7a55a0;
+}
+
+/* --- mini buttons (recall/shop/score/buy): brushed dark metal --- */
+.miniBtn {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255,255,255,0.10), transparent 50%),
+    radial-gradient(circle at 50% 50%, #182636 60%, #0b141f 74%, #2b3a4c 82%, #101a26 94%);
+  border: 1.5px solid #4a5c70;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.12), inset 0 -2px 4px rgba(0,0,0,0.45);
+}
+
+/* --- portrait plate: gold-trimmed --- */
+#portrait {
+  border: 1.5px solid rgba(255,209,102,0.35);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,236,170,0.12);
+}
+#lvlBadge {
+  background: linear-gradient(180deg, #3a2c10, #1a1206);
+  border: 1.5px solid var(--gold);
+  box-shadow: 0 0 6px rgba(255,209,102,0.4);
+}
+.portWrap { border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,209,102,0.45), 0 0 10px rgba(0,0,0,0.6); }
+
+/* --- HP/MP bars: segment ticks like a MOBA resource bar --- */
+.bar { position: relative; }
+.bar::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(90deg, transparent 0 23.5%, rgba(0,0,0,0.55) 23.5% 25%);
+  border-radius: inherit;
+}
+.bar.xp::after { background: none; }
+
+/* --- minimap: gold corner-trimmed frame --- */
+#minimap {
+  border: 1.5px solid rgba(255,209,102,0.4);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(0,0,0,0.6);
+  border-radius: 6px;
+}
+
+/* --- top bar + stats: gold-trim panels --- */
+#topbar, #statsMini {
+  border-color: rgba(255,209,102,0.3);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,236,170,0.1);
+}
