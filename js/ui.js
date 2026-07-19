@@ -329,7 +329,7 @@ const UI = {
     this.buildObjTimer();
     if (this.spellBtn) {
       const sp = battleSpellById(G.player.battleSpell);
-      this.spellBtn.querySelector('.icon').textContent = sp ? sp.icon : '';
+      if (sp) this.drawSkillIcon(this.spellBtn.querySelector('canvas.icon'), sp.icon, '#c77dff');
       this.spellBtn.title = sp ? sp.name : '';
     }
     this.buildShop();
@@ -383,6 +383,79 @@ const UI = {
     zone.addEventListener('pointercancel', up);
   },
 
+  // ---------- vector-drawn ability icons ----------
+  // Each glyph used in the hero kits maps to a hand-drawn motif rendered on a
+  // small canvas — white-hot strokes over the hero's accent glow — replacing
+  // raw emoji, which render inconsistently across phones and read as
+  // placeholder art. Unknown glyphs fall back to text.
+  drawSkillIcon(cv, glyph, accent) {
+    const c = cv.getContext('2d'), S = cv.width, u = S / 64;
+    c.clearRect(0, 0, S, S);
+    const g = c.createRadialGradient(S/2, S*0.42, 2, S/2, S/2, S*0.55);
+    g.addColorStop(0, 'rgba(255,255,255,0.10)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.fillRect(0, 0, S, S);
+    c.strokeStyle = '#f2fbff'; c.fillStyle = '#f2fbff';
+    c.lineWidth = 4.5*u; c.lineCap = 'round'; c.lineJoin = 'round';
+    c.shadowColor = accent; c.shadowBlur = 10*u;
+    const line = (x1,y1,x2,y2) => { c.beginPath(); c.moveTo(x1*u,y1*u); c.lineTo(x2*u,y2*u); c.stroke(); };
+    const ring = (x,y,r,fill) => { c.beginPath(); c.arc(x*u,y*u,r*u,0,7); fill?c.fill():c.stroke(); };
+    switch (glyph) {
+      case '➤': case '⇒': // dash
+        line(12,32,40,32);
+        c.beginPath(); c.moveTo(32*u,18*u); c.lineTo(52*u,32*u); c.lineTo(32*u,46*u); c.closePath(); c.fill();
+        break;
+      case '⇉': line(10,24,38,24); line(10,40,38,40); // double dash
+        c.beginPath(); c.moveTo(34*u,14*u); c.lineTo(52*u,32*u); c.lineTo(34*u,50*u); c.closePath(); c.fill();
+        break;
+      case '⚔': line(16,48,46,16); line(18,16,48,48); line(12,42,22,52); line(42,52,52,42); break; // crossed blades
+      case '☠': ring(32,28,14,true); c.shadowBlur=0; c.fillStyle='#0a1420';
+        ring(27,26,3.4,true); ring(37,26,3.4,true);
+        c.fillRect(26*u,38*u,3*u,7*u); c.fillRect(31*u,40*u,3*u,7*u); c.fillRect(36*u,38*u,3*u,7*u);
+        c.fillStyle='#f2fbff'; break;
+      case '⚡': c.beginPath(); c.moveTo(36*u,10*u); c.lineTo(22*u,36*u); c.lineTo(31*u,36*u);
+        c.lineTo(27*u,54*u); c.lineTo(44*u,28*u); c.lineTo(34*u,28*u); c.closePath(); c.fill(); break;
+      case '✵': ring(32,32,9); for (let i=0;i<4;i++){const a=i*Math.PI/2+Math.PI/4;
+        line(32+Math.cos(a)*13,32+Math.sin(a)*13,32+Math.cos(a)*22,32+Math.sin(a)*22);} break;
+      case '☄': ring(24,40,9,true); line(32,32,50,14); line(36,38,52,26); line(28,28,42,12); break; // comet
+      case '◈': c.beginPath(); c.moveTo(32*u,12*u); c.lineTo(50*u,32*u); c.lineTo(32*u,52*u); c.lineTo(14*u,32*u);
+        c.closePath(); c.stroke(); ring(32,32,6,true); break;
+      case '◉': ring(32,32,17); ring(32,32,7,true); break;   // gravity well
+      case '◎': ring(32,32,17); ring(32,32,9); break;        // ward ring
+      case '☆': { c.beginPath(); for(let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5;
+        const r=i%2===0?19:8.5; c[i===0?'moveTo':'lineTo']((32+Math.cos(a)*r)*u,(34+Math.sin(a)*r)*u);}
+        c.closePath(); c.fill(); break; }
+      case '♛': c.beginPath(); c.moveTo(14*u,44*u); c.lineTo(12*u,22*u); c.lineTo(23*u,32*u); c.lineTo(32*u,16*u);
+        c.lineTo(41*u,32*u); c.lineTo(52*u,22*u); c.lineTo(50*u,44*u); c.closePath(); c.fill(); break;
+      case '⛨': c.beginPath(); c.moveTo(32*u,10*u); c.lineTo(50*u,18*u); c.lineTo(48*u,40*u); c.lineTo(32*u,54*u);
+        c.lineTo(16*u,40*u); c.lineTo(14*u,18*u); c.closePath(); c.stroke(); line(32,22,32,42); line(24,32,40,32); break;
+      case '✚': c.fillRect(26*u,14*u,12*u,36*u); c.fillRect(14*u,26*u,36*u,12*u); break;
+      case '✦': c.beginPath(); c.moveTo(32*u,10*u); c.quadraticCurveTo(34*u,28*u,54*u,32*u);
+        c.quadraticCurveTo(34*u,36*u,32*u,54*u); c.quadraticCurveTo(30*u,36*u,10*u,32*u);
+        c.quadraticCurveTo(30*u,28*u,32*u,10*u); c.fill(); break;
+      case '✳': for (let i=0;i<6;i++){const a=i*Math.PI/3; line(32,32,32+Math.cos(a)*20,32+Math.sin(a)*20);} ring(32,32,5,true); break;
+      case '❄': case '❆': for (let i=0;i<6;i++){const a=i*Math.PI/3;
+          const ex=32+Math.cos(a)*20, ey=32+Math.sin(a)*20;
+          line(32,32,ex,ey);
+          line((32+ex)/2,(32+ey)/2,(32+ex)/2+Math.cos(a+1.05)*6,(32+ey)/2+Math.sin(a+1.05)*6);
+          line((32+ex)/2,(32+ey)/2,(32+ex)/2+Math.cos(a-1.05)*6,(32+ey)/2+Math.sin(a-1.05)*6);
+        }
+        if (glyph==='❆') ring(32,32,23);
+        break;
+      case '❈': for (let i=0;i<4;i++){const a=i*Math.PI/2;
+        c.beginPath(); c.ellipse((32+Math.cos(a)*11)*u,(32+Math.sin(a)*11)*u,10*u,5*u,a,0,7); c.stroke();} break;
+      case '»': line(18,18,32,32); line(18,46,32,32); line(34,18,48,32); line(34,46,48,32); break;
+      case '➳': line(12,52,46,18); c.beginPath(); c.moveTo(38*u,12*u); c.lineTo(52*u,12*u); c.lineTo(52*u,26*u);
+        c.closePath(); c.fill(); line(16,44,24,48); line(16,44,12,38); break;
+      case '⬇': line(32,12,32,42); c.beginPath(); c.moveTo(18*u,36*u); c.lineTo(46*u,36*u); c.lineTo(32*u,54*u);
+        c.closePath(); c.fill(); break;
+      default:
+        c.font = 'bold ' + 34*u + 'px Rajdhani, sans-serif';
+        c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillText(glyph, 32*u, 34*u);
+    }
+    c.shadowBlur = 0;
+  },
+
   // ---------- skill buttons (tap = smart cast, drag = aim) ----------
   buildSkillButtons() {
     const holder = document.getElementById('skills');
@@ -394,9 +467,10 @@ const UI = {
       const maxLv = i === 2 ? 3 : 5;
       const b = document.createElement('div');
       b.className = 'skillBtn sk' + i + (i === 2 ? ' ult' : '');
-      b.innerHTML = '<span class="icon">' + sk.icon + '</span><div class="cdOverlay"></div><div class="cdText"></div>' +
+      b.innerHTML = '<canvas class="icon" width="64" height="64"></canvas><div class="cdOverlay"></div><div class="cdText"></div>' +
         '<div class="lock">🔒</div><div class="upBadge">+</div>' +
         '<div class="pips">' + Array.from({length: maxLv}, () => '<i></i>').join('') + '</div>';
+      this.drawSkillIcon(b.querySelector('canvas.icon'), sk.icon, G.player.def.color);
       holder.appendChild(b);
       this.skillEls.push(b);
       const upBadge = b.querySelector('.upBadge');
@@ -442,7 +516,7 @@ const UI = {
     const actions = document.getElementById('actions');
     const b = document.createElement('div');
     b.id = 'btnSpell';
-    b.innerHTML = '<span class="icon"></span><div class="cdOverlay"></div><div class="cdText"></div>';
+    b.innerHTML = '<canvas class="icon" width="64" height="64"></canvas><div class="cdOverlay"></div><div class="cdText"></div>';
     actions.appendChild(b);
     this.spellBtn = b;
     let pid = null, sx = 0, sy = 0, dragging = false;
@@ -837,12 +911,20 @@ const UI = {
     if (typeof fogMask !== 'undefined' && fogMask) {
       c.drawImage(fogMask, 0, 0, this.mmCanvas.width, this.mmCanvas.height);
     }
-    // heroes
+    // heroes: initial-letter badges (MOBA minimap convention), player ringed white
     for (const h of G.heroes) {
       if (h.dead) continue;
       if (h.team !== G.player.team && !isVisibleTo(h, G.player)) continue;
-      c.fillStyle = h.isPlayer ? '#fff' : TEAM_COLOR[h.team];
-      c.beginPath(); c.arc(h.x*S, h.y*S, h.isPlayer ? 4 : 3, 0, 7); c.fill();
+      const r = h.isPlayer ? 6 : 5.2;
+      c.fillStyle = TEAM_COLOR[h.team];
+      c.beginPath(); c.arc(h.x*S, h.y*S, r, 0, 7); c.fill();
+      c.strokeStyle = h.isPlayer ? '#ffffff' : 'rgba(0,0,0,0.55)';
+      c.lineWidth = h.isPlayer ? 1.6 : 1;
+      c.beginPath(); c.arc(h.x*S, h.y*S, r, 0, 7); c.stroke();
+      c.fillStyle = '#06111c';
+      c.font = 'bold 7px Rajdhani, sans-serif';
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(HERO_INITIAL[h.def.id] || '?', h.x*S, h.y*S + 0.5);
     }
     // view box
     const cv = this.canvas, z = G.cam.zoom;

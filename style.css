@@ -872,3 +872,8 @@ tr.mvpRow td { background: rgba(255,209,102,0.10); }
 }
 .bars .bar { height: 11px; }
 .bars .bar.xp { height: 4px; }
+
+/* ================= DRAWN ABILITY ICONS ================= */
+.skillBtn canvas.icon, #btnSpell canvas.icon {
+  width: 62%; height: 62%; pointer-events: none;
+}
