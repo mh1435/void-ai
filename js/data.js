@@ -68,6 +68,13 @@ const TOWER_SPOTS = [
   { team:'red',  lane:'mid', order:1, x:2150, y:1050 },
   { team:'red',  lane:'bot', order:0, x:2965, y:2150 },
   { team:'red',  lane:'bot', order:1, x:2965, y:1150 },
+  // base turrets — the last wall guarding each Void Core. They only become
+  // attackable once a whole lane has been broken, and the Core itself can't
+  // be touched until BOTH of a team's base turrets have fallen.
+  { team:'blue', lane:'base', order:0, x:760,  y:2560 },
+  { team:'blue', lane:'base', order:1, x:540,  y:2700 },
+  { team:'red',  lane:'base', order:0, x:2440, y:640 },
+  { team:'red',  lane:'base', order:1, x:2660, y:500 },
 ];
 
 const BUSHES = [
