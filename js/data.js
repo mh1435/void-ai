@@ -24,6 +24,7 @@ const CFG = {
   xpShareRadius: 700,
   respawnBase: 5,
   respawnPerLevel: 1.7,
+  multiKillWindow: 10,     // seconds between kills to keep a Double/Triple/Savage chain alive
   maxLevel: 15,
   maxItems: 6,
   recallTime: 3.5,
