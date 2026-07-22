@@ -182,7 +182,10 @@ const Game = {
     const killerHero = killer && killer.type === 'hero' ? killer : null;
 
     if (u.type === 'minion') {
-      if (killerHero) { killerHero.gold += CFG.minionGold; killerHero.cs++; }
+      if (killerHero) {
+        killerHero.gold += CFG.minionGold; killerHero.cs++;
+        if (killerHero === G.player) goldPop(u, CFG.minionGold);
+      }
       shareXp(u, CFG.minionXp);
       return;
     }
@@ -201,7 +204,10 @@ const Game = {
         shareXp(u, CFG.bossXp);
         G.bossTimer = CFG.bossRespawn;
       } else {
-        if (killerHero) killerHero.gold += CFG.jungleGold;
+        if (killerHero) {
+          killerHero.gold += CFG.jungleGold;
+          if (killerHero === G.player) goldPop(u, CFG.jungleGold);
+        }
         shareXp(u, CFG.jungleXp);
         // buff camps grant the killer a timed combat buff
         if (u.buffType && killerHero) {
@@ -237,22 +243,25 @@ const Game = {
       u.deaths++;
       const streakBonus = Math.min(5, u.streak) * CFG.streakGoldBonus;
       u.streak = 0;
+      u.mkCount = 0;            // dying breaks any multi-kill chain
       u.respawnT = CFG.respawnBase + u.level * CFG.respawnPerLevel;
 
-      let killerName = 'a turret';
       if (killerHero) {
+        const kGold = CFG.heroKillGold + streakBonus;
         killerHero.kills++;
         killerHero.streak++;
-        killerHero.gold += CFG.heroKillGold + streakBonus;
+        killerHero.gold += kGold;
         killerHero.gainXp(CFG.heroKillXp);
-        killerName = killerHero.name;
-        if (!G.firstBlood) {
-          G.firstBlood = true;
-          UI.announce('FIRST BLOOD! ' + killerHero.name + ' draws first blood!', '#ff5c5c');
-          Sfx.play('kill');
-        } else if (killerHero.streak >= 3) {
-          UI.announce(killerHero.name + ' is on a killing spree! (' + killerHero.streak + ')', '#ffb84d');
-        }
+        if (killerHero === G.player) goldPop(u, kGold, true);
+
+        // multi-kill chain: consecutive kills inside a short window
+        killerHero.mkCount = (killerHero.mkTime !== undefined && G.time - killerHero.mkTime <= CFG.multiKillWindow)
+          ? (killerHero.mkCount || 0) + 1 : 1;
+        killerHero.mkTime = G.time;
+
+        const first = !G.firstBlood;
+        if (first) G.firstBlood = true;
+
         // assists
         for (const h of G.heroes) {
           if (h === killerHero || h.team !== killerHero.team) continue;
@@ -263,11 +272,11 @@ const Game = {
             h.gainXp(CFG.heroKillXp * 0.5);
           }
         }
+        UI.killEvent(killerHero, u, first);
       }
       u.recentDamagers = {};
       UI.feed(killerHero, u, killerHero ? killerHero.team : (u.team === 'blue' ? 'red' : 'blue'));
-      if (u.isPlayer) { UI.announce('You have been slain!', '#ff5c5c'); Sfx.play('death'); }
-      else if (killerHero && killerHero.isPlayer) { UI.announce('You killed ' + u.name + '!', '#ffe27d'); Sfx.play('kill'); }
+      if (u.isPlayer && !killerHero) { UI.announce('You have been slain!', '#ff5c5c'); Sfx.play('death'); }
       shareXp(u, CFG.heroKillXp * 0.4);
     }
   },
@@ -323,6 +332,13 @@ const Game = {
     if (next && h.buyItem(next)) h.buildIdx++;
   },
 };
+
+// floating "+gold" number over a unit the player just last-hit (MLBB-style
+// last-hit feedback). `big` is used for hero kills so they read as a bigger reward.
+function goldPop(u, amount, big) {
+  FX.push({ type:'text', x:u.x + (Math.random()*20 - 10), y:u.y - u.radius - 6,
+    text:'+' + Math.round(amount), color:'#ffd24a', dur: big ? 1.2 : 0.9, big: !!big, t:0 });
+}
 
 function shareXp(victim, amount) {
   const enemies = G.heroes.filter(h => h.team !== victim.team && !h.dead && dist(h, victim) < CFG.xpShareRadius);

@@ -42,6 +42,8 @@ const Sfx = {
       case 'shield': this.tone(500, 0.2, 'sine', 0.06, 250); break;
       case 'ult': this.tone(200, 0.35, 'sawtooth', 0.08, 400); break;
       case 'kill': this.tone(880, 0.15, 'square', 0.08); setTimeout(()=>this.tone(1175, 0.25, 'square', 0.08), 120); break;
+      case 'multikill': [660,880,1100].forEach((f,i)=>setTimeout(()=>this.tone(f,0.16,'square',0.08), i*90)); break;
+      case 'savage': [523,659,880,1046,1318].forEach((f,i)=>setTimeout(()=>this.tone(f,0.22,'sawtooth',0.09), i*110)); break;
       case 'death': this.tone(300, 0.5, 'sawtooth', 0.08, -200); break;
       case 'tower': this.tone(90, 0.6, 'square', 0.1, -40); break;
       case 'level': this.tone(523, 0.1, 'square', 0.06); setTimeout(()=>this.tone(784, 0.2, 'square', 0.06), 100); break;
@@ -700,6 +702,52 @@ const UI = {
     this.els.killfeed.appendChild(el);
     while (this.els.killfeed.children.length > 4) this.els.killfeed.firstChild.remove();
     setTimeout(() => el.remove(), 5000);
+  },
+
+  // MLBB-style kill spectacle: the big center-screen callout (First Blood,
+  // Double Kill … Savage) plus the spree ticker and the player's own callout.
+  killEvent(killer, victim, firstBlood) {
+    const mk = killer.mkCount || 1;
+    const streak = killer.streak || 1;
+    const you = killer.isPlayer, iDied = victim.isPlayer;
+
+    // marquee multi-kill banner
+    const MK = { 2:['DOUBLE KILL','#ffd24a'], 3:['TRIPLE KILL','#ff9f43'], 4:['MANIAC','#ff5c8a'], 5:['SAVAGE','#c77dff'] };
+    const sub = killer.name + (you ? ' (You)' : '');
+    let toned = false;
+    if (mk >= 2) {
+      const [label, col] = MK[Math.min(mk, 5)];
+      this.killBanner(label, sub, col, mk >= 4);
+      Sfx.play(mk >= 4 ? 'savage' : 'multikill'); toned = true;
+    } else if (firstBlood) {
+      this.killBanner('FIRST BLOOD', sub, '#ff5c5c', false);
+      Sfx.play('kill'); toned = true;
+    }
+
+    // running kill-streak (no death) — announced in the ticker
+    const SPREE = { 3:'KILLING SPREE', 5:'DOMINATING', 7:'UNSTOPPABLE', 9:'GODLIKE', 12:'LEGENDARY' };
+    if (SPREE[streak]) this.announce(killer.name + ' — ' + SPREE[streak] + '! (' + streak + ')', '#ffb84d');
+
+    // personal callouts (only the player's own kills/deaths get the ticker line)
+    if (you) { this.announce('You killed ' + victim.name + '!', '#ffe27d'); if (!toned) Sfx.play('kill'); }
+    else if (iDied) { this.announce('You were slain by ' + killer.name + '!', '#ff5c5c'); if (!toned) Sfx.play('death'); }
+  },
+
+  // the pop-scale center banner element, created on first use
+  killBanner(title, sub, color, big) {
+    let kb = this._kb;
+    if (!kb) {
+      kb = this._kb = document.createElement('div');
+      kb.id = 'killBanner';
+      document.body.appendChild(kb);
+    }
+    kb.innerHTML = '<div class="kbTitle" style="color:' + color + '">' + title + '</div>' +
+      (sub ? '<div class="kbSub">' + sub + '</div>' : '');
+    kb.classList.remove('anim', 'big');
+    void kb.offsetWidth;                 // restart the CSS animation
+    kb.className = 'anim' + (big ? ' big' : '');
+    clearTimeout(this._kbT);
+    this._kbT = setTimeout(() => kb.classList.remove('anim', 'big'), big ? 2600 : 2000);
   },
 
   // performance score used for MVP + medals (rewards kills/assists/objectives,
