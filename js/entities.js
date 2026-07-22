@@ -648,8 +648,10 @@ class Tower extends Unit {
     super({ team: spot.team, type:'tower', radius:42, melee:false });
     this.lane = spot.lane; this.order = spot.order;
     this.x = spot.x; this.y = spot.y;
-    this.hpMaxBase = 3800; this.hp = this.hpMaxBase;
-    this.adBase = 190;
+    // base turrets are the tankiest wall; lane turrets fall in order
+    if (spot.lane === 'base') { this.hpMaxBase = 4600; this.adBase = 235; }
+    else { this.hpMaxBase = 3800; this.adBase = 190; }
+    this.hp = this.hpMaxBase;
     this.armorBase = 20; this.mrBase = 20;
     this.atkRange = 420;
     this.atkCd = 1.0;

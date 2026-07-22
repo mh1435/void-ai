@@ -122,16 +122,26 @@ const Game = {
       Sfx.play('boss');
     }
 
-    // tower invulnerability chain
+    // structure invulnerability chain (MLBB-style progression):
+    //   outer lane turret → inner lane turret → [lane broken] → base turrets → Core
     for (const t of G.towers) {
       if (t.dead) continue;
-      t.invulnerable = G.towers.some(o => o.team === t.team && o.lane === t.lane && !o.dead && o.order < t.order);
+      if (t.lane === 'base') {
+        // base turrets stay shielded until at least one lane is fully cleared,
+        // and then still fall outer-first
+        const laneBroken = ['top', 'mid', 'bot'].some(lane =>
+          G.towers.filter(o => o.team === t.team && o.lane === lane).every(o => o.dead));
+        const higherBaseAlive = G.towers.some(o => o.team === t.team && o.lane === 'base' && !o.dead && o.order < t.order);
+        t.invulnerable = !laneBroken || higherBaseAlive;
+      } else {
+        t.invulnerable = G.towers.some(o => o.team === t.team && o.lane === t.lane && !o.dead && o.order < t.order);
+      }
     }
     for (const team of ['blue', 'red']) {
       const core = G.cores[team];
       if (!core.dead) {
-        core.invulnerable = !['top', 'mid', 'bot'].some(lane =>
-          G.towers.filter(t => t.team === team && t.lane === lane && !t.dead).length === 0);
+        // the Core is exposed only once BOTH base turrets have fallen
+        core.invulnerable = G.towers.some(t => t.team === team && t.lane === 'base' && !t.dead);
       }
     }
 
