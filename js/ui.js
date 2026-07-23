@@ -255,6 +255,7 @@ const UI = {
     if (cv) {
       const c = cv.getContext('2d');
       c.clearRect(0, 0, cv.width, cv.height);
+      // splash-style backdrop: radial glow + light rays + hero-color halo
       const g = c.createRadialGradient(120, 78, 10, 120, 110, 140);
       g.addColorStop(0, lighten(h.color, 0.14));
       g.addColorStop(0.65, 'rgba(20,30,45,0.35)');
@@ -262,7 +263,30 @@ const UI = {
       c.globalAlpha = 0.55; c.fillStyle = g;
       c.beginPath(); c.arc(120, 105, 130, 0, 7); c.fill();
       c.globalAlpha = 1;
-      drawHeroCardArt(c, h, 120, 196, 3.1);
+      c.save();
+      c.translate(120, 108);
+      for (let i = 0; i < 12; i++) {
+        const a = i * Math.PI/6 + 0.26;
+        const rayG = c.createLinearGradient(0, 0, Math.cos(a)*150, Math.sin(a)*150);
+        rayG.addColorStop(0, 'rgba(255,255,255,0.10)');
+        rayG.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = rayG;
+        c.beginPath();
+        c.moveTo(0, 0);
+        c.lineTo(Math.cos(a - 0.06)*150, Math.sin(a - 0.06)*150);
+        c.lineTo(Math.cos(a + 0.06)*150, Math.sin(a + 0.06)*150);
+        c.closePath(); c.fill();
+      }
+      c.restore();
+      // champion pedestal: glowing floor ellipse under the feet
+      c.fillStyle = 'rgba(0,0,0,0.5)';
+      c.beginPath(); c.ellipse(120, 198, 62, 15, 0, 0, 7); c.fill();
+      c.strokeStyle = h.color; c.globalAlpha = 0.7; c.lineWidth = 2.5;
+      c.beginPath(); c.ellipse(120, 198, 62, 15, 0, 0, 7); c.stroke();
+      c.globalAlpha = 0.35;
+      c.beginPath(); c.ellipse(120, 198, 46, 10.5, 0, 0, 7); c.stroke();
+      c.globalAlpha = 1;
+      drawHeroCardArt(c, h, 120, 196, 3.3);
     }
     const set = (sel, html) => { const el = document.getElementById(sel); if (el) el.innerHTML = html; };
     set('showName', h.name);
@@ -290,6 +314,44 @@ const UI = {
       c.fillStyle = g; c.fillRect(0, 0, 64, 64);
       drawHeroCardArt(c, h, 32, 58, 0.85);
     }
+  },
+
+  // top-of-screen team portrait strips: ally heads on the left of the score,
+  // enemy heads on the right, each with a live HP bar and respawn countdown
+  buildTeamStrips() {
+    for (const old of document.querySelectorAll('.teamHeads')) old.remove();
+    this.headEls = [];
+    const mk = (heroes, cls) => {
+      const strip = document.createElement('div');
+      strip.className = 'teamHeads ' + cls;
+      for (const h of heroes) {
+        const cell = document.createElement('div');
+        cell.className = 'headCell';
+        const cv = document.createElement('canvas');
+        cv.width = 64; cv.height = 64;
+        const c = cv.getContext('2d');
+        const g = c.createRadialGradient(32, 22, 4, 32, 32, 34);
+        g.addColorStop(0, lighten(h.def.color, 0.22));
+        g.addColorStop(1, 'rgba(6,12,20,0.95)');
+        c.fillStyle = g; c.fillRect(0, 0, 64, 64);
+        drawHeroCardArt(c, h.def, 32, 60, 0.88);
+        cell.appendChild(cv);
+        const bar = document.createElement('div');
+        bar.className = 'headHp';
+        bar.innerHTML = '<i></i>';
+        cell.appendChild(bar);
+        const dead = document.createElement('span');
+        dead.className = 'headDead';
+        cell.appendChild(dead);
+        strip.appendChild(cell);
+        this.headEls.push({ h, cell, fill: bar.firstChild, dead });
+      }
+      this.els.hud.appendChild(strip);
+      return strip;
+    };
+    const myTeam = G.player.team;
+    mk(G.heroes.filter(h => h.team === myTeam && !h.isPlayer), 'ally');
+    mk(G.heroes.filter(h => h.team !== myTeam), 'enemy');
   },
 
   // battle-spell chooser on the hero-select screen (built once)
@@ -344,6 +406,7 @@ const UI = {
       label(this.spellBtn, sp ? sp.name : 'Spell');
       label(this.els.btnShop, 'Shop');
     }
+    this.buildTeamStrips();
     this.buildShop();
     // portrait: the hero's character bust
     const c = this.els.portGlyph.getContext('2d');
@@ -727,10 +790,10 @@ const UI = {
     let toned = false;
     if (mk >= 2) {
       const [label, col] = MK[Math.min(mk, 5)];
-      this.killBanner(label, sub, col, mk >= 4);
+      this.killBanner(label, sub, col, mk >= 4, killer, victim);
       Sfx.play(mk >= 4 ? 'savage' : 'multikill'); toned = true;
     } else if (firstBlood) {
-      this.killBanner('FIRST BLOOD', sub, '#ff5c5c', false);
+      this.killBanner('FIRST BLOOD', sub, '#ff5c5c', false, killer, victim);
       Sfx.play('kill'); toned = true;
     }
 
@@ -743,16 +806,37 @@ const UI = {
     else if (iDied) { this.announce('You were slain by ' + killer.name + '!', '#ff5c5c'); if (!toned) Sfx.play('death'); }
   },
 
-  // the pop-scale center banner element, created on first use
-  killBanner(title, sub, color, big) {
+  // the pop-scale center banner element, created on first use; killer/victim
+  // busts flank a crossed-swords divider above the title
+  killBanner(title, sub, color, big, killer, victim) {
     let kb = this._kb;
     if (!kb) {
       kb = this._kb = document.createElement('div');
       kb.id = 'killBanner';
       document.body.appendChild(kb);
     }
-    kb.innerHTML = '<div class="kbTitle" style="color:' + color + '">' + title + '</div>' +
+    let heads = '';
+    if (killer && victim) heads =
+      '<div class="kbHeads"><span class="kbHead k"></span><span class="kbVs">⚔</span><span class="kbHead v"></span></div>';
+    kb.innerHTML = heads +
+      '<div class="kbTitle" style="color:' + color + '">' + title + '</div>' +
       (sub ? '<div class="kbSub">' + sub + '</div>' : '');
+    if (killer && victim) {
+      const bust = (holder, h, ring) => {
+        const cv = document.createElement('canvas');
+        cv.width = 72; cv.height = 72;
+        const c = cv.getContext('2d');
+        const g = c.createRadialGradient(36, 26, 4, 36, 36, 38);
+        g.addColorStop(0, lighten(h.def.color, 0.22));
+        g.addColorStop(1, 'rgba(6,12,20,0.95)');
+        c.fillStyle = g; c.fillRect(0, 0, 72, 72);
+        drawHeroCardArt(c, h.def, 36, 68, 0.95);
+        holder.style.borderColor = ring;
+        holder.appendChild(cv);
+      };
+      bust(kb.querySelector('.kbHead.k'), killer, TEAM_COLOR[killer.team]);
+      bust(kb.querySelector('.kbHead.v'), victim, '#5a6470');
+    }
     kb.classList.remove('anim', 'big');
     void kb.offsetWidth;                 // restart the CSS animation
     kb.className = 'anim' + (big ? ' big' : '');
@@ -826,6 +910,15 @@ const UI = {
         .reduce((a, h) => a + h.gold, 0) / 100) / 10;
       this.tgBlue.textContent = '◆' + sum('blue') + 'k';
       this.tgRed.textContent = '◆' + sum('red') + 'k';
+    }
+    // team head strips: HP fills, dead grey-out + respawn countdown
+    if (this.headEls) {
+      for (const e of this.headEls) {
+        e.fill.style.width = Math.round(clamp(e.h.hp / e.h.hpMax(), 0, 1) * 100) + '%';
+        const dead = e.h.dead;
+        e.cell.classList.toggle('down', dead);
+        e.dead.textContent = dead ? Math.ceil(e.h.respawnT) : '';
+      }
     }
     this.els.goldVal.textContent = Math.floor(p.gold);
     this.els.kdaVal.textContent = p.kills + '/' + p.deaths + '/' + p.assists;

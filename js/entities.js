@@ -218,6 +218,19 @@ function dealDamage(src, tgt, amount, dtype, opts = {}) {
       big: amt > 150,
       dur:0.7, t:0 });
   }
+  // impact sparks whenever a hero deals or receives a hit (kept off pure
+  // minion-vs-minion trades so lane wars don't drown the screen)
+  if (amt > 0 && ((credit && credit.type === 'hero') || tgt.type === 'hero' || tgt.type === 'tower')) {
+    const sparks = [];
+    const n = amt > 120 ? 6 : 4;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random()*Math.PI*2, sp = 60 + Math.random()*140;
+      sparks.push({ dx: Math.cos(a)*sp, dy: Math.sin(a)*sp*0.6 - 40 });
+    }
+    FX.push({ type:'spark', x:tgt.x, y:tgt.y - tgt.radius*0.6, sparks,
+      color: dtype === 'phys' ? '#ffd9a0' : dtype === 'magic' ? '#d9b8ff' : '#ffffff',
+      dur:0.28, t:0 });
+  }
   if (tgt === G.player && amt > 0) UI.hitShake = Math.min(1, (UI.hitShake || 0) + Math.min(0.5, amt / 300));
 
   if (tgt.hp <= 0) {
@@ -387,6 +400,9 @@ class Hero extends Unit {
       this.applyLevelStats();
       this.hp = Math.max(this.hp, this.hpMax() * Math.max(hpFrac, 0.4));
       FX.push({ type:'ring', x:this.x, y:this.y, r0:20, r1:70, dur:0.5, color:'#ffe27d', t:0 });
+      FX.push({ type:'ring', x:this.x, y:this.y, r0:8, r1:44, dur:0.7, color:'#fff6d8', t:0 });
+      FX.push({ type:'text', x:this.x, y:this.y - this.radius - 26, text:'LEVEL UP!',
+        color:'#ffe27d', big:true, dur:1.0, t:0 });
       if (this.isPlayer) { UI.announce('Level ' + this.level + '!', '#ffe27d'); Sfx.play('level'); }
     }
   }
