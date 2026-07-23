@@ -403,6 +403,7 @@ html, body {
 }
 #btnAttack:active { transform: scale(0.94); background: radial-gradient(circle at 35% 30%, #6b1f2e, #2a0a14); }
 #btnAttack span { pointer-events: none; text-shadow: 0 0 10px rgba(255, 77, 94, 0.9); }
+#btnAttack .atkIcon { width: 84px; height: 84px; pointer-events: none; filter: drop-shadow(0 0 8px rgba(255,77,94,0.6)); }
 
 /* shop */
 #shopPanel {

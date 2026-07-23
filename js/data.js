@@ -32,7 +32,7 @@ const CFG = {
   bossSpawnAt: 120,
   bossRespawn: 180,
   jungleRespawn: 55,
-  viewHeight: 1000,        // world units visible vertically
+  viewHeight: 880,         // world units visible vertically (lower = closer, hero-focused MLBB framing)
   visionHero: 700,
   visionTower: 720,
   visionCore: 620,

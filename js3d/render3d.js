@@ -45,14 +45,14 @@ const Render3D = (() => {
         }
       });
     }
-    camOffset = new THREE.Vector3(0, 640, 500);
+    camOffset = new THREE.Vector3(0, 560, 470); // lower + closer: a more immersive, hero-focused angle
     camTarget = new THREE.Vector3();
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0a1420);
     scene.fog = new THREE.Fog(0x0a1420, 950, 2500);
 
-    camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 1, 4000);
+    camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 1, 4000);
 
     const canvas = document.getElementById('game3d');
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
