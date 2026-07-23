@@ -678,7 +678,7 @@ const Render3D = (() => {
     // animation and hit read cover those.)
     for (const e of FX) {
       if (e._seen3d) continue;
-      if (e.type === 'ring') { e._seen3d = true; spawnRingFX(e.x, e.y, e.color); }
+      if (e.type === 'ring' || e.type === 'shockwave') { e._seen3d = true; spawnRingFX(e.x, e.y, e.color); }
       else if (e.type === 'text') { e._seen3d = true; spawnTextFX(e.x, e.y, e.text, e.color, e.big); }
     }
   }
