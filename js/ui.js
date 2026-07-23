@@ -9,49 +9,136 @@ const Input = {
   mouse: { x: 0, y: 0 },
 };
 
-// ---------------- Sound (tiny WebAudio synth) ----------------
+// ---------------- Sound (procedural WebAudio synth) ----------------
+// Everything here is generated live from oscillators + noise — no audio files.
+// A master compressor keeps stacked hits from clipping, and a shared noise
+// buffer powers the percussive impacts (whooshes, slams, tower crumble).
 const Sfx = {
-  ctx: null, on: true,
+  ctx: null, on: true, master: null, noiseBuf: null, ambient: null,
   ensure() {
     if (!this.ctx) {
-      try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { this.on = false; }
+      try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { this.on = false; return; }
+      // master chain: bus gain → soft compressor → speakers
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.9;
+      const comp = this.ctx.createDynamicsCompressor();
+      comp.threshold.value = -14; comp.knee.value = 26; comp.ratio.value = 3.2;
+      comp.attack.value = 0.004; comp.release.value = 0.2;
+      this.master.connect(comp); comp.connect(this.ctx.destination);
+      // one second of white noise, reused by every percussive voice
+      const sr = this.ctx.sampleRate;
+      this.noiseBuf = this.ctx.createBuffer(1, sr, sr);
+      const d = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     }
     if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
   },
-  tone(freq, dur, type, vol, slide) {
+  // one enveloped oscillator voice with optional pitch slide + lowpass
+  voice(freq, dur, type, vol, opts = {}) {
     if (!this.on || !this.ctx) return;
     const t = this.ctx.currentTime;
     const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
     o.type = type || 'square';
+    if (opts.detune) o.detune.value = opts.detune;
     o.frequency.setValueAtTime(freq, t);
-    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t + dur);
-    g.gain.setValueAtTime(vol || 0.08, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g); g.connect(this.ctx.destination);
-    o.start(t); o.stop(t + dur);
+    if (opts.slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, freq + opts.slide), t + dur);
+    // short attack, exponential decay to silence
+    const atk = opts.atk != null ? opts.atk : 0.006;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    let node = o;
+    if (opts.filter) {
+      const f = this.ctx.createBiquadFilter();
+      f.type = opts.filterType || 'lowpass';
+      f.frequency.setValueAtTime(opts.filter, t);
+      if (opts.filterTo) f.frequency.exponentialRampToValueAtTime(Math.max(60, opts.filterTo), t + dur);
+      o.connect(f); node = f;
+    }
+    node.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + dur + 0.02);
+  },
+  // legacy shim: old call sites pass (freq, dur, type, vol, slide)
+  tone(freq, dur, type, vol, slide) { this.voice(freq, dur, type, vol, slide ? { slide } : {}); },
+  // filtered noise burst — the body of every impact/whoosh
+  noise(dur, vol, filterFreq, filterType, slideTo) {
+    if (!this.on || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource(); src.buffer = this.noiseBuf;
+    const f = this.ctx.createBiquadFilter();
+    f.type = filterType || 'lowpass';
+    f.frequency.setValueAtTime(filterFreq, t);
+    if (slideTo) f.frequency.exponentialRampToValueAtTime(Math.max(60, slideTo), t + dur);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(t); src.stop(t + dur + 0.02);
+  },
+  // a fat detuned pair for musical stabs (fuller than a single oscillator)
+  chord(freqs, dur, type, vol, opts = {}) {
+    for (const fr of freqs) { this.voice(fr, dur, type, vol, opts); this.voice(fr, dur, type, vol*0.6, {...opts, detune:(opts.detune||0)+8}); }
+  },
+  arp(freqs, dur, type, vol, step, opts = {}) {
+    freqs.forEach((fr, i) => setTimeout(() => this.voice(fr, dur, type, vol, opts), i * step));
+  },
+  // low ambient battlefield drone that fades in on match start
+  startAmbient() {
+    if (!this.on || !this.ctx || this.ambient) return;
+    const t = this.ctx.currentTime;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.016, t + 4);
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420;
+    const lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.07;
+    const lfoG = this.ctx.createGain(); lfoG.gain.value = 90;
+    lfo.connect(lfoG); lfoG.connect(lp.frequency);
+    const voices = [];
+    for (const [f, tp] of [[55,'sawtooth'],[82.5,'triangle'],[110,'sine']]) {
+      const o = this.ctx.createOscillator(); o.type = tp; o.frequency.value = f;
+      o.detune.value = (Math.random()*10-5);
+      o.connect(lp); o.start(t); voices.push(o);
+    }
+    lp.connect(g); g.connect(this.master); lfo.start(t);
+    this.ambient = { g, voices, lfo };
+  },
+  stopAmbient() {
+    if (!this.ambient || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    const a = this.ambient; this.ambient = null;
+    a.g.gain.cancelScheduledValues(t);
+    a.g.gain.setValueAtTime(a.g.gain.value, t);
+    a.g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+    a.voices.forEach(o => o.stop(t + 1.3)); a.lfo.stop(t + 1.3);
   },
   play(name) {
     if (!this.ctx) return;
+    const V = this.voice.bind(this), N = this.noise.bind(this), C = this.chord.bind(this), A = this.arp.bind(this);
     switch (name) {
-      case 'attack': this.tone(220, 0.06, 'square', 0.04); break;
-      case 'bolt': this.tone(600, 0.12, 'sawtooth', 0.05, -300); break;
-      case 'skill': this.tone(440, 0.15, 'triangle', 0.07, 200); break;
-      case 'dash': this.tone(300, 0.15, 'sine', 0.07, 500); break;
-      case 'slam': this.tone(120, 0.25, 'square', 0.09, -60); break;
-      case 'shield': this.tone(500, 0.2, 'sine', 0.06, 250); break;
-      case 'ult': this.tone(200, 0.35, 'sawtooth', 0.08, 400); break;
-      case 'kill': this.tone(880, 0.15, 'square', 0.08); setTimeout(()=>this.tone(1175, 0.25, 'square', 0.08), 120); break;
-      case 'multikill': [660,880,1100].forEach((f,i)=>setTimeout(()=>this.tone(f,0.16,'square',0.08), i*90)); break;
-      case 'savage': [523,659,880,1046,1318].forEach((f,i)=>setTimeout(()=>this.tone(f,0.22,'sawtooth',0.09), i*110)); break;
-      case 'death': this.tone(300, 0.5, 'sawtooth', 0.08, -200); break;
-      case 'tower': this.tone(90, 0.6, 'square', 0.1, -40); break;
-      case 'level': this.tone(523, 0.1, 'square', 0.06); setTimeout(()=>this.tone(784, 0.2, 'square', 0.06), 100); break;
-      case 'buy': this.tone(700, 0.08, 'sine', 0.06, 300); break;
-      case 'recall': this.tone(400, 0.4, 'sine', 0.07, 400); break;
-      case 'boss': this.tone(80, 0.8, 'sawtooth', 0.1, 30); break;
-      case 'victory': [523,659,784,1046].forEach((f,i)=>setTimeout(()=>this.tone(f,0.3,'square',0.08), i*150)); break;
-      case 'defeat': [400,350,300,250].forEach((f,i)=>setTimeout(()=>this.tone(f,0.35,'sawtooth',0.07), i*180)); break;
+      // ---- combat ----
+      case 'attack': N(0.05, 0.05, 1400, 'bandpass'); V(180, 0.05, 'square', 0.03); break;
+      case 'bolt': V(680, 0.14, 'sawtooth', 0.06, { slide:-380, filter:2600, filterTo:500 }); N(0.06, 0.03, 3000, 'highpass'); break;
+      case 'skill': V(440, 0.16, 'triangle', 0.07, { slide:240, filter:2400 }); V(660, 0.14, 'sine', 0.04, { slide:200 }); break;
+      case 'dash': N(0.22, 0.06, 900, 'bandpass', 2600); V(300, 0.16, 'sine', 0.05, { slide:520 }); break;
+      case 'slam': V(120, 0.28, 'square', 0.09, { slide:-70 }); N(0.3, 0.11, 500, 'lowpass', 90); break;
+      case 'shield': V(500, 0.24, 'sine', 0.06, { slide:260 }); V(750, 0.22, 'triangle', 0.03, { slide:260 }); break;
+      case 'ult': C([196,262,392], 0.4, 'sawtooth', 0.06, { slide:120, filter:2600 }); N(0.35, 0.07, 700, 'lowpass', 140); break;
+      // ---- kills / streaks ----
+      case 'kill': A([880,1175], 0.2, 'square', 0.07, 110); break;
+      case 'multikill': A([660,880,1100], 0.18, 'square', 0.07, 90); break;
+      case 'savage': A([523,659,880,1046,1318], 0.24, 'sawtooth', 0.07, 100, { filter:3200 }); break;
+      case 'death': V(300, 0.5, 'sawtooth', 0.08, { slide:-210, filter:1600, filterTo:200 }); N(0.4, 0.05, 800, 'lowpass', 120); break;
+      // ---- structures / objectives ----
+      case 'tower': V(90, 0.6, 'square', 0.1, { slide:-46 }); N(0.7, 0.13, 900, 'lowpass', 70); break;
+      case 'boss': C([70,105], 0.85, 'sawtooth', 0.09, { slide:26, filter:1400 }); N(0.8, 0.08, 300, 'lowpass'); break;
+      // ---- economy / utility ----
+      case 'level': A([523,784,1046], 0.16, 'triangle', 0.06, 90, { filter:3000 }); break;
+      case 'buy': V(700, 0.09, 'sine', 0.06, { slide:340 }); V(1050, 0.08, 'sine', 0.03, { slide:300 }); break;
+      case 'recall': V(400, 0.42, 'sine', 0.06, { slide:420 }); V(600, 0.4, 'triangle', 0.03, { slide:400 }); break;
+      // ---- match end fanfares ----
+      case 'victory': A([523,659,784,1046,1318], 0.32, 'square', 0.07, 150, { filter:3400 }); setTimeout(()=>C([523,659,784], 0.6, 'triangle', 0.06), 760); break;
+      case 'defeat': A([440,392,330,262], 0.4, 'sawtooth', 0.06, 190, { filter:1600, filterTo:600 }); break;
     }
   },
 };
@@ -316,6 +403,31 @@ const UI = {
     }
   },
 
+  // small mute toggle (works on touch + the M key); persists in localStorage
+  buildMuteBtn() {
+    if (!this._muteBtn) {
+      const b = document.createElement('div');
+      b.id = 'btnMute'; b.className = 'miniBtn';
+      this.els.hud.appendChild(b);
+      b.addEventListener('click', () => this.toggleMute());
+      this._muteBtn = b;
+      try { if (localStorage.getItem('va_muted') === '1') Sfx.on = false; } catch (e) {}
+    }
+    this._syncMute();
+  },
+  toggleMute() {
+    Sfx.on = !Sfx.on;
+    if (!Sfx.on) Sfx.stopAmbient(); else { Sfx.ensure(); Sfx.startAmbient(); }
+    try { localStorage.setItem('va_muted', Sfx.on ? '0' : '1'); } catch (e) {}
+    this._syncMute();
+  },
+  _syncMute() {
+    if (this._muteBtn) {
+      this._muteBtn.textContent = Sfx.on ? '🔊' : '🔇';
+      this._muteBtn.classList.toggle('muted', !Sfx.on);
+    }
+  },
+
   // top-of-screen team portrait strips: ally heads on the left of the score,
   // enemy heads on the right, each with a live HP bar and respawn countdown
   buildTeamStrips() {
@@ -387,6 +499,7 @@ const UI = {
     this.els.select.style.display = 'none';
     this.els.end.style.display = 'none';
     this.els.hud.style.display = 'block';
+    Sfx.ensure(); Sfx.startAmbient();
     this.buildSkillButtons();
     this.buildSpellButton();
     this.buildBuffRow();
@@ -408,6 +521,7 @@ const UI = {
     }
     this.buildTeamStrips();
     this.buildShop();
+    this.buildMuteBtn();
     // portrait: the hero's character bust
     const c = this.els.portGlyph.getContext('2d');
     const h = G.player.def;
@@ -669,6 +783,7 @@ const UI = {
     window.addEventListener('keydown', e => {
       const k = e.key.toLowerCase();
       Input.keys[k] = true;
+      if (k === 'm') { this.toggleMute(); return; }
       if (!G.running || G.over) return;
       Sfx.ensure();
       if (k === '1') Game.playerCast(0, this.mouseAim());
@@ -957,6 +1072,7 @@ const UI = {
   },
 
   showEnd(won) {
+    Sfx.stopAmbient();
     this.els.end.style.display = 'flex';
     this.els.endTitle.textContent = won ? 'VICTORY' : 'DEFEAT';
     this.els.endTitle.className = won ? 'win' : 'lose';
