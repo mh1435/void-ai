@@ -49,8 +49,8 @@ const Render3D = (() => {
     camTarget = new THREE.Vector3();
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x060a10);
-    scene.fog = new THREE.Fog(0x060a10, 900, 2400);
+    scene.background = new THREE.Color(0x0a1420);
+    scene.fog = new THREE.Fog(0x0a1420, 950, 2500);
 
     camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 1, 4000);
 
@@ -64,7 +64,7 @@ const Render3D = (() => {
     window.addEventListener('resize', resize);
 
     // lighting: soft ambient fill + a directional "sun" casting shadows
-    scene.add(new THREE.HemisphereLight(0x8fb8ff, 0x1a2a1a, 0.9));
+    scene.add(new THREE.HemisphereLight(0x9fc4ff, 0x263a26, 1.1));
     const sun = new THREE.DirectionalLight(0xfff2d8, 1.6);
     sun.position.set(-500, 900, -400);
     sun.castShadow = true;
@@ -135,19 +135,69 @@ const Render3D = (() => {
     scene.add(fogMesh);
   }
 
+  // clone a loaded KayKit prop model scaled so its bounding-box height equals
+  // `height` scene units; returns null when the prop didn't load (callers
+  // fall back to the old procedural shapes)
+  function cloneProp(name, height) {
+    const src = heroModels[name];
+    if (!src || !src.scene) return null;
+    if (!src._size) {
+      const box = new THREE.Box3().setFromObject(src.scene);
+      src._size = box.getSize(new THREE.Vector3());
+    }
+    const obj = src.scene.clone(true);
+    const s = height / Math.max(0.001, src._size.y);
+    obj.scale.setScalar(s);
+    obj.traverse(o => {
+      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+    });
+    return obj;
+  }
+
   // rocks + bushes are static, built once from the same data the 2D map uses
   function buildScenery() {
     const rockGeo = new THREE.IcosahedronGeometry(1, 1);
     jitterGeometry(rockGeo, 0.28);
     const rockMat = new THREE.MeshStandardMaterial({ color: 0x454c56, roughness: 0.9, flatShading: true });
+    const rockProps = ['rock_single_A', 'rock_single_B', 'rock_single_C'];
+    let ri = 0;
     for (const r of ROCKS) {
-      const m = new THREE.Mesh(rockGeo, rockMat);
       const [x, z] = toScene(r.x, r.y);
+      const prop = cloneProp(rockProps[ri++ % rockProps.length], r.r * 0.8);
+      if (prop) {
+        prop.position.set(x, 0, z);
+        prop.rotation.y = Math.random() * Math.PI * 2;
+        scene.add(prop); staticScenery.push(prop);
+        continue;
+      }
+      const m = new THREE.Mesh(rockGeo, rockMat);
       m.position.set(x, r.r * 0.55, z);
       m.scale.setScalar(r.r * 0.85);
       m.rotation.y = Math.random() * Math.PI * 2;
       m.castShadow = true; m.receiveShadow = true;
       scene.add(m); staticScenery.push(m);
+    }
+
+    // forest wall framing the arena borders (mirrors the 2D map's canopy):
+    // rings of KayKit trees just inside the world edge, skipping lane mouths
+    if (heroModels['tree_single_A']) {
+      let ti = 0;
+      const treeAt = (wx, wy) => {
+        if (distToLanes && distToLanes(wx, wy) < 170) return;   // keep lanes readable
+        const h = 60 + Math.random() * 55;
+        const prop = cloneProp(ti++ % 2 ? 'tree_single_A' : 'tree_single_B', h);
+        if (!prop) return;
+        const [x, z] = toScene(wx, wy);
+        prop.position.set(x, 0, z);
+        prop.rotation.y = Math.random() * Math.PI * 2;
+        scene.add(prop); staticScenery.push(prop);
+      };
+      for (let d = 60; d < WORLD - 60; d += 130 + Math.random() * 90) {
+        treeAt(d + Math.random()*50, 40 + Math.random()*70);
+        treeAt(d + Math.random()*50, WORLD - 40 - Math.random()*70);
+        treeAt(40 + Math.random()*70, d + Math.random()*50);
+        treeAt(WORLD - 40 - Math.random()*70, d + Math.random()*50);
+      }
     }
     const bushMat = new THREE.MeshStandardMaterial({ color: 0x2f8a4d, roughness: 0.85, transparent: true, opacity: 0.88 });
     for (const b of BUSHES) {
@@ -413,29 +463,47 @@ const Render3D = (() => {
       }
       h = u.boss ? 78 : 42;
     } else if (u.type === 'tower') {
-      const col = sharedGeo('towerCol', () => new THREE.CylinderGeometry(16, 22, 90, 8));
-      const mat = sharedMat('towerCol_' + u.team, () => new THREE.MeshStandardMaterial({ color: TEAM_HEX_D[u.team], roughness: 0.7, metalness: 0.15 }));
-      const c = new THREE.Mesh(col, mat); c.position.y = 45; c.castShadow = true; c.receiveShadow = true;
-      // crystal material is NOT shared, unlike the column above: its
-      // emissiveIntensity is mutated per-instance each frame (invulnerability
-      // glow) and towers of the same team must be able to differ
+      // real KayKit turret model in team colors, procedural column fallback
+      const prop = cloneProp('building_tower_A_' + u.team, 96);
+      if (prop) {
+        group.add(prop);
+      } else {
+        const col = sharedGeo('towerCol', () => new THREE.CylinderGeometry(16, 22, 90, 8));
+        const mat = sharedMat('towerCol_' + u.team, () => new THREE.MeshStandardMaterial({ color: TEAM_HEX_D[u.team], roughness: 0.7, metalness: 0.15 }));
+        const c = new THREE.Mesh(col, mat); c.position.y = 45; c.castShadow = true; c.receiveShadow = true;
+        group.add(c);
+      }
+      // crystal material is NOT shared: its emissiveIntensity is mutated
+      // per-instance each frame (invulnerability glow); the floating crystal
+      // stays even over the model — it's the shield/targetable indicator
       const crystalMat = new THREE.MeshStandardMaterial({ color: TEAM_HEX[u.team], emissive: TEAM_HEX[u.team], emissiveIntensity: 0.9 });
       const crystal = new THREE.Mesh(sharedGeo('towerCrystal', () => new THREE.OctahedronGeometry(13, 0)), crystalMat);
-      crystal.position.y = 104;
-      group.add(c, crystal);
+      crystal.position.y = prop ? 118 : 104;
+      group.add(crystal);
       group.userData.crystal = crystal;
-      h = 112;
+      h = prop ? 126 : 112;
     } else if (u.type === 'core') {
-      const baseMat = sharedMat('coreBase_' + u.team, () => new THREE.MeshStandardMaterial({ color: TEAM_HEX_D[u.team], roughness: 0.6 }));
-      const base = new THREE.Mesh(sharedGeo('coreBase', () => new THREE.CylinderGeometry(60, 66, 20, 8)), baseMat);
-      base.position.y = 10; base.castShadow = true; base.receiveShadow = true;
+      // team castle as the Void Core seat, procedural pedestal fallback
+      const prop = cloneProp('building_castle_' + u.team, 110);
+      if (prop) {
+        group.add(prop);
+      } else {
+        const baseMat = sharedMat('coreBase_' + u.team, () => new THREE.MeshStandardMaterial({ color: TEAM_HEX_D[u.team], roughness: 0.6 }));
+        const base = new THREE.Mesh(sharedGeo('coreBase', () => new THREE.CylinderGeometry(60, 66, 20, 8)), baseMat);
+        base.position.y = 10; base.castShadow = true; base.receiveShadow = true;
+        group.add(base);
+      }
       const crystalMat = sharedMat('coreCrystal_' + u.team, () =>
         new THREE.MeshStandardMaterial({ color: TEAM_HEX[u.team], emissive: TEAM_HEX[u.team], emissiveIntensity: 1 }));
-      const crystal = new THREE.Mesh(sharedGeo('coreCrystal', () => new THREE.OctahedronGeometry(34, 0)), crystalMat);
-      crystal.position.y = 55;
-      group.add(base, crystal);
+      // with the castle model the crystal is a modest beacon over the keep,
+      // not the structure itself
+      const crystal = new THREE.Mesh(
+        sharedGeo(prop ? 'coreCrystalSmall' : 'coreCrystal', () => new THREE.OctahedronGeometry(prop ? 16 : 34, 0)),
+        crystalMat);
+      crystal.position.y = prop ? 132 : 55;
+      group.add(crystal);
       group.userData.crystal = crystal;
-      h = 100;
+      h = prop ? 140 : 100;
     }
     scene.add(group);
     const barW = u.type === 'core' ? 90 : u.type === 'tower' ? 60 : u.type === 'jungle' ? (u.boss ? 110 : 40) : 26;
