@@ -30,6 +30,16 @@ window.SkeletonClone = skeletonClone;
 // per hero unit in render3d.js.
 const HERO_MODEL_FILES = ['Knight', 'Mage', 'Rogue', 'Rogue_Hooded', 'Barbarian'];
 
+// static environment/structure props from the KayKit Medieval Hexagon Pack
+// (CC0 — see assets/models/kaykit_hex/LICENSE.txt): team-colored turrets and
+// castles, plus trees and rocks for the arena. Cloned per instance.
+const PROP_MODEL_FILES = [
+  'building_tower_A_blue', 'building_tower_A_red',
+  'building_castle_blue', 'building_castle_red',
+  'tree_single_A', 'tree_single_B',
+  'rock_single_A', 'rock_single_B', 'rock_single_C',
+];
+
 window.addEventListener('load', async () => {
   const loadingEl = document.getElementById('loading3d');
   const pctEl = loadingEl.querySelector('.loadPct');
@@ -44,6 +54,18 @@ window.addEventListener('load', async () => {
       setPct('loading characters ' + (i + 1) + '/' + HERO_MODEL_FILES.length);
       const gltf = await loader.loadAsync('assets/models/kaykit/' + name + '.glb');
       models[name] = { scene: gltf.scene, animations: gltf.animations };
+    }
+    // structures + scenery load after characters; a failed prop is tolerable
+    // (render3d falls back to its procedural shapes), so don't fail the boot
+    for (let i = 0; i < PROP_MODEL_FILES.length; i++) {
+      const name = PROP_MODEL_FILES[i];
+      setPct('loading scenery ' + (i + 1) + '/' + PROP_MODEL_FILES.length);
+      try {
+        const gltf = await loader.loadAsync('assets/models/kaykit_hex/' + name + '.gltf');
+        models[name] = { scene: gltf.scene, animations: gltf.animations };
+      } catch (e) {
+        console.warn('optional prop failed to load:', name, e);
+      }
     }
 
     loadingEl.style.display = 'none';
