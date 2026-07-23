@@ -262,7 +262,14 @@ html, body {
 #hpFill { background: linear-gradient(90deg, #22c55e, #4ade80); }
 #mpFill { background: linear-gradient(90deg, #2563eb, #60a5fa); }
 #xpFill { background: linear-gradient(90deg, #b48908, #ffd166); }
-#itemsRow { font-size: 13px; letter-spacing: 3px; color: #ffd166; max-width: 90px; }
+#itemsRow { display: flex; gap: 3px; flex-wrap: wrap; max-width: 108px; }
+.itemSlot {
+  width: 17px; height: 17px; border-radius: 4px; overflow: hidden;
+  border: 1px solid rgba(255,209,102,0.4); background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center;
+}
+.itemSlot canvas { width: 17px; height: 17px; }
+.itemSlot.empty { border-style: dashed; border-color: rgba(255,255,255,0.15); }
 
 /* joystick */
 #joyZone {

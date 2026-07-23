@@ -1120,8 +1120,26 @@ const UI = {
       bb.classList.toggle('afford', p.gold >= next.cost);
     } else bb.style.display = 'none';
 
-    // items row
-    this.els.itemsRow.textContent = p.items.map(i => i.icon).join(' ');
+    // items row: drawn category emblems for each owned item (+ empty slots)
+    const row = this.els.itemsRow;
+    const sig = p.items.map(i => i.id).join(',');
+    if (this._itemSig !== sig) {
+      this._itemSig = sig;
+      row.innerHTML = '';
+      for (let s = 0; s < CFG.maxItems; s++) {
+        const it = p.items[s];
+        const slot = document.createElement('span');
+        slot.className = 'itemSlot' + (it ? '' : ' empty');
+        if (it) {
+          const cv = document.createElement('canvas');
+          cv.width = 30; cv.height = 30;
+          this.drawItemIcon(cv, this.itemCat(it));
+          slot.appendChild(cv);
+          slot.title = it.name + ' — ' + it.desc;
+        }
+        row.appendChild(slot);
+      }
+    }
 
     // death overlay
     if (p.dead) {
