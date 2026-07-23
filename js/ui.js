@@ -703,17 +703,66 @@ const UI = {
   },
 
   // ---------- shop ----------
+  // sort each item into an MLBB-style shop category from its stat block
+  itemCat(it) {
+    const s = it.stat || {};
+    if (s.ms) return 'move';
+    if (s.sp) return 'arcane';
+    if (s.ad || s.as || s.ls) return 'attack';
+    if (s.hp || s.armor || s.mr || s.regen) return 'defense';
+    return 'attack';
+  },
+
+  shopFilter: 'all',
   buildShop() {
+    const panel = this.els.shopPanel;
     const grid = this.els.shopGrid;
+
+    // category tab bar (built once, above the grid)
+    if (!this._shopTabs) {
+      const tabs = document.createElement('div');
+      tabs.id = 'shopTabs';
+      const CATS = [['all','All'],['attack','Attack'],['arcane','Magic'],['defense','Defense'],['move','Move']];
+      for (const [id, label] of CATS) {
+        const t = document.createElement('div');
+        t.className = 'shopTab' + (id === 'all' ? ' sel' : '');
+        t.dataset.cat = id; t.textContent = label;
+        t.addEventListener('click', () => {
+          this.shopFilter = id;
+          tabs.querySelectorAll('.shopTab').forEach(x => x.classList.toggle('sel', x.dataset.cat === id));
+          this.refreshShop();
+        });
+        tabs.appendChild(t);
+      }
+      panel.insertBefore(tabs, grid);
+      this._shopTabs = tabs;
+      // recommended-build strip
+      const rec = document.createElement('div');
+      rec.id = 'shopRec';
+      panel.insertBefore(rec, grid);
+      this._shopRec = rec;
+    }
+
     grid.innerHTML = '';
     for (const it of ITEMS) {
+      const cat = this.itemCat(it);
       const d = document.createElement('div');
       d.className = 'shopItem';
-      d.dataset.id = it.id;
-      d.innerHTML = '<span class="itIcon">' + it.icon + '</span><div class="itName">' + it.name + '</div>' +
-        '<div class="itDesc">' + it.desc + '</div><div class="itCost">' + it.cost + 'g</div>';
+      d.dataset.id = it.id; d.dataset.cat = cat;
+      const cv = document.createElement('canvas');
+      cv.width = 44; cv.height = 44; cv.className = 'itIcon';
+      this.drawItemIcon(cv, cat);
+      d.appendChild(cv);
+      const body = document.createElement('div');
+      body.className = 'itBody';
+      body.innerHTML = '<div class="itName">' + it.name + '</div><div class="itDesc">' + it.desc + '</div>';
+      d.appendChild(body);
+      const cost = document.createElement('div');
+      cost.className = 'itCost'; cost.textContent = it.cost;
+      d.appendChild(cost);
       d.addEventListener('click', () => {
         if (G.player.buyItem(it)) {
+          Sfx.play('buy');
           const bi = G.player.def.build[G.player.buildIdx];
           if (bi === it.id) G.player.buildIdx++;
           this.refreshShop();
@@ -723,13 +772,70 @@ const UI = {
     }
   },
 
+  // hand-drawn category emblem so items read at a glance, not just by letter
+  drawItemIcon(cv, cat) {
+    const c = cv.getContext('2d');
+    const W = cv.width, H = cv.height;
+    const accent = { attack:'#ff8a5c', arcane:'#c77dff', defense:'#7db7ff', move:'#7dff9b' }[cat] || '#ffd166';
+    c.clearRect(0, 0, W, H);
+    const g = c.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, hexA(accent, 0.28)); g.addColorStop(1, hexA(accent, 0.08));
+    c.fillStyle = g;
+    roundRect(c, 2, 2, W-4, H-4, 8); c.fill();
+    c.strokeStyle = hexA(accent, 0.6); c.lineWidth = 1.5;
+    roundRect(c, 2, 2, W-4, H-4, 8); c.stroke();
+    c.save(); c.translate(W/2, H/2); c.strokeStyle = accent; c.fillStyle = accent;
+    c.lineWidth = 3; c.lineCap = 'round'; c.lineJoin = 'round';
+    if (cat === 'attack') {                       // upright sword
+      c.beginPath(); c.moveTo(0, -13); c.lineTo(0, 8); c.stroke();
+      c.beginPath(); c.moveTo(-6, 4); c.lineTo(6, 4); c.stroke();
+      c.beginPath(); c.moveTo(0, 8); c.lineTo(0, 13); c.stroke();
+    } else if (cat === 'arcane') {                // orb with spark
+      c.beginPath(); c.arc(0, 0, 9, 0, 7); c.stroke();
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(-3, -3, 2.5, 0, 7); c.fill();
+      c.fillStyle = accent;
+      for (let i=0;i<4;i++){ const a=i*Math.PI/2+0.4; c.beginPath(); c.moveTo(Math.cos(a)*11, Math.sin(a)*11); c.lineTo(Math.cos(a)*15, Math.sin(a)*15); c.stroke(); }
+    } else if (cat === 'defense') {               // shield
+      c.beginPath();
+      c.moveTo(0, -13); c.lineTo(11, -8); c.lineTo(9, 6); c.lineTo(0, 14); c.lineTo(-9, 6); c.lineTo(-11, -8);
+      c.closePath(); c.stroke();
+      c.beginPath(); c.moveTo(0, -6); c.lineTo(0, 8); c.moveTo(-6, 0); c.lineTo(6, 0); c.stroke();
+    } else {                                      // winged boot / speed
+      c.beginPath(); c.moveTo(-9, -6); c.lineTo(-9, 8); c.lineTo(11, 8); c.lineTo(11, 2); c.lineTo(-2, 2); c.lineTo(-2, -6); c.closePath(); c.stroke();
+      c.lineWidth = 2;
+      for (let i=0;i<3;i++){ const yy=-8+i*5; c.beginPath(); c.moveTo(-14, yy); c.lineTo(-6, yy); c.stroke(); }
+    }
+    c.restore();
+  },
+
   refreshShop() {
     if (this.els.shopPanel.style.display !== 'block') return;
-    this.els.shopGold.textContent = Math.floor(G.player.gold) + ' gold';
+    const p = G.player;
+    this.els.shopGold.textContent = Math.floor(p.gold) + ' gold';
+    const owned = new Set(p.items.map(i => i.id));
+    const full = p.items.length >= CFG.maxItems;
     document.querySelectorAll('.shopItem').forEach(el => {
       const it = itemById(el.dataset.id);
-      el.classList.toggle('afford', G.player.gold >= it.cost && G.player.items.length < CFG.maxItems);
+      el.style.display = (this.shopFilter === 'all' || el.dataset.cat === this.shopFilter) ? '' : 'none';
+      el.classList.toggle('afford', p.gold >= it.cost && !full);
+      el.classList.toggle('owned', owned.has(it.id));
     });
+    // recommended next item from the hero's build path
+    if (this._shopRec) {
+      const nextId = p.def.build[p.buildIdx];
+      const next = nextId && itemById(nextId);
+      if (next && !full) {
+        this._shopRec.style.display = '';
+        this._shopRec.innerHTML = '<span class="recLabel">RECOMMENDED</span>' +
+          '<span class="recName">' + next.name + '</span>' +
+          '<span class="recCost' + (p.gold >= next.cost ? ' ok' : '') + '">◆ ' + next.cost + '</span>';
+        this._shopRec.onclick = () => {
+          if (p.buyItem(next)) { Sfx.play('buy'); p.buildIdx++; this.refreshShop(); }
+        };
+      } else {
+        this._shopRec.style.display = 'none';
+      }
+    }
   },
 
   refreshScoreboard() {
