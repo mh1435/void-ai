@@ -411,21 +411,48 @@ html, body {
   background: none; border: 1px solid var(--edge); color: #fff; border-radius: 8px;
   width: 32px; height: 32px; font-size: 14px; cursor: pointer;
 }
-#shopGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+/* category tab bar */
+#shopTabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.shopTab {
+  padding: 4px 12px; border-radius: 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
+  color: #8fa3b8; background: rgba(255,255,255,0.05); border: 1px solid transparent; cursor: pointer;
+}
+.shopTab.sel { color: #241703; background: linear-gradient(180deg, #ffd166, #e29b18); border-color: #ffe8b0; }
+/* recommended next-item strip */
+#shopRec {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;
+  padding: 7px 12px; border-radius: 10px;
+  background: linear-gradient(90deg, rgba(255,209,102,0.16), rgba(255,209,102,0.04));
+  border: 1px solid rgba(255,209,102,0.4);
+}
+#shopRec .recLabel { font-size: 10px; font-weight: 800; letter-spacing: 1px; color: var(--gold); }
+#shopRec .recName { flex: 1; font-weight: 700; font-size: 13px; color: #fff; }
+#shopRec .recCost { font-weight: 700; font-size: 13px; color: #ff8a8a; }
+#shopRec .recCost.ok { color: #7dff9b; }
+#shopRec:active { transform: scale(0.99); }
+
+#shopGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 8px; }
 .shopItem {
+  display: flex; align-items: center; gap: 9px;
   background: rgba(255, 255, 255, 0.04); border: 1px solid transparent; border-radius: 10px;
   padding: 8px 10px; cursor: pointer; opacity: 0.55; position: relative;
 }
 .shopItem.afford { opacity: 1; border-color: rgba(255, 209, 102, 0.35); }
-.shopItem:active { transform: scale(0.97); }
-.shopItem .itIcon {
-  display: inline-flex; width: 26px; height: 26px; border-radius: 6px; margin-bottom: 4px;
-  background: rgba(255, 209, 102, 0.15); color: var(--gold); font-weight: 800;
-  align-items: center; justify-content: center;
+.shopItem.owned { opacity: 1; border-color: rgba(125, 255, 155, 0.5); }
+.shopItem.owned::after {
+  content: '✔'; position: absolute; top: 6px; right: 8px;
+  color: #7dff9b; font-size: 12px; font-weight: 800;
 }
-.shopItem .itName { font-weight: 700; font-size: 14px; }
-.shopItem .itDesc { font-size: 12px; color: #8fa3b8; }
-.shopItem .itCost { position: absolute; top: 8px; right: 10px; color: var(--gold); font-weight: 700; font-size: 13px; }
+.shopItem:active { transform: scale(0.97); }
+.shopItem .itIcon { width: 40px; height: 40px; flex: none; }
+.shopItem .itBody { min-width: 0; padding-bottom: 13px; }
+.shopItem .itName { font-weight: 700; font-size: 13.5px; padding-right: 20px; }
+.shopItem .itDesc { font-size: 11.5px; color: #8fa3b8; line-height: 1.25; }
+.shopItem .itCost {
+  position: absolute; bottom: 6px; right: 10px; color: var(--gold); font-weight: 700; font-size: 12px;
+  background: linear-gradient(90deg, transparent, rgba(10,16,26,0.95) 30%); padding-left: 16px;
+}
+.shopItem .itCost::before { content: '◆ '; font-size: 9px; }
 
 /* scoreboard */
 #scoreboard {
@@ -894,11 +921,8 @@ tr.mvpRow td { background: rgba(255,209,102,0.10); }
   border-color: rgba(255,209,102,0.5);
   box-shadow: 0 0 10px rgba(255,209,102,0.15), inset 0 1px 0 rgba(255,236,170,0.1);
 }
-.shopItem .itIcon {
-  background: linear-gradient(180deg, #3a2c10, #1a1206);
-  border: 1px solid rgba(255,209,102,0.5);
-  box-shadow: inset 0 1px 1px rgba(255,236,170,0.25);
-}
+/* the item icon is now a self-contained drawn canvas — no CSS chrome behind it */
+.shopItem .itIcon { background: none; border: none; box-shadow: none; }
 .shopItem .itCost::before { content: '◆ '; font-size: 10px; }
 
 /* --- scoreboard: gold-framed tactical panel --- */
