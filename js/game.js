@@ -1834,6 +1834,23 @@ function drawHeroPlate(ctx, h, cx, cy) {
     ctx.fillStyle = '#6fb9ff';
     ctx.fillRect(x + 3, y + 9, (w - 4) * clamp(h.mana / h.manaMax, 0, 1), 3);
   }
+  // status pips: crowd-control + notable buffs, readable at a glance in a fight
+  const pips = [];
+  if (h.stunned) pips.push('#ffd84d');                              // stun (gold)
+  if (h.buffs.some(b => b.slow || b.id === 'chill')) pips.push('#7fd4ff'); // slow/chill (ice)
+  if (sh > 0) pips.push('#e8f0ff');                                 // shielded (white)
+  if (h.buffs.some(b => b.adMult || b.asMult || b.msMult > 1 || b.sp)) pips.push('#7dff9b'); // empowered (green)
+  if (h.buffs.some(b => b.dot)) pips.push('#ff6a6a');               // bleeding/DoT (red)
+  if (pips.length) {
+    const py = y + (h.manaMax > 0 ? 17 : 14);
+    let px = cx + 5 - (pips.length * 5);
+    for (const col of pips) {
+      ctx.fillStyle = col;
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(px, py, 3, 0, 7); ctx.fill(); ctx.stroke();
+      px += 10;
+    }
+  }
 }
 
 // shared hero body used in-game and on UI cards: role-based silhouette
