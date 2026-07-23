@@ -40,6 +40,10 @@ const PROP_MODEL_FILES = [
   'rock_single_A', 'rock_single_B', 'rock_single_C',
 ];
 
+// rigged lane-minion characters from the KayKit Skeletons pack (CC0 — see
+// assets/models/kaykit_skeletons/LICENSE.txt): melee grunt + caster
+const MINION_MODEL_FILES = ['Skeleton_Minion', 'Skeleton_Mage'];
+
 window.addEventListener('load', async () => {
   const loadingEl = document.getElementById('loading3d');
   const pctEl = loadingEl.querySelector('.loadPct');
@@ -65,6 +69,16 @@ window.addEventListener('load', async () => {
         models[name] = { scene: gltf.scene, animations: gltf.animations };
       } catch (e) {
         console.warn('optional prop failed to load:', name, e);
+      }
+    }
+    for (let i = 0; i < MINION_MODEL_FILES.length; i++) {
+      const name = MINION_MODEL_FILES[i];
+      setPct('loading minions ' + (i + 1) + '/' + MINION_MODEL_FILES.length);
+      try {
+        const gltf = await loader.loadAsync('assets/models/kaykit_skeletons/' + name + '.glb');
+        models[name] = { scene: gltf.scene, animations: gltf.animations };
+      } catch (e) {
+        console.warn('optional minion model failed to load:', name, e);
       }
     }
 

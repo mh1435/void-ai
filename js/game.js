@@ -379,13 +379,15 @@ const YS = 0.72;      // 2.5D ground foreshortening: world y compresses to y*YS 
 // then drawn as a translucent black layer over both the main view and the minimap.
 const FOG_RES = 256;
 const FOG_S = FOG_RES / WORLD;
-let fogExplored = null, fogMask = null;
+let fogExplored = null, fogMask = null, fogSmooth = null;
 
 function initFog() {
   fogExplored = document.createElement('canvas');
   fogExplored.width = FOG_RES; fogExplored.height = FOG_RES;
   fogMask = document.createElement('canvas');
   fogMask.width = FOG_RES; fogMask.height = FOG_RES;
+  fogSmooth = document.createElement('canvas');
+  fogSmooth.width = FOG_RES; fogSmooth.height = FOG_RES;
 }
 
 function updateFogMask() {
@@ -424,6 +426,16 @@ function updateFogMask() {
     mc.beginPath(); mc.arc(c.x*FOG_S, c.y*FOG_S, c.r*FOG_S, 0, 7); mc.fill();
   }
   mc.globalCompositeOperation = 'source-over';
+
+  // blur the finished mask: the leftover fog pockets between overlapping
+  // vision circles have geometrically sharp cusps at the circle
+  // intersections, which read on-screen as jagged black shards — a small
+  // blur at mask resolution rounds every fog boundary into soft shade
+  const sc = fogSmooth.getContext('2d');
+  sc.clearRect(0, 0, FOG_RES, FOG_RES);
+  sc.filter = 'blur(3px)';
+  sc.drawImage(fogMask, 0, 0);
+  sc.filter = 'none';
 }
 
 function mulberry32(a) {
@@ -1186,7 +1198,7 @@ function render(ctx) {
   updateFogMask();
   ctx.save();
   ctx.scale(1, YS);
-  ctx.drawImage(fogMask, 0, 0, WORLD, WORLD);
+  ctx.drawImage(fogSmooth || fogMask, 0, 0, WORLD, WORLD);
   ctx.restore();
 
   ctx.restore();
@@ -2007,6 +2019,23 @@ function drawHpBar(ctx, u, w, cx, cy, withMana) {
   const frac = clamp(u.hp / u.hpMax(), 0, 1);
   const x = cx - w/2, y = cy;
   const h = withMana ? 10 : 7;
+  const structural = u.type === 'tower' || u.type === 'core';
+  if (structural) {
+    // MLBB-style structure plate: gold-trimmed backing + shield glyph while
+    // the invulnerability chain still protects this building
+    ctx.fillStyle = 'rgba(6,10,16,0.72)';
+    roundRect(ctx, x - 5, y - 4, w + 10, h + 9, 3.5); ctx.fill();
+    ctx.strokeStyle = u.invulnerable ? 'rgba(160,175,190,0.55)' : 'rgba(226,183,104,0.55)';
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, x - 5, y - 4, w + 10, h + 9, 3.5); ctx.stroke();
+    if (u.invulnerable) {
+      ctx.fillStyle = '#c9d4de';
+      ctx.beginPath();
+      ctx.moveTo(x - 12, y - 1); ctx.lineTo(x - 5.5, y + 1.5); ctx.lineTo(x - 5.5, y + 5);
+      ctx.quadraticCurveTo(x - 8.75, y + 9.5, x - 12, y + 5);
+      ctx.closePath(); ctx.fill();
+    }
+  }
   ctx.fillStyle = 'rgba(0,0,0,0.65)';
   ctx.fillRect(x - 1.5, y - 1.5, w + 3, h + 3);
   const base = u.team === G.player.team ? '#22b95c' : (u.team === 'jungle' ? '#9d5ed3' : '#d92f42');
@@ -2021,10 +2050,11 @@ function drawHpBar(ctx, u, w, cx, cy, withMana) {
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
     ctx.fillRect(x + w*frac, y, w * sf, 5);
   }
-  // segment ticks every 25% on bigger bars
+  // segment ticks: five pips on structures, quarters on other big bars
   if (w >= 60) {
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    for (let q = 0.25; q < 1; q += 0.25) ctx.fillRect(x + w*q - 0.5, y, 1, 5);
+    const step = structural ? 0.2 : 0.25;
+    for (let q = step; q < 0.999; q += step) ctx.fillRect(x + w*q - 0.5, y, 1, 5);
   }
   if (withMana && u.manaMax > 0) {
     const mg = ctx.createLinearGradient(0, y + 6, 0, y + 9);
