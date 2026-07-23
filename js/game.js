@@ -1024,17 +1024,50 @@ function render(ctx) {
     ctx.globalAlpha = 1;
   }
 
-  // zones (ground ellipses)
+  // zones (ground ellipses) — persistent skill areas with a spawn-in / fade-out
   for (const zn of G.zones) {
     ctx.save();
     ctx.translate(zn.x, zn.y*YS);
     ctx.scale(1, YS);
-    ctx.globalAlpha = 0.25 + 0.1*Math.sin(G.time*8);
-    ctx.fillStyle = zn.color;
-    ctx.beginPath(); ctx.arc(0, 0, zn.r, 0, 7); ctx.fill();
-    ctx.globalAlpha = 0.8;
+    // grow in over the first 0.25s, fade out over the last 0.4s of life
+    const life = zn.dur ? clamp(zn.t / zn.dur, 0, 1) : 0;
+    const grow = zn.dur ? clamp(zn.t / 0.25, 0, 1) : 1;
+    const fade = zn.dur ? clamp((zn.dur - zn.t) / 0.4, 0, 1) : 1;
+    const rr = zn.r * (0.7 + 0.3*grow);
+    // filled body with soft radial falloff
+    const zg = ctx.createRadialGradient(0, 0, rr*0.2, 0, 0, rr);
+    zg.addColorStop(0, hexA(zn.color, (0.22 + 0.08*Math.sin(G.time*6)) * fade));
+    zg.addColorStop(0.8, hexA(zn.color, 0.12 * fade));
+    zg.addColorStop(1, hexA(zn.color, 0));
+    ctx.fillStyle = zg;
+    ctx.beginPath(); ctx.arc(0, 0, rr, 0, 7); ctx.fill();
+    // crisp perimeter
+    ctx.globalAlpha = 0.7 * fade;
     ctx.strokeStyle = zn.color; ctx.lineWidth = 3;
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, rr, 0, 7); ctx.stroke();
+    // rotating rune ring for magic zones
+    if (zn.rune) {
+      ctx.globalAlpha = 0.55 * fade;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, rr*0.72, 0, 7); ctx.stroke();
+      const dir = zn.swirl ? -1 : 1;
+      const spokes = zn.frost ? 6 : 8;
+      for (let i = 0; i < spokes; i++) {
+        const a = G.time * 0.9 * dir + i * (Math.PI*2/spokes);
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a)*rr*0.72, Math.sin(a)*rr*0.72);
+        ctx.lineTo(Math.cos(a)*rr*0.94, Math.sin(a)*rr*0.94);
+        ctx.stroke();
+      }
+      // frost zones sparkle with tiny crystal dots
+      if (zn.frost) {
+        ctx.fillStyle = '#eaf7ff'; ctx.globalAlpha = (0.3 + 0.3*Math.sin(G.time*5)) * fade;
+        for (let i = 0; i < 6; i++) {
+          const a = i * 1.7 + G.time*0.4, d = rr * (0.3 + 0.5*((i*0.19)%1));
+          ctx.beginPath(); ctx.arc(Math.cos(a)*d, Math.sin(a)*d, 2, 0, 7); ctx.fill();
+        }
+      }
+    }
     ctx.restore();
   }
 
@@ -1174,11 +1207,119 @@ function render(ctx) {
       ctx.fillStyle = e.color;
       ctx.beginPath(); ctx.ellipse(e.x, e.y*YS - 16, e.r0, e.r0*0.8, 0, 0, 7); ctx.fill();
     } else if (e.type === 'slash') {
-      ctx.globalAlpha = 1 - k;
-      ctx.strokeStyle = e.color; ctx.lineWidth = 6;
+      // crescent blade sweep: a filled arc that thins and fades as it travels
+      ctx.save();
+      ctx.translate(e.x, e.y*YS - 16);
+      const spin = e.ang + k*1.1;
+      const rad = 34 + k*22;
+      ctx.globalAlpha = (1 - k) * 0.9;
+      const wsg = ctx.createLinearGradient(-rad, 0, rad, 0);
+      wsg.addColorStop(0, 'rgba(255,255,255,0)');
+      wsg.addColorStop(0.5, e.color);
+      wsg.addColorStop(1, 'rgba(255,255,255,0.9)');
+      ctx.strokeStyle = wsg; ctx.lineCap = 'round';
+      ctx.lineWidth = 9 * (1 - k) + 1;
+      ctx.beginPath(); ctx.arc(0, 0, rad, spin - 0.85, spin + 0.85); ctx.stroke();
+      ctx.globalAlpha = (1 - k) * 0.4; ctx.lineWidth = 2;
+      ctx.strokeStyle = '#fff';
+      ctx.beginPath(); ctx.arc(0, 0, rad + 5, spin - 0.7, spin + 0.7); ctx.stroke();
+      ctx.restore();
+    } else if (e.type === 'shockwave') {
+      // expanding ground ring: bright leading edge, translucent filled body
+      ctx.save();
+      ctx.translate(e.x, e.y*YS); ctx.scale(1, YS);
+      const rr = lerp(e.r0, e.r1, k);
+      const wg = ctx.createRadialGradient(0, 0, rr*0.5, 0, 0, rr);
+      wg.addColorStop(0, 'rgba(0,0,0,0)');
+      wg.addColorStop(0.82, hexA(e.color, (1 - k) * 0.28));
+      wg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = wg;
+      ctx.beginPath(); ctx.arc(0, 0, rr, 0, 7); ctx.fill();
+      ctx.globalAlpha = (1 - k);
+      ctx.strokeStyle = e.color; ctx.lineWidth = 6 * (1 - k) + 1.5;
+      ctx.beginPath(); ctx.arc(0, 0, rr, 0, 7); ctx.stroke();
+      ctx.globalAlpha = (1 - k) * 0.8; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, rr*0.96, 0, 7); ctx.stroke();
+      ctx.restore();
+    } else if (e.type === 'cone') {
+      // filled directional sector sweeping outward from the caster
+      ctx.save();
+      ctx.translate(e.x, e.y*YS); ctx.scale(1, YS); ctx.rotate(e.ang);
+      const reach = e.range * (0.35 + k*0.65);
+      const cg = ctx.createLinearGradient(0, 0, reach, 0);
+      cg.addColorStop(0, hexA(e.color, (1 - k) * 0.55));
+      cg.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = cg;
       ctx.beginPath();
-      ctx.arc(e.x, e.y*YS - 16, 40, e.ang - 0.8 + k*1.2, e.ang + 0.8 + k*1.2);
-      ctx.stroke();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, reach, -e.arc, e.arc);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = (1 - k) * 0.7; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, reach, -e.arc, e.arc); ctx.stroke();
+      ctx.restore();
+    } else if (e.type === 'bolt') {
+      // jagged lightning polyline from caster to impact
+      if (!e._pts) {
+        e._pts = []; const segs = 7;
+        const dx = e.x2 - e.x, dy = (e.y2 - e.y);
+        const len = Math.hypot(dx, dy) || 1; const nx = -dy/len, ny = dx/len;
+        for (let i = 0; i <= segs; i++) {
+          const t = i/segs; const j = (i===0||i===segs) ? 0 : (Math.random()*2-1)*22;
+          e._pts.push([e.x + dx*t + nx*j, e.y + dy*t + ny*j]);
+        }
+      }
+      ctx.globalAlpha = 1 - k; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.shadowColor = e.color; ctx.shadowBlur = 14;
+      for (const [w, col] of [[7, e.color], [2.5, '#ffffff']]) {
+        ctx.strokeStyle = col; ctx.lineWidth = w;
+        ctx.beginPath();
+        ctx.moveTo(e._pts[0][0], e._pts[0][1]*YS - 22);
+        for (const p of e._pts) ctx.lineTo(p[0], p[1]*YS - 22);
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+    } else if (e.type === 'beam') {
+      // thick energy lance that flashes bright then thins away
+      ctx.save();
+      ctx.globalAlpha = 1 - k;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = e.color; ctx.shadowBlur = 16;
+      const y1 = e.y*YS - 22, y2 = e.y2*YS - 22;
+      ctx.strokeStyle = hexA(e.color, 0.5); ctx.lineWidth = (e.width || 22) * (1 - k*0.6);
+      ctx.beginPath(); ctx.moveTo(e.x, y1); ctx.lineTo(e.x2, y2); ctx.stroke();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = (e.width || 22) * 0.35 * (1 - k*0.6);
+      ctx.beginPath(); ctx.moveTo(e.x, y1); ctx.lineTo(e.x2, y2); ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    } else if (e.type === 'shards') {
+      // crystalline shards bursting outward and settling (frost)
+      if (!e._sh) { e._sh = []; const n = e.n || 8;
+        for (let i = 0; i < n; i++) { const a = (i/n)*6.283 + Math.random()*0.4; e._sh.push([Math.cos(a), Math.sin(a), 0.7 + Math.random()*0.6]); } }
+      ctx.save(); ctx.translate(e.x, e.y*YS); ctx.scale(1, YS);
+      ctx.globalAlpha = 1 - k;
+      for (const [cx, cy, sc] of e._sh) {
+        const d = lerp(6, (e.r1 || 90), Math.min(1, k*1.6)) * sc;
+        const sx = cx*d, sy = cy*d, sz = (8 + 6*sc) * (1 - k*0.5);
+        ctx.fillStyle = e.color;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy - sz); ctx.lineTo(sx + sz*0.4, sy); ctx.lineTo(sx, sy + sz*0.5); ctx.lineTo(sx - sz*0.4, sy);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.75)';
+        ctx.beginPath(); ctx.arc(sx, sy - sz*0.3, sz*0.14, 0, 7); ctx.fill();
+      }
+      ctx.restore();
+    } else if (e.type === 'embers') {
+      // rising fire embers
+      if (!e._em) { e._em = []; const n = e.n || 10;
+        for (let i = 0; i < n; i++) e._em.push([(Math.random()*2-1)*(e.spread||30), Math.random()*0.6, 20 + Math.random()*40]); }
+      ctx.globalAlpha = 1 - k;
+      for (const [ox, delay, rise] of e._em) {
+        const kk = Math.max(0, (k - delay) / (1 - delay));
+        ctx.fillStyle = kk > 0.6 ? '#ffce7a' : e.color;
+        ctx.globalAlpha = (1 - kk) * (1 - k);
+        const px = e.x + ox + Math.sin(kk*6 + ox)*4, py = e.y*YS - 16 - kk*rise;
+        ctx.beginPath(); ctx.arc(px, py, (1 - kk)*3 + 1, 0, 7); ctx.fill();
+      }
     } else if (e.type === 'text') {
       ctx.globalAlpha = 1 - k;
       ctx.fillStyle = e.color;
@@ -2069,4 +2210,14 @@ function lighten(hex, amt) {
   let r = (n >> 16) + Math.round(255*amt), g = ((n >> 8) & 255) + Math.round(255*amt), b = (n & 255) + Math.round(255*amt);
   r = Math.min(255, Math.max(0, r)); g = Math.min(255, Math.max(0, g)); b = Math.min(255, Math.max(0, b));
   return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+
+// hex (#rgb / #rrggbb) or shorthand → rgba() string with the given alpha; used
+// by the ability-VFX gradients. Non-hex inputs (already rgb/rgba) pass through.
+function hexA(color, a) {
+  if (typeof color !== 'string' || color[0] !== '#') return color;
+  let h = color.slice(1);
+  if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  const n = parseInt(h, 16);
+  return 'rgba(' + (n>>16 & 255) + ',' + (n>>8 & 255) + ',' + (n & 255) + ',' + a + ')';
 }

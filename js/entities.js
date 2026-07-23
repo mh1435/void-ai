@@ -333,6 +333,7 @@ const A = {
     G.zones.push({
       x, y, r: o.r, dur: o.dur, t: 0, tick: o.tick || 0.5, acc: 0,
       pull: o.pull || 0, color: o.color || '#fff', team: h.team, owner: h, onTick: o.onTick,
+      rune: !!o.rune, swirl: !!o.swirl, frost: !!o.frost,
     });
   },
 };

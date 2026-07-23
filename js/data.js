@@ -195,10 +195,13 @@ const HEROES = [
     { name:'Flame Dash', icon:'➤', cd:8, mana:45, range:340,
       desc:'Dash forward, burning enemies in your path.',
       cast(h,aim){
+        const ox = h.x, oy = h.y;
         A.dash(h, aim, 340, 1400, (u)=>{
           A.damage(h, u, 90 + h.level*18 + h.sp*0.6, 'magic');
+          A.fx({type:'embers', x:u.x, y:u.y, dur:0.6, color:'#ff8a4d', n:8, spread:20});
         });
-        A.fx({type:'slash', x:h.x, y:h.y, dur:0.25, color:'#ff8a4d', ang:Math.atan2(aim.dy,aim.dx)});
+        A.fx({type:'beam', x:ox, y:oy, x2:h.x, y2:h.y, dur:0.3, color:'#ff8a4d', width:20});
+        A.fx({type:'embers', x:h.x, y:h.y, dur:0.7, color:'#ff6a3d', n:12, spread:26});
         Sfx.play('dash');
       }},
     { name:'Cinder Slash', icon:'⚔', cd:6, mana:50, range:200,
@@ -208,7 +211,9 @@ const HEROES = [
           A.damage(h, u, 70 + h.level*15 + h.ad*0.8, 'phys');
           A.slow(u, 0.4, 1.5);
         });
-        A.fx({type:'slash', x:h.x, y:h.y, dur:0.3, color:'#ffd24d', ang:Math.atan2(aim.dy,aim.dx)});
+        const ca = Math.atan2(aim.dy, aim.dx);
+        A.fx({type:'cone', x:h.x, y:h.y, ang:ca, arc:1.1, range:210, dur:0.35, color:'#ffb347'});
+        A.fx({type:'slash', x:h.x, y:h.y, dur:0.3, color:'#ffd24d', ang:ca});
         Sfx.play('skill');
       }},
     { name:'Ember Execution', icon:'☠', cd:34, mana:110, range:520,
@@ -216,8 +221,11 @@ const HEROES = [
       cast(h,aim){
         const t = A.pickHero(h, aim, 520);
         if (!t) return false;
+        const ox = h.x, oy = h.y;
         h.x = t.x - aim.dx*70; h.y = t.y - aim.dy*70;
-        A.fx({type:'ring', x:t.x, y:t.y, r0:10, r1:120, dur:0.35, color:'#ff5c33'});
+        A.fx({type:'beam', x:ox, y:oy, x2:h.x, y2:h.y, dur:0.32, color:'#ff5c33', width:26});
+        A.fx({type:'shockwave', x:t.x, y:t.y, r0:10, r1:130, dur:0.4, color:'#ff5c33'});
+        A.fx({type:'embers', x:t.x, y:t.y, dur:0.8, color:'#ff8a4d', n:16, spread:34});
         const killed = A.damage(h, t, 180 + h.level*28 + h.ad*1.3, 'phys');
         if (killed) h.cds[2] *= 0.4;
         Sfx.play('ult');
@@ -243,14 +251,18 @@ const HEROES = [
       desc:'Fire a lightning bolt that damages and briefly slows the first enemy hit.',
       cast(h,aim){
         A.shot(h, aim, { speed:900, range:750, size:14, color:'#9d9bff',
-          onHit(u){ A.damage(h, u, 110 + h.level*20 + h.sp*0.85, 'magic'); A.slow(u, 0.3, 1.0); } });
+          onHit(u){ A.damage(h, u, 110 + h.level*20 + h.sp*0.85, 'magic'); A.slow(u, 0.3, 1.0);
+            A.fx({type:'bolt', x:u.x - aim.dx*90, y:u.y - aim.dy*90, x2:u.x, y2:u.y, dur:0.25, color:'#c9c6ff'}); } });
+        A.fx({type:'bolt', x:h.x, y:h.y, x2:h.x + aim.dx*120, y2:h.y + aim.dy*120, dur:0.2, color:'#c9c6ff'});
         Sfx.play('bolt');
       }},
     { name:'Static Field', icon:'✵', cd:9, mana:70, range:550,
       desc:'Electrify an area, damaging and slowing enemies inside.',
       cast(h,aim){
-        A.zone(h, aim.tx, aim.ty, { r:170, dur:2.5, tick:0.5, color:'#7f7bff',
-          onTick(u){ A.damage(h, u, 30 + h.level*6 + h.sp*0.25, 'magic'); A.slow(u, 0.35, 0.6); } });
+        A.zone(h, aim.tx, aim.ty, { r:170, dur:2.5, tick:0.5, color:'#7f7bff', rune:true,
+          onTick(u){ A.damage(h, u, 30 + h.level*6 + h.sp*0.25, 'magic'); A.slow(u, 0.35, 0.6);
+            A.fx({type:'bolt', x:aim.tx, y:aim.ty, x2:u.x, y2:u.y, dur:0.18, color:'#b7b4ff'}); } });
+        A.fx({type:'shockwave', x:aim.tx, y:aim.ty, r0:20, r1:170, dur:0.4, color:'#7f7bff'});
         Sfx.play('skill');
       }},
     { name:'Tempest', icon:'☄', cd:40, mana:130, range:330,
@@ -263,8 +275,9 @@ const HEROES = [
           A.aoe(h, h.x, h.y, 330, (u)=>{
             A.damage(h, u, 90 + h.level*16 + h.sp*0.55, 'magic');
             A.slow(u, 0.3, 0.8);
+            A.fx({type:'bolt', x:h.x, y:h.y, x2:u.x, y2:u.y, dur:0.22, color:'#c9c6ff'});
           });
-          A.fx({type:'ring', x:h.x, y:h.y, r0:40, r1:330, dur:0.5, color:'#8f8bff'});
+          A.fx({type:'shockwave', x:h.x, y:h.y, r0:40, r1:330, dur:0.5, color:'#8f8bff'});
           Sfx.play('ult');
         }, 600);
       }},
@@ -292,14 +305,17 @@ const HEROES = [
           A.damage(h, u, 80 + h.level*14 + h.hpMax()*0.03, 'phys');
           A.slow(u, 0.35, 1.5);
         });
-        A.fx({type:'ring', x:h.x, y:h.y, r0:20, r1:210, dur:0.35, color:'#a8c25c'});
+        A.fx({type:'shockwave', x:h.x, y:h.y, r0:20, r1:210, dur:0.4, color:'#a8c25c'});
+        A.fx({type:'spark', x:h.x, y:h.y - 8, dur:0.4, color:'#cdbf8a',
+          sparks:Array.from({length:8},()=>{const a=Math.random()*6.28,s=90+Math.random()*130;return{dx:Math.cos(a)*s,dy:Math.sin(a)*s*0.6-60};})});
         Sfx.play('slam');
       }},
     { name:'Bulwark', icon:'⛨', cd:12, mana:60, range:0,
       desc:'Raise a shield (scales with max HP) and gain move speed for 2.5s.',
       cast(h,aim){
         h.addBuff({ id:'bulwark', dur:3, shield: 120 + h.level*25 + h.hpMax()*0.12, msMult:1.25 });
-        A.fx({type:'ring', x:h.x, y:h.y, r0:60, r1:90, dur:0.4, color:'#cfe8a0'});
+        A.fx({type:'ring', x:h.x, y:h.y, r0:36, r1:78, dur:0.5, color:'#cfe8a0'});
+        A.fx({type:'ring', x:h.x, y:h.y, r0:70, r1:96, dur:0.7, color:'#eaf6c8'});
         Sfx.play('shield');
       }},
     { name:'Earthbreaker', icon:'⬇', cd:38, mana:120, range:480,
@@ -310,7 +326,11 @@ const HEROES = [
             A.damage(h, u, 140 + h.level*22 + h.hpMax()*0.05, 'phys');
             A.stun(u, 1.0);
           });
-          A.fx({type:'ring', x:h.x, y:h.y, r0:30, r1:240, dur:0.45, color:'#a8c25c'});
+          A.fx({type:'shockwave', x:h.x, y:h.y, r0:30, r1:260, dur:0.5, color:'#a8c25c'});
+          A.fx({type:'shockwave', x:h.x, y:h.y, r0:10, r1:150, dur:0.35, color:'#eaf6c8'});
+          A.fx({type:'spark', x:h.x, y:h.y - 8, dur:0.5, color:'#cdbf8a',
+            sparks:Array.from({length:12},()=>{const a=Math.random()*6.28,s=120+Math.random()*160;return{dx:Math.cos(a)*s,dy:Math.sin(a)*s*0.6-90};})});
+          if (UI) UI.hitShake = Math.min(1, (UI.hitShake||0) + 0.5);
           Sfx.play('slam');
         });
       }},
@@ -349,7 +369,13 @@ const HEROES = [
             A.damage(h, u, 55 + h.level*10 + h.ad*0.45, 'phys');
             A.slow(u, 0.25, 0.5);
           });
-          A.fx({type:'ring', x:tx, y:ty, r0:180, r1:210, dur:0.3, color:'#ffd166'});
+          // arrows raining down into the target zone
+          for (let i = 0; i < 5; i++) {
+            const a = Math.random()*6.28, d = Math.random()*200;
+            const ax = tx + Math.cos(a)*d, ay = ty + Math.sin(a)*d;
+            A.fx({type:'beam', x:ax - 40, y:ay - 120, x2:ax, y2:ay, dur:0.28, color:'#ffe08a', width:5});
+          }
+          A.fx({type:'shockwave', x:tx, y:ty, r0:120, r1:210, dur:0.35, color:'#ffd166'});
           Sfx.play('bolt');
         }, 450);
       }},
@@ -380,14 +406,16 @@ const HEROES = [
         A.aoeAlly(h, aim.tx, aim.ty, 180, (u)=>{
           A.heal(h, u, 60 + h.level*12 + h.sp*0.5);
         });
-        A.fx({type:'ring', x:aim.tx, y:aim.ty, r0:20, r1:180, dur:0.4, color:'#c77dff'});
+        A.fx({type:'shockwave', x:aim.tx, y:aim.ty, r0:20, r1:180, dur:0.45, color:'#c77dff'});
+        A.fx({type:'shockwave', x:aim.tx, y:aim.ty, r0:8, r1:100, dur:0.3, color:'#e0aaff'});
         Sfx.play('skill');
       }},
     { name:'Gravity Well', icon:'◎', cd:11, mana:75, range:550,
       desc:'Create a well that slows enemies and drags them toward its center.',
       cast(h,aim){
-        A.zone(h, aim.tx, aim.ty, { r:190, dur:2.2, tick:0.5, pull:110, color:'#9d4edd',
+        A.zone(h, aim.tx, aim.ty, { r:190, dur:2.2, tick:0.5, pull:110, color:'#9d4edd', rune:true, swirl:true,
           onTick(u){ A.damage(h, u, 20 + h.level*4 + h.sp*0.2, 'magic'); A.slow(u, 0.5, 0.6); A.mark(u, 4); } });
+        A.fx({type:'shockwave', x:aim.tx, y:aim.ty, r0:190, r1:40, dur:0.5, color:'#9d4edd'});
         Sfx.play('skill');
       }},
     { name:'Rift Guard', icon:'✦', cd:45, mana:130, range:0,
@@ -432,7 +460,8 @@ const HEROES = [
       cast(h,aim){
         A.heal(h, h, 150 + h.level*25);
         h.addBuff({ id:'rage', dur:6, adMult:1.4, msMult:1.25, armor:30 });
-        A.fx({type:'ring', x:h.x, y:h.y, r0:30, r1:140, dur:0.5, color:'#6ee7b7'});
+        A.fx({type:'shockwave', x:h.x, y:h.y, r0:30, r1:150, dur:0.5, color:'#6ee7b7'});
+        A.fx({type:'embers', x:h.x, y:h.y, dur:0.9, color:'#a7f3d0', n:14, spread:30});
         Sfx.play('ult');
       }},
   ],
@@ -456,15 +485,18 @@ const HEROES = [
       desc:'Erupt in frost, damaging and heavily chilling nearby enemies.',
       cast(h,aim){
         A.aoe(h, h.x, h.y, 260, (u)=>{ A.damage(h, u, 80 + h.level*14 + h.sp*0.5, 'magic'); u.addBuff({id:'chill', dur:2.2, slow:0.5}); });
-        A.fx({type:'ring', x:h.x, y:h.y, r0:20, r1:260, dur:0.45, color:'#8fe6ff'});
+        A.fx({type:'shockwave', x:h.x, y:h.y, r0:20, r1:260, dur:0.5, color:'#8fe6ff'});
+        A.fx({type:'shards', x:h.x, y:h.y, dur:0.6, color:'#bfeaff', n:10, r1:230});
         Sfx.play('skill');
       }},
     { name:'Glacial Tomb', icon:'❆', cd:42, mana:130, range:560,
       desc:'Call a blizzard on an area: sustained magic damage and a deep chill.',
       cast(h,aim){
-        A.zone(h, aim.tx, aim.ty, { r:200, dur:3.5, tick:0.5, color:'#5fd0ff',
-          onTick(u){ A.damage(h, u, 34 + h.level*6 + h.sp*0.28, 'magic'); u.addBuff({id:'chill', dur:0.7, slow:0.45}); } });
-        A.fx({type:'ring', x:aim.tx, y:aim.ty, r0:30, r1:200, dur:0.5, color:'#8fe6ff'});
+        A.zone(h, aim.tx, aim.ty, { r:200, dur:3.5, tick:0.5, color:'#5fd0ff', rune:true, frost:true,
+          onTick(u){ A.damage(h, u, 34 + h.level*6 + h.sp*0.28, 'magic'); u.addBuff({id:'chill', dur:0.7, slow:0.45});
+            A.fx({type:'shards', x:u.x, y:u.y, dur:0.5, color:'#bfeaff', n:5, r1:40}); } });
+        A.fx({type:'shockwave', x:aim.tx, y:aim.ty, r0:30, r1:200, dur:0.55, color:'#8fe6ff'});
+        A.fx({type:'shards', x:aim.tx, y:aim.ty, dur:0.7, color:'#bfeaff', n:12, r1:180});
         Sfx.play('ult');
       }},
   ],
