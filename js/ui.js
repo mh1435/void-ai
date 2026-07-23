@@ -333,6 +333,16 @@ const UI = {
       const sp = battleSpellById(G.player.battleSpell);
       if (sp) this.drawSkillIcon(this.spellBtn.querySelector('canvas.icon'), sp.icon, '#c77dff');
       this.spellBtn.title = sp ? sp.name : '';
+      // MLBB-style text labels under the utility buttons
+      const label = (el, txt) => {
+        if (!el) return;
+        let l = el.querySelector('.btnLabel');
+        if (!l) { l = document.createElement('span'); l.className = 'btnLabel'; el.appendChild(l); }
+        l.textContent = txt;
+      };
+      label(this.els.btnRecall, 'Recall');
+      label(this.spellBtn, sp ? sp.name : 'Spell');
+      label(this.els.btnShop, 'Shop');
     }
     this.buildShop();
     // portrait: the hero's character bust
@@ -800,6 +810,23 @@ const UI = {
     this.els.topTimer.textContent = m + ':' + (s < 10 ? '0' : '') + s;
     this.els.topBlue.textContent = G.kills.blue;
     this.els.topRed.textContent = G.kills.red;
+    // team gold totals flanking the kill score, like MLBB's top bar
+    if (!this.tgBlue) {
+      const tb = document.getElementById('topbar');
+      if (tb) {
+        this.tgBlue = document.createElement('span'); this.tgBlue.className = 'tGold';
+        this.tgRed = document.createElement('span'); this.tgRed.className = 'tGold';
+        tb.insertBefore(this.tgBlue, tb.firstChild);
+        tb.appendChild(this.tgRed);
+      }
+    }
+    if (this.tgBlue && (this._tgT === undefined || G.time - this._tgT > 0.5)) {
+      this._tgT = G.time;
+      const sum = t => Math.round(G.heroes.filter(h => h.team === t)
+        .reduce((a, h) => a + h.gold, 0) / 100) / 10;
+      this.tgBlue.textContent = '◆' + sum('blue') + 'k';
+      this.tgRed.textContent = '◆' + sum('red') + 'k';
+    }
     this.els.goldVal.textContent = Math.floor(p.gold);
     this.els.kdaVal.textContent = p.kills + '/' + p.deaths + '/' + p.assists;
     this.els.csVal.textContent = p.cs;

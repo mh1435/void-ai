@@ -298,6 +298,7 @@ html, body {
 .skillBtn.sk1 { position: absolute; right: 112px; bottom: 96px; }
 .skillBtn.sk2 { position: absolute; right: 22px; bottom: 130px; }
 .miniBtn {
+  position: relative;
   width: 44px; height: 44px; border-radius: 50%;
   background: var(--panel); border: 1px solid var(--edge);
   display: flex; align-items: center; justify-content: center;
@@ -532,10 +533,13 @@ html, body {
   background: radial-gradient(circle at 35% 30%, #3a1c50, #160a25);
   border: 2px solid rgba(199,125,255,0.55);
   display: flex; align-items: center; justify-content: center;
-  font-size: 24px; cursor: pointer; overflow: hidden; touch-action: none;
+  /* overflow stays visible so the .btnLabel can hang below the circle;
+     the cooldown sweep clips itself via its own border-radius */
+  font-size: 24px; cursor: pointer; touch-action: none;
   box-shadow: 0 5px 12px rgba(0,0,0,0.5), inset 0 2px 3px rgba(255,255,255,0.08);
   transition: box-shadow 0.25s, border-color 0.25s;
 }
+#btnSpell .cdOverlay { border-radius: 50%; }
 #btnSpell .icon { pointer-events: none; color: #e9d5ff; text-shadow: 0 0 8px rgba(199,125,255,0.8); }
 #btnSpell:active { transform: scale(0.94); }
 #btnSpell.ready {
@@ -778,9 +782,23 @@ tr.mvpRow td { background: rgba(255,209,102,0.10); }
 
 /* --- minimap: gold corner-trimmed frame --- */
 #minimap {
-  border: 1.5px solid rgba(255,209,102,0.4);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(0,0,0,0.6);
+  border: 2px solid rgba(226,183,104,0.55);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(0,0,0,0.6),
+    0 0 0 3px rgba(20,26,34,0.85), 0 0 0 4px rgba(226,183,104,0.25);
   border-radius: 6px;
+}
+
+/* text labels floating under the utility buttons (Recall / spell / Shop) */
+.btnLabel {
+  position: absolute; top: calc(100% + 1px); left: 50%; transform: translateX(-50%);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px; color: #cfd8e3;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9); pointer-events: none; white-space: nowrap;
+}
+
+/* team gold totals in the top bar */
+.tGold {
+  color: var(--gold); font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
+  opacity: 0.9;
 }
 
 /* --- top bar + stats: gold-trim panels --- */
