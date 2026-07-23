@@ -1108,16 +1108,44 @@ function render(ctx) {
     ctx.shadowBlur = 0;
   }
 
-  // recall channel ring under the hero's feet
+  // recall channel: rune circle + rising light column + progress ring, so a
+  // recalling hero reads clearly (like MLBB's teleport-home animation)
   for (const h of G.heroes) {
     if (!h.dead && h.recallT > 0 && isVisibleTo(h, G.player)) {
+      const prog = 1 - h.recallT / CFG.recallTime;   // 0 → 1 as it completes
+      const rad = h.radius + 16;
+      // rising translucent light column above the ground
+      ctx.save();
+      const colH = 120 * prog;
+      const cg = ctx.createLinearGradient(0, h.y*YS - colH, 0, h.y*YS);
+      cg.addColorStop(0, 'rgba(125,249,255,0)');
+      cg.addColorStop(1, 'rgba(125,249,255,0.30)');
+      ctx.fillStyle = cg;
+      ctx.fillRect(h.x - rad*0.8, h.y*YS - colH, rad*1.6, colH);
+      ctx.restore();
+      // ground rune + progress ring, foreshortened onto the tilted plane
       ctx.save();
       ctx.translate(h.x, h.y*YS);
       ctx.scale(1, YS);
-      ctx.strokeStyle = '#7df9ff'; ctx.lineWidth = 5;
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = '#7df9ff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, rad + 8, 0, 7); ctx.stroke();
+      // slow-turning rune spokes
+      for (let i = 0; i < 8; i++) {
+        const a = G.time*1.2 + i*Math.PI/4;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a)*(rad+2), Math.sin(a)*(rad+2));
+        ctx.lineTo(Math.cos(a)*(rad+8), Math.sin(a)*(rad+8));
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      // bright progress arc filling clockwise from the top
+      ctx.strokeStyle = '#aef6ff'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+      ctx.shadowColor = '#7df9ff'; ctx.shadowBlur = 10;
       ctx.beginPath();
-      ctx.arc(0, 0, h.radius + 16, -Math.PI/2, -Math.PI/2 + (1 - h.recallT/CFG.recallTime) * Math.PI * 2);
+      ctx.arc(0, 0, rad, -Math.PI/2, -Math.PI/2 + prog * Math.PI * 2);
       ctx.stroke();
+      ctx.shadowBlur = 0;
       ctx.restore();
     }
   }
