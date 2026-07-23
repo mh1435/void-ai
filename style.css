@@ -829,6 +829,59 @@ tr.mvpRow td { background: rgba(255,209,102,0.10); }
   width: 34px; height: 34px; font-size: 15px; z-index: 6;
 }
 #btnMute.muted { opacity: 0.6; border-color: rgba(255,120,120,0.5); }
+#btnSettings {
+  position: absolute; top: calc(44px + env(safe-area-inset-top)); right: 48px;
+  transform: scale(var(--ui-scale)); transform-origin: top right;
+  width: 34px; height: 34px; font-size: 16px; z-index: 6;
+}
+
+/* settings overlay */
+#settingsPanel {
+  display: none; position: fixed; inset: 0; z-index: 40;
+  background: rgba(4, 8, 14, 0.72);
+  align-items: center; justify-content: center;
+}
+#settingsPanel.show { display: flex; align-items: center; justify-content: center; }
+.setBox {
+  width: min(380px, 92vw); background: var(--panel);
+  border: 1.5px solid rgba(255,209,102,0.45); border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.6); overflow: hidden;
+}
+#settingsPanel .setHead {
+  padding: 12px 16px; display: flex; align-items: center;
+  border-bottom: 1px solid rgba(255,209,102,0.25);
+}
+#settingsPanel .setHead h3 { flex: 1; letter-spacing: 2px; color: #ffd166; text-shadow: 0 0 12px rgba(255,209,102,0.4); }
+.setClose {
+  background: none; border: 1px solid rgba(255,209,102,0.4); color: #fff; border-radius: 8px;
+  width: 30px; height: 30px; font-size: 13px; cursor: pointer;
+}
+#settingsPanel .setRows { padding: 6px 16px 14px; }
+.setRow {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.setRow:last-child { border-bottom: none; }
+.setLbl { flex: 1; font-weight: 600; font-size: 14px; color: #e8eef5; }
+.setSlider {
+  -webkit-appearance: none; appearance: none; width: 150px; height: 6px; border-radius: 4px;
+  background: linear-gradient(90deg, #ffd166, rgba(255,255,255,0.12)); outline: none;
+}
+.setSlider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+  background: #ffd166; border: 2px solid #fff6df; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+.setSlider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #ffd166; border: 2px solid #fff6df; cursor: pointer; }
+.setSwitch {
+  width: 46px; height: 24px; border-radius: 13px; background: rgba(255,255,255,0.12);
+  position: relative; cursor: pointer; transition: background 0.2s; flex: none;
+}
+.setSwitch i {
+  position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%;
+  background: #cbd5e1; transition: transform 0.2s, background 0.2s;
+}
+.setSwitch.on { background: linear-gradient(180deg, #ffd166, #e29b18); }
+.setSwitch.on i { transform: translateX(22px); background: #fff; }
 
 /* text labels floating under the utility buttons (Recall / spell / Shop) */
 .btnLabel {

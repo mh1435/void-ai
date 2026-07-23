@@ -14,13 +14,14 @@ const Input = {
 // A master compressor keeps stacked hits from clipping, and a shared noise
 // buffer powers the percussive impacts (whooshes, slams, tower crumble).
 const Sfx = {
-  ctx: null, on: true, master: null, noiseBuf: null, ambient: null,
+  ctx: null, on: true, music: true, vol: 0.9, master: null, noiseBuf: null, ambient: null,
+  setVolume(v) { this.vol = clamp(v, 0, 1); if (this.master) this.master.gain.value = this.vol; },
   ensure() {
     if (!this.ctx) {
       try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { this.on = false; return; }
       // master chain: bus gain → soft compressor → speakers
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.9;
+      this.master.gain.value = this.vol;
       const comp = this.ctx.createDynamicsCompressor();
       comp.threshold.value = -14; comp.knee.value = 26; comp.ratio.value = 3.2;
       comp.attack.value = 0.004; comp.release.value = 0.2;
@@ -85,7 +86,7 @@ const Sfx = {
   },
   // low ambient battlefield drone that fades in on match start
   startAmbient() {
-    if (!this.on || !this.ctx || this.ambient) return;
+    if (!this.on || !this.music || !this.ctx || this.ambient) return;
     const t = this.ctx.currentTime;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
@@ -403,23 +404,45 @@ const UI = {
     }
   },
 
-  // small mute toggle (works on touch + the M key); persists in localStorage
+  // persisted gameplay + audio options
+  opts: { shake: true, dmg: true },
+  loadOpts() {
+    if (this._optsLoaded) return; this._optsLoaded = true;
+    try {
+      const s = JSON.parse(localStorage.getItem('va_settings') || '{}');
+      if (s.vol != null) Sfx.vol = s.vol;
+      if (s.on != null) Sfx.on = s.on;
+      if (s.music != null) Sfx.music = s.music;
+      if (s.shake != null) this.opts.shake = s.shake;
+      if (s.dmg != null) this.opts.dmg = s.dmg;
+    } catch (e) {}
+  },
+  saveOpts() {
+    try { localStorage.setItem('va_settings', JSON.stringify({
+      vol: Sfx.vol, on: Sfx.on, music: Sfx.music, shake: this.opts.shake, dmg: this.opts.dmg })); } catch (e) {}
+  },
+
+  // quick mute button (touch + M key) + a gear that opens the full settings panel
   buildMuteBtn() {
+    this.loadOpts();
     if (!this._muteBtn) {
       const b = document.createElement('div');
       b.id = 'btnMute'; b.className = 'miniBtn';
       this.els.hud.appendChild(b);
       b.addEventListener('click', () => this.toggleMute());
       this._muteBtn = b;
-      try { if (localStorage.getItem('va_muted') === '1') Sfx.on = false; } catch (e) {}
+      const gear = document.createElement('div');
+      gear.id = 'btnSettings'; gear.className = 'miniBtn'; gear.textContent = '⚙';
+      this.els.hud.appendChild(gear);
+      gear.addEventListener('click', () => this.openSettings());
+      this.buildSettings();
     }
     this._syncMute();
   },
   toggleMute() {
     Sfx.on = !Sfx.on;
     if (!Sfx.on) Sfx.stopAmbient(); else { Sfx.ensure(); Sfx.startAmbient(); }
-    try { localStorage.setItem('va_muted', Sfx.on ? '0' : '1'); } catch (e) {}
-    this._syncMute();
+    this.saveOpts(); this._syncMute();
   },
   _syncMute() {
     if (this._muteBtn) {
@@ -427,6 +450,60 @@ const UI = {
       this._muteBtn.classList.toggle('muted', !Sfx.on);
     }
   },
+
+  // full settings overlay: volume slider + audio/gameplay toggles
+  buildSettings() {
+    if (this._settingsPanel) return;
+    const p = document.createElement('div');
+    p.id = 'settingsPanel';
+    const box = document.createElement('div'); box.className = 'setBox';
+    box.innerHTML = '<div class="setHead"><h3>Settings</h3><button class="setClose">✕</button></div>';
+    const rows = document.createElement('div'); rows.className = 'setRows';
+    box.appendChild(rows);
+    p.appendChild(box);
+    this.els.hud.appendChild(p);
+    this._settingsPanel = p;
+    this._setRows = {};
+
+    // volume slider row
+    const volRow = document.createElement('div'); volRow.className = 'setRow';
+    volRow.innerHTML = '<span class="setLbl">Master Volume</span>';
+    const slider = document.createElement('input');
+    slider.type = 'range'; slider.min = 0; slider.max = 100; slider.value = Math.round(Sfx.vol * 100);
+    slider.className = 'setSlider';
+    slider.addEventListener('input', () => { Sfx.ensure(); Sfx.setVolume(slider.value / 100); });
+    slider.addEventListener('change', () => this.saveOpts());
+    volRow.appendChild(slider);
+    rows.appendChild(volRow);
+    this._volSlider = slider;
+
+    // toggle rows
+    const addToggle = (key, label, get, set) => {
+      const row = document.createElement('div'); row.className = 'setRow';
+      const lbl = document.createElement('span'); lbl.className = 'setLbl'; lbl.textContent = label;
+      const sw = document.createElement('div'); sw.className = 'setSwitch';
+      sw.innerHTML = '<i></i>';
+      const sync = () => sw.classList.toggle('on', !!get());
+      sw.addEventListener('click', () => { set(!get()); sync(); this.saveOpts(); });
+      row.appendChild(lbl); row.appendChild(sw);
+      rows.appendChild(row);
+      this._setRows[key] = sync; sync();
+    };
+    addToggle('sfx', 'Sound Effects', () => Sfx.on, v => { Sfx.on = v; if (!v) Sfx.stopAmbient(); else { Sfx.ensure(); Sfx.startAmbient(); } this._syncMute(); });
+    addToggle('music', 'Battle Ambience', () => Sfx.music, v => { Sfx.music = v; if (!v) Sfx.stopAmbient(); else { Sfx.ensure(); Sfx.startAmbient(); } });
+    addToggle('shake', 'Screen Shake', () => this.opts.shake, v => this.opts.shake = v);
+    addToggle('dmg', 'Damage Numbers', () => this.opts.dmg, v => this.opts.dmg = v);
+
+    p.querySelector('.setClose').addEventListener('click', () => this.closeSettings());
+    p.addEventListener('click', e => { if (e.target === p) this.closeSettings(); });
+  },
+  openSettings() {
+    Sfx.ensure();
+    this._volSlider.value = Math.round(Sfx.vol * 100);
+    for (const k in this._setRows) this._setRows[k]();
+    this._settingsPanel.classList.add('show');
+  },
+  closeSettings() { this._settingsPanel.classList.remove('show'); },
 
   // top-of-screen team portrait strips: ally heads on the left of the score,
   // enemy heads on the right, each with a live HP bar and respawn countdown
@@ -866,7 +943,7 @@ const UI = {
       d.dataset.id = it.id; d.dataset.cat = cat;
       const cv = document.createElement('canvas');
       cv.width = 44; cv.height = 44; cv.className = 'itIcon';
-      this.drawItemIcon(cv, cat);
+      this.drawItemIcon(cv, it);
       d.appendChild(cv);
       const body = document.createElement('div');
       body.className = 'itBody';
@@ -887,38 +964,102 @@ const UI = {
     }
   },
 
-  // hand-drawn category emblem so items read at a glance, not just by letter
-  drawItemIcon(cv, cat) {
+  // hand-drawn per-item emblem (unique art for each item), framed in its
+  // category color. Accepts either an item object or a category string.
+  drawItemIcon(cv, item) {
     const c = cv.getContext('2d');
     const W = cv.width, H = cv.height;
+    const cat = (item && item.id) ? this.itemCat(item) : item;
+    const id = (item && item.id) || null;
     const accent = { attack:'#ff8a5c', arcane:'#c77dff', defense:'#7db7ff', move:'#7dff9b' }[cat] || '#ffd166';
     c.clearRect(0, 0, W, H);
     const g = c.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, hexA(accent, 0.28)); g.addColorStop(1, hexA(accent, 0.08));
+    g.addColorStop(0, hexA(accent, 0.30)); g.addColorStop(1, hexA(accent, 0.07));
     c.fillStyle = g;
     roundRect(c, 2, 2, W-4, H-4, 8); c.fill();
-    c.strokeStyle = hexA(accent, 0.6); c.lineWidth = 1.5;
+    c.strokeStyle = hexA(accent, 0.65); c.lineWidth = 1.5;
     roundRect(c, 2, 2, W-4, H-4, 8); c.stroke();
     c.save(); c.translate(W/2, H/2); c.strokeStyle = accent; c.fillStyle = accent;
-    c.lineWidth = 3; c.lineCap = 'round'; c.lineJoin = 'round';
-    if (cat === 'attack') {                       // upright sword
-      c.beginPath(); c.moveTo(0, -13); c.lineTo(0, 8); c.stroke();
-      c.beginPath(); c.moveTo(-6, 4); c.lineTo(6, 4); c.stroke();
-      c.beginPath(); c.moveTo(0, 8); c.lineTo(0, 13); c.stroke();
-    } else if (cat === 'arcane') {                // orb with spark
-      c.beginPath(); c.arc(0, 0, 9, 0, 7); c.stroke();
-      c.fillStyle = '#fff'; c.beginPath(); c.arc(-3, -3, 2.5, 0, 7); c.fill();
-      c.fillStyle = accent;
-      for (let i=0;i<4;i++){ const a=i*Math.PI/2+0.4; c.beginPath(); c.moveTo(Math.cos(a)*11, Math.sin(a)*11); c.lineTo(Math.cos(a)*15, Math.sin(a)*15); c.stroke(); }
-    } else if (cat === 'defense') {               // shield
-      c.beginPath();
-      c.moveTo(0, -13); c.lineTo(11, -8); c.lineTo(9, 6); c.lineTo(0, 14); c.lineTo(-9, 6); c.lineTo(-11, -8);
-      c.closePath(); c.stroke();
-      c.beginPath(); c.moveTo(0, -6); c.lineTo(0, 8); c.moveTo(-6, 0); c.lineTo(6, 0); c.stroke();
-    } else {                                      // winged boot / speed
-      c.beginPath(); c.moveTo(-9, -6); c.lineTo(-9, 8); c.lineTo(11, 8); c.lineTo(11, 2); c.lineTo(-2, 2); c.lineTo(-2, -6); c.closePath(); c.stroke();
-      c.lineWidth = 2;
-      for (let i=0;i<3;i++){ const yy=-8+i*5; c.beginPath(); c.moveTo(-14, yy); c.lineTo(-6, yy); c.stroke(); }
+    c.lineWidth = 2.6; c.lineCap = 'round'; c.lineJoin = 'round';
+    const steel = '#dfe7ee', gold = '#ffd98a';
+    switch (id) {
+      case 'blade': { // broad war sword
+        c.fillStyle = steel;
+        c.beginPath(); c.moveTo(0,-15); c.lineTo(3.5,-6); c.lineTo(3.5,6); c.lineTo(-3.5,6); c.lineTo(-3.5,-6); c.closePath(); c.fill();
+        c.strokeStyle = accent; c.beginPath(); c.moveTo(-8,6); c.lineTo(8,6); c.stroke();  // crossguard
+        c.fillStyle = gold; c.fillRect(-2,7,4,7);
+        break; }
+      case 'bow': { // recurve bow + arrow
+        c.strokeStyle = gold; c.lineWidth = 3;
+        c.beginPath(); c.arc(4, 0, 13, 2.3, 3.98); c.stroke();
+        c.strokeStyle = steel; c.lineWidth = 1.5;
+        c.beginPath(); c.moveTo(-5,-11); c.lineTo(-5,11); c.stroke();  // string
+        c.strokeStyle = accent; c.lineWidth = 2.4;
+        c.beginPath(); c.moveTo(-5,0); c.lineTo(13,0); c.stroke();     // arrow
+        c.beginPath(); c.moveTo(13,0); c.lineTo(8,-3); c.moveTo(13,0); c.lineTo(8,3); c.stroke();
+        break; }
+      case 'vamp': { // curved dagger + blood drop
+        c.strokeStyle = steel; c.lineWidth = 2.6;
+        c.beginPath(); c.moveTo(-9,10); c.quadraticCurveTo(10,2,9,-13); c.stroke();
+        c.strokeStyle = accent; c.beginPath(); c.moveTo(-11,10); c.lineTo(-4,10); c.stroke();
+        c.fillStyle = '#ff5c6e'; c.beginPath(); c.arc(-6,-6,3.2,0,7); c.fill();
+        c.beginPath(); c.moveTo(-6,-11); c.lineTo(-9,-6); c.lineTo(-3,-6); c.closePath(); c.fill();
+        break; }
+      case 'edge': { // executioner's axe
+        c.fillStyle = steel;
+        c.beginPath(); c.moveTo(2,-14); c.quadraticCurveTo(15,-10,13,2); c.quadraticCurveTo(6,-2,2,-2); c.closePath(); c.fill();
+        c.strokeStyle = gold; c.lineWidth = 3; c.beginPath(); c.moveTo(0,-15); c.lineTo(-2,14); c.stroke();
+        break; }
+      case 'plate': { // heavy tower shield with rivets
+        c.fillStyle = hexA(accent, 0.5); c.strokeStyle = steel; c.lineWidth = 2;
+        c.beginPath(); c.moveTo(0,-14); c.lineTo(11,-9); c.lineTo(9,7); c.lineTo(0,14); c.lineTo(-9,7); c.lineTo(-11,-9); c.closePath();
+        c.fill(); c.stroke();
+        c.fillStyle = steel;
+        for (const [rx,ry] of [[-6,-6],[6,-6],[0,0],[-5,6],[5,6]]) { c.beginPath(); c.arc(rx,ry,1.4,0,7); c.fill(); }
+        break; }
+      case 'aegis': { // round warded shield
+        c.fillStyle = hexA(accent, 0.5); c.strokeStyle = steel; c.lineWidth = 2;
+        c.beginPath(); c.arc(0,0,13,0,7); c.fill(); c.stroke();
+        c.strokeStyle = '#eaf3ff'; c.lineWidth = 2;
+        c.beginPath(); c.arc(0,0,8,0,7); c.stroke();
+        c.fillStyle = '#eaf3ff'; c.beginPath(); c.arc(0,0,2.4,0,7); c.fill();
+        break; }
+      case 'heart': { // faceted heart gem
+        c.fillStyle = '#ff5c8a';
+        c.beginPath();
+        c.moveTo(0,12); c.bezierCurveTo(-14,-1,-8,-14,0,-5); c.bezierCurveTo(8,-14,14,-1,0,12); c.closePath(); c.fill();
+        c.strokeStyle = 'rgba(255,255,255,0.7)'; c.lineWidth = 1.4;
+        c.beginPath(); c.moveTo(-4,-4); c.lineTo(-1,0); c.stroke();
+        break; }
+      case 'orb': { // glowing arcane orb
+        const og = c.createRadialGradient(-3,-3,1,0,0,12);
+        og.addColorStop(0,'#f0e0ff'); og.addColorStop(0.6,accent); og.addColorStop(1,'#5a2a8a');
+        c.fillStyle = og; c.beginPath(); c.arc(0,0,11,0,7); c.fill();
+        c.strokeStyle = 'rgba(255,255,255,0.6)'; c.lineWidth = 1.4;
+        c.beginPath(); c.arc(0,0,11,3.6,5.2); c.stroke();
+        break; }
+      case 'staff': { // warlock staff with gem
+        c.strokeStyle = '#a97c3c'; c.lineWidth = 2.8;
+        c.beginPath(); c.moveTo(-7,14); c.lineTo(6,-8); c.stroke();
+        c.fillStyle = accent; c.shadowColor = accent; c.shadowBlur = 8;
+        c.beginPath();
+        c.moveTo(7,-15); c.lineTo(12,-9); c.lineTo(7,-3); c.lineTo(2,-9); c.closePath(); c.fill();
+        c.shadowBlur = 0;
+        break; }
+      case 'boots': { // winged boot
+        c.fillStyle = hexA(accent,0.55); c.strokeStyle = accent; c.lineWidth = 2;
+        c.beginPath(); c.moveTo(-8,-4); c.lineTo(-3,-4); c.lineTo(-3,6); c.lineTo(11,6); c.lineTo(11,11); c.lineTo(-8,11); c.closePath();
+        c.fill(); c.stroke();
+        c.strokeStyle = '#eafff0'; c.lineWidth = 1.8;
+        for (let i=0;i<3;i++){ const yy=-9+i*4; c.beginPath(); c.moveTo(-15,yy); c.lineTo(-7,yy-1); c.stroke(); }
+        break; }
+      default: {
+        // category fallbacks (also used by the recommended strip)
+        if (cat === 'attack') { c.beginPath(); c.moveTo(0,-13); c.lineTo(0,8); c.moveTo(-6,4); c.lineTo(6,4); c.stroke(); }
+        else if (cat === 'arcane') { c.beginPath(); c.arc(0,0,9,0,7); c.stroke(); }
+        else if (cat === 'defense') { c.beginPath(); c.moveTo(0,-13); c.lineTo(11,-8); c.lineTo(9,6); c.lineTo(0,14); c.lineTo(-9,6); c.lineTo(-11,-8); c.closePath(); c.stroke(); }
+        else { c.beginPath(); c.moveTo(-9,-6); c.lineTo(-9,8); c.lineTo(11,8); c.lineTo(11,2); c.lineTo(-2,2); c.lineTo(-2,-6); c.closePath(); c.stroke(); }
+      }
     }
     c.restore();
   },
@@ -1249,7 +1390,7 @@ const UI = {
         if (it) {
           const cv = document.createElement('canvas');
           cv.width = 30; cv.height = 30;
-          this.drawItemIcon(cv, this.itemCat(it));
+          this.drawItemIcon(cv, it);
           slot.appendChild(cv);
           slot.title = it.name + ' — ' + it.desc;
         }

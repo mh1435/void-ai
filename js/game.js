@@ -990,7 +990,7 @@ function render(ctx) {
   if (!G.running) return;
 
   const z = G.cam.zoom;
-  const shakeAmt = (UI.hitShake || 0) * 10;
+  const shakeAmt = ((UI.opts && UI.opts.shake === false) ? 0 : (UI.hitShake || 0)) * 10;
   const shakeX = shakeAmt ? (Math.random()*2-1)*shakeAmt : 0;
   const shakeY = shakeAmt ? (Math.random()*2-1)*shakeAmt : 0;
   ctx.save();
