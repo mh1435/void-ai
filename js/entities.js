@@ -211,7 +211,7 @@ function dealDamage(src, tgt, amount, dtype, opts = {}) {
     }
   }
 
-  if (!opts.noText && credit && (credit === G.player || tgt === G.player)) {
+  if (!opts.noText && credit && (credit === G.player || tgt === G.player) && !(UI.opts && UI.opts.dmg === false)) {
     FX.push({ type:'text', x:tgt.x + (Math.random()*30-15), y:tgt.y - tgt.radius - 8,
       text: String(Math.round(amt)),
       color: dtype === 'phys' ? '#ffcf6b' : dtype === 'magic' ? '#b79bff' : '#fff',
