@@ -801,6 +801,56 @@ tr.mvpRow td { background: rgba(255,209,102,0.10); }
   opacity: 0.9;
 }
 
+/* ---- top team portrait strips: ally heads left, enemy heads right ---- */
+.teamHeads {
+  position: absolute; top: calc(8px + env(safe-area-inset-top));
+  display: flex; gap: 3px; pointer-events: none;
+  transform: scale(var(--ui-scale));
+}
+.teamHeads.ally { left: 50%; margin-left: -360px; transform-origin: top left; }
+.teamHeads.enemy { left: 50%; margin-left: 218px; transform-origin: top left; }
+.headCell {
+  position: relative; width: 32px;
+}
+.headCell canvas {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.35);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+  display: block;
+}
+.teamHeads.ally .headCell canvas { border-color: rgba(63,169,255,0.75); }
+.teamHeads.enemy .headCell canvas { border-color: rgba(255,77,94,0.75); }
+.headHp {
+  height: 3.5px; margin-top: 2px; border-radius: 2px;
+  background: rgba(0,0,0,0.65); overflow: hidden;
+}
+.headHp i {
+  display: block; height: 100%; border-radius: 2px; width: 100%;
+  background: linear-gradient(180deg, #5cf291, #1ea854);
+}
+.teamHeads.enemy .headHp i { background: linear-gradient(180deg, #ff7385, #c9243a); }
+.headCell.down canvas { filter: grayscale(1) brightness(0.55); }
+.headCell.down .headHp { opacity: 0.3; }
+.headDead {
+  position: absolute; top: 7px; left: 0; width: 34px; text-align: center;
+  font-size: 14px; font-weight: 800; color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.95);
+}
+
+/* killer / victim busts inside the kill banner */
+.kbHeads {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  margin-bottom: 6px;
+}
+.kbHead {
+  width: 44px; height: 44px; border-radius: 50%; overflow: hidden;
+  border: 2.5px solid #fff; box-shadow: 0 3px 10px rgba(0,0,0,0.7);
+  background: #0a1420;
+}
+.kbHead canvas { width: 100%; height: 100%; display: block; }
+.kbHead.v { filter: saturate(0.55) brightness(0.8); }
+.kbVs { font-size: 20px; color: #ffe9a8; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
+
 /* --- top bar + stats: gold-trim panels --- */
 #topbar, #statsMini {
   border-color: rgba(255,209,102,0.3);

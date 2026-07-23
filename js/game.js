@@ -1134,10 +1134,29 @@ function render(ctx) {
       ctx.save();
       ctx.translate(e.x, e.y*YS);
       ctx.scale(1, YS);
+      const rr = lerp(e.r0, e.r1, k);
+      // soft glow halo behind the crisp ring for that layered-VFX feel
+      ctx.globalAlpha = (1 - k) * 0.4;
+      ctx.strokeStyle = e.color; ctx.lineWidth = 13;
+      ctx.beginPath(); ctx.arc(0, 0, rr, 0, 7); ctx.stroke();
       ctx.globalAlpha = 1 - k;
-      ctx.strokeStyle = e.color; ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.arc(0, 0, lerp(e.r0, e.r1, k), 0, 7); ctx.stroke();
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(0, 0, rr, 0, 7); ctx.stroke();
+      ctx.globalAlpha = (1 - k) * 0.7;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, 0, rr*0.92, 0, 7); ctx.stroke();
       ctx.restore();
+    } else if (e.type === 'spark') {
+      ctx.strokeStyle = e.color; ctx.lineCap = 'round';
+      for (const s of e.sparks) {
+        const px = e.x + s.dx*k, py = e.y*YS + (s.dy + 120*k)*k;
+        ctx.globalAlpha = (1 - k) * 0.9;
+        ctx.lineWidth = 2.5 * (1 - k) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px - s.dx*0.06, py - (s.dy + 120*k)*0.06);
+        ctx.stroke();
+      }
     } else if (e.type === 'flash') {
       ctx.globalAlpha = (1 - k) * 0.8;
       ctx.fillStyle = e.color;
