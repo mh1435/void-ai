@@ -404,11 +404,13 @@ function updateFogMask() {
 
   const mc = fogMask.getContext('2d');
   mc.globalCompositeOperation = 'source-over';
-  mc.fillStyle = 'rgba(4,7,11,0.92)';
+  // MLBB-style daylight fog: unexplored is dusk, not blackout, and explored
+  // ground stays clearly readable under a light haze
+  mc.fillStyle = 'rgba(8,14,22,0.62)';
   mc.fillRect(0, 0, FOG_RES, FOG_RES);
   // dim (but don't fully clear) areas the team has explored before
   mc.globalCompositeOperation = 'destination-out';
-  mc.globalAlpha = 0.55;
+  mc.globalAlpha = 0.6;
   mc.drawImage(fogExplored, 0, 0);
   mc.globalAlpha = 1;
   // fully clear current live vision
@@ -508,11 +510,11 @@ function buildMapCanvas() {
   c.scale(S, S);
   const rnd = mulberry32(1337);
 
-  // ---- base ground ----
+  // ---- base ground: mid-value mossy sage, the classic hand-painted MOBA lawn ----
   const grd = c.createLinearGradient(0, 0, WORLD, WORLD);
-  grd.addColorStop(0, '#13351f');
-  grd.addColorStop(0.5, '#0f2c2c');
-  grd.addColorStop(1, '#28142e');
+  grd.addColorStop(0, '#4c6e51');
+  grd.addColorStop(0.5, '#40655a');
+  grd.addColorStop(1, '#5e6a40');
   c.fillStyle = grd;
   c.fillRect(0, 0, WORLD, WORLD);
 
@@ -525,7 +527,7 @@ function buildMapCanvas() {
   // mottled grass: multi-octave irregular blobs (large soft patches, then
   // medium clumps, then tiny tufts) instead of uniform circles — this is
   // what gives painted grass its depth rather than a polka-dot look
-  const grassTones = ['rgba(60,140,80,0.07)', 'rgba(30,90,60,0.09)', 'rgba(90,160,90,0.05)', 'rgba(20,60,50,0.10)'];
+  const grassTones = ['rgba(120,170,100,0.10)', 'rgba(50,105,70,0.12)', 'rgba(150,190,110,0.07)', 'rgba(30,70,55,0.12)'];
   for (let i = 0; i < 260; i++) {
     c.fillStyle = grassTones[i % grassTones.length];
     blobPath(c, rnd()*WORLD, rnd()*WORLD, 60 + rnd()*110, rnd, { pts:7, jitter:0.5 });
@@ -541,7 +543,7 @@ function buildMapCanvas() {
   for (let i = 0; i < 420; i++) {
     const cx = rnd()*WORLD, cy = rnd()*WORLD;
     const dark = rnd() > 0.5;
-    c.strokeStyle = dark ? 'rgba(10,30,15,0.16)' : 'rgba(190,230,170,0.14)';
+    c.strokeStyle = dark ? 'rgba(15,45,25,0.20)' : 'rgba(215,240,185,0.20)';
     c.lineWidth = 1.6; c.lineCap = 'round';
     const blades = 3 + Math.floor(rnd()*3);
     for (let b = 0; b < blades; b++) {
@@ -559,6 +561,13 @@ function buildMapCanvas() {
     c.fillStyle = rnd() > 0.5 ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.045)';
     blobPath(c, rnd()*WORLD, rnd()*WORLD, 4 + rnd()*10, rnd, { pts:5, jitter:0.7, squash:0.5, rot:rnd()*6.28 });
     c.fill();
+  }
+  // tiny wildflowers dotting the open grass
+  for (let i = 0; i < 170; i++) {
+    const x = rnd()*WORLD, y = rnd()*WORLD;
+    if (distToLanes(x, y) < 120) continue;
+    c.fillStyle = rnd() > 0.5 ? 'rgba(255,250,220,0.45)' : 'rgba(255,215,130,0.4)';
+    c.beginPath(); c.arc(x, y, 2.2 + rnd()*1.8, 0, 7); c.fill();
   }
 
   // mowed-lawn stripes: alternating faint diagonal bands, the classic
@@ -637,9 +646,9 @@ function buildMapCanvas() {
       c.moveTo(lane[0][0], lane[0][1]);
       for (const p of lane) c.lineTo(p[0], p[1]);
     };
-    c.strokeStyle = 'rgba(0,0,0,0.30)'; c.lineWidth = 168; path(); c.stroke();   // road edge shadow
-    c.strokeStyle = 'rgba(148,138,116,0.30)'; c.lineWidth = 150; path(); c.stroke(); // stone bed
-    c.strokeStyle = 'rgba(196,184,152,0.18)'; c.lineWidth = 108; path(); c.stroke(); // worn center
+    c.strokeStyle = 'rgba(30,25,15,0.30)'; c.lineWidth = 168; path(); c.stroke();   // road edge shadow
+    c.strokeStyle = 'rgba(172,158,126,0.45)'; c.lineWidth = 150; path(); c.stroke(); // stone bed
+    c.strokeStyle = 'rgba(214,200,164,0.32)'; c.lineWidth = 108; path(); c.stroke(); // worn center
 
     // cobblestone paving: individual offset-brick blocks laid across the road width
     for (let i = 0; i < lane.length - 1; i++) {
@@ -659,19 +668,54 @@ function buildMapCanvas() {
           c.save();
           c.translate(px, py);
           c.rotate(Math.atan2(uy, ux));
-          c.fillStyle = `rgba(${Math.round(150*shade)},${Math.round(140*shade)},${Math.round(115*shade)},0.24)`;
+          c.fillStyle = `rgba(${Math.round(182*shade)},${Math.round(168*shade)},${Math.round(136*shade)},0.30)`;
           tracePts(c, stonePts, 0, 0, stoneW/2-1.5, (stoneH-3)/(stoneW-3));
           c.fill();
-          c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1.5;
+          c.strokeStyle = 'rgba(40,32,20,0.22)'; c.lineWidth = 1.5;
           tracePts(c, stonePts, 0, 0, stoneW/2-1.5, (stoneH-3)/(stoneW-3));
           c.stroke();
           c.restore();
         }
       }
     }
-    // faint centerline guide, kept from the original road marking
-    c.strokeStyle = 'rgba(255,246,214,0.08)'; c.lineWidth = 10;
-    c.setLineDash([46, 64]); path(); c.stroke(); c.setLineDash([]);
+  }
+
+  // ---- carved rune circles: the big concentric stone engravings MLBB-style
+  // maps stamp along their lanes. Placed at interior lane waypoints. ----
+  const runeCircle = (x, y, R) => {
+    c.save(); c.translate(x, y);
+    // stone slab disc the carving sits on
+    c.fillStyle = 'rgba(196,182,150,0.30)';
+    c.beginPath(); c.arc(0, 0, R + 8, 0, 7); c.fill();
+    // outer groove + light chisel highlight beside it
+    c.strokeStyle = 'rgba(52,42,26,0.38)'; c.lineWidth = 9;
+    c.beginPath(); c.arc(0, 0, R, 0, 7); c.stroke();
+    c.strokeStyle = 'rgba(228,214,178,0.30)'; c.lineWidth = 3;
+    c.beginPath(); c.arc(0, 0, R - 8, 0, 7); c.stroke();
+    // inner groove ring
+    c.strokeStyle = 'rgba(52,42,26,0.30)'; c.lineWidth = 6;
+    c.beginPath(); c.arc(0, 0, R*0.55, 0, 7); c.stroke();
+    // radial spokes between the rings
+    c.strokeStyle = 'rgba(52,42,26,0.24)'; c.lineWidth = 5;
+    for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI/4 + 0.4;
+      c.beginPath();
+      c.moveTo(Math.cos(a)*R*0.58, Math.sin(a)*R*0.58);
+      c.lineTo(Math.cos(a)*(R - 11), Math.sin(a)*(R - 11));
+      c.stroke();
+    }
+    c.fillStyle = 'rgba(228,214,178,0.22)';
+    c.beginPath(); c.arc(0, 0, 10, 0, 7); c.fill();
+    c.restore();
+  };
+  for (const lane of Object.values(LANES)) {
+    for (let i = 1; i < lane.length - 1; i++) {
+      const [wx, wy] = lane[i];
+      if (Math.hypot(wx - BOSS_SPOT.x, wy - BOSS_SPOT.y) < 300) continue;
+      if (Math.hypot(wx - CORES.blue.x, wy - CORES.blue.y) < 520) continue;
+      if (Math.hypot(wx - CORES.red.x, wy - CORES.red.y) < 520) continue;
+      runeCircle(wx, wy, 72 + (i % 2) * 26);
+    }
   }
 
   // ---- base platforms: hex courts with rune ring ----
@@ -867,20 +911,46 @@ function buildMapCanvas() {
     c.beginPath(); c.arc(x, y, s*2, 0, 7); c.fill();
   }
 
+  // ---- jungle canopy overhanging the borders: MLBB frames its arena with
+  // trees leaning into the play space, which instantly sells "forest" ----
+  const canopy = (cx2, cy2, r) => {
+    c.fillStyle = 'rgba(8,28,16,0.85)';
+    blobPath(c, cx2 + 5, cy2 + 9, r*1.05, rnd, { pts:8, jitter:0.35 }); c.fill();
+    c.fillStyle = '#1d4a2b';
+    blobPath(c, cx2, cy2, r, rnd, { pts:8, jitter:0.35 }); c.fill();
+    c.fillStyle = 'rgba(62,132,70,0.9)';
+    blobPath(c, cx2 - r*0.15, cy2 - r*0.18, r*0.72, rnd, { pts:7, jitter:0.4 }); c.fill();
+    c.fillStyle = 'rgba(135,200,120,0.4)';
+    blobPath(c, cx2 - r*0.26, cy2 - r*0.3, r*0.4, rnd, { pts:6, jitter:0.5 }); c.fill();
+  };
+  for (let d = 0; d < WORLD; d += 95 + rnd()*70) {
+    const rr = () => 55 + rnd()*45;
+    canopy(d + rnd()*40, -15 + rnd()*50, rr());          // top edge
+    canopy(d + rnd()*40, WORLD + 15 - rnd()*50, rr());   // bottom edge
+    canopy(-15 + rnd()*50, d + rnd()*40, rr());          // left edge
+    canopy(WORLD + 15 - rnd()*50, d + rnd()*40, rr());   // right edge
+  }
+
   // ---- directional lighting: soft sun from the top-left, multiplied over everything ----
   c.globalCompositeOperation = 'multiply';
   const sun = c.createLinearGradient(0, 0, WORLD, WORLD);
   sun.addColorStop(0, 'rgba(255,255,255,1)');
-  sun.addColorStop(0.55, 'rgba(255,255,255,0.92)');
-  sun.addColorStop(1, 'rgba(150,150,170,0.8)');
+  sun.addColorStop(0.55, 'rgba(255,255,255,0.96)');
+  sun.addColorStop(1, 'rgba(190,190,200,0.92)');
   c.fillStyle = sun;
+  c.fillRect(0, 0, WORLD, WORLD);
+  // daylight lift: screen a pale green over everything so the whole arena
+  // reads as sunlit meadow (matches MLBB's bright ground) despite the many
+  // dark mottling layers stacked above
+  c.globalCompositeOperation = 'screen';
+  c.fillStyle = 'rgba(104,128,86,0.32)';
   c.fillRect(0, 0, WORLD, WORLD);
   c.globalCompositeOperation = 'source-over';
 
   // ---- vignette ----
   const vg = c.createRadialGradient(1600, 1600, 900, 1600, 1600, 2400);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.42)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.25)');
   c.fillStyle = vg;
   c.fillRect(0, 0, WORLD, WORLD);
 
@@ -1105,6 +1175,8 @@ function render(ctx) {
 }
 
 // standing boulder
+// MLBB-style boulder: warm weathered tan stone with a horizontal strata crack
+// and moss creeping over the sunlit top face
 function drawRock(ctx, r) {
   const gx = r.x, gy = r.y * YS;
   if (!r._pts) {
@@ -1115,27 +1187,45 @@ function drawRock(ctx, r) {
       const rad = r.r * (0.8 + rr()*0.3);
       r._pts.push([Math.cos(a)*rad, Math.sin(a)*rad*0.72 - r.r*0.45]);
     }
+    r._moss = [];
+    for (let i = 0; i < 4; i++) {
+      r._moss.push([(rr()-0.5)*r.r*0.8, -r.r*(0.68 + rr()*0.4), r.r*(0.18 + rr()*0.16)]);
+    }
   }
-  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillStyle = 'rgba(15,25,15,0.4)';
   ctx.beginPath(); ctx.ellipse(gx + 6, gy + 2, r.r*1.05, r.r*0.42, 0, 0, 7); ctx.fill();
   const rg2 = ctx.createLinearGradient(gx - r.r, gy - r.r*1.3, gx + r.r, gy);
-  rg2.addColorStop(0, '#5b656f');
-  rg2.addColorStop(0.55, '#3c444d');
-  rg2.addColorStop(1, '#242a31');
+  rg2.addColorStop(0, '#b3a184');
+  rg2.addColorStop(0.55, '#84765c');
+  rg2.addColorStop(1, '#4e4433');
   ctx.fillStyle = rg2;
   ctx.beginPath();
   ctx.moveTo(gx + r._pts[0][0], gy + r._pts[0][1]);
   for (const p of r._pts) ctx.lineTo(gx + p[0], gy + p[1]);
   ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 3.5;
+  ctx.strokeStyle = 'rgba(45,35,22,0.55)'; ctx.lineWidth = 3.5;
   ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  // horizontal strata cracks — the layered-slab reading without fake geometry
+  ctx.strokeStyle = 'rgba(45,35,22,0.4)'; ctx.lineWidth = 2.5;
+  for (const f of [0.35, 0.75]) {
+    ctx.beginPath();
+    ctx.moveTo(gx - r.r*0.72, gy - r.r*f);
+    ctx.quadraticCurveTo(gx, gy - r.r*f - r.r*0.12, gx + r.r*0.7, gy - r.r*f + r.r*0.06);
+    ctx.stroke();
+  }
+  // sunlit top facet
+  ctx.fillStyle = 'rgba(255,244,214,0.16)';
   ctx.beginPath();
   ctx.moveTo(gx - r.r*0.4, gy - r.r*0.55);
   ctx.lineTo(gx - r.r*0.02, gy - r.r*1.0);
   ctx.lineTo(gx + r.r*0.38, gy - r.r*0.68);
   ctx.lineTo(gx + r.r*0.05, gy - r.r*0.35);
   ctx.closePath(); ctx.fill();
+  // moss clumps hugging the top
+  for (const [mx, my, mr] of r._moss) {
+    ctx.fillStyle = 'rgba(80,138,66,0.7)';
+    ctx.beginPath(); ctx.ellipse(gx + mx, gy + my, mr, mr*0.6, 0, 0, 7); ctx.fill();
+  }
 }
 
 function drawUnit(ctx, u) {
@@ -1143,46 +1233,71 @@ function drawUnit(ctx, u) {
   const gx = u.x, gy = u.y * YS;
 
   if (u.type === 'tower') {
-    const H = 118;
+    const H = 106;
     // shadow + plinth
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath(); ctx.ellipse(gx + 10, gy + 4, 58, 24, 0, 0, 7); ctx.fill();
-    const pb = ctx.createLinearGradient(gx - 46, gy, gx + 46, gy);
-    pb.addColorStop(0, '#4a545f'); pb.addColorStop(1, '#262c33');
+    ctx.beginPath(); ctx.ellipse(gx + 10, gy + 4, 64, 27, 0, 0, 7); ctx.fill();
+    // weathered golden-stone base pedestal with a carved ring (MLBB turrets
+    // read as ancient gilded monuments, not military hardware)
+    const pb = ctx.createLinearGradient(gx - 54, gy, gx + 54, gy);
+    pb.addColorStop(0, '#8d7f5e'); pb.addColorStop(1, '#4a4130');
     ctx.fillStyle = pb;
-    ctx.beginPath(); ctx.ellipse(gx, gy, 48, 21, 0, 0, 7); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.ellipse(gx, gy, 48, 21, 0, 0, 7); ctx.stroke();
-    // tapered stone column
-    const cb = ctx.createLinearGradient(gx - 34, 0, gx + 34, 0);
-    cb.addColorStop(0, lighten(TEAM_COLOR_D[u.team], 0.22));
-    cb.addColorStop(0.55, TEAM_COLOR_D[u.team]);
-    cb.addColorStop(1, '#12161c');
+    ctx.beginPath(); ctx.ellipse(gx, gy, 54, 23, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(30,24,14,0.55)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(gx, gy, 54, 23, 0, 0, 7); ctx.stroke();
+    ctx.strokeStyle = 'rgba(30,24,14,0.3)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(gx, gy, 40, 17, 0, 0, 7); ctx.stroke();
+    // tapered golden stone column
+    const cb = ctx.createLinearGradient(gx - 42, 0, gx + 42, 0);
+    cb.addColorStop(0, '#cdb384');
+    cb.addColorStop(0.55, '#93805a');
+    cb.addColorStop(1, '#4c422e');
     ctx.fillStyle = cb;
     ctx.beginPath();
-    ctx.moveTo(gx - 34, gy);
-    ctx.lineTo(gx - 20, gy - H);
-    ctx.lineTo(gx + 20, gy - H);
-    ctx.lineTo(gx + 34, gy);
+    ctx.moveTo(gx - 42, gy);
+    ctx.lineTo(gx - 26, gy - H);
+    ctx.lineTo(gx + 26, gy - H);
+    ctx.lineTo(gx + 42, gy);
     ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(40,32,18,0.5)'; ctx.lineWidth = 2.5;
     ctx.stroke();
-    // banded details
-    ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 2;
-    for (const f of [0.3, 0.62]) {
-      const w = 34 - 14*f;
+    // carved masonry bands + a few weathering cracks
+    ctx.strokeStyle = 'rgba(40,32,18,0.35)'; ctx.lineWidth = 2;
+    for (const f of [0.24, 0.5, 0.74]) {
+      const w = 42 - 16*f;
       ctx.beginPath(); ctx.moveTo(gx - w, gy - H*f); ctx.lineTo(gx + w, gy - H*f); ctx.stroke();
     }
+    ctx.strokeStyle = 'rgba(255,240,200,0.25)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(gx - 32, gy - H*0.12); ctx.lineTo(gx - 20, gy - H*0.86); ctx.stroke();
     ctx.strokeStyle = tc; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(gx - 22, gy - H*0.82); ctx.lineTo(gx + 22, gy - H*0.82); ctx.stroke();
-    // top platform + floating crystal
-    ctx.fillStyle = '#1a2027';
-    ctx.beginPath(); ctx.ellipse(gx, gy - H, 26, 11, 0, 0, 7); ctx.fill();
-    ctx.strokeStyle = tc; ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.ellipse(gx, gy - H, 26, 11, 0, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(gx - 28, gy - H*0.82); ctx.lineTo(gx + 28, gy - H*0.82); ctx.stroke();
+    // team pennant flying from the column side
+    ctx.strokeStyle = '#3a3122'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(gx + 30, gy - H*0.66); ctx.lineTo(gx + 46, gy - H*0.86); ctx.stroke();
+    ctx.fillStyle = tc; ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(gx + 46, gy - H*0.86);
+    ctx.lineTo(gx + 68, gy - H*0.80);
+    ctx.lineTo(gx + 46, gy - H*0.72);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+    // gilded top platform + floating guardian crystal in a gold halo
+    ctx.fillStyle = '#6b5c3e';
+    ctx.beginPath(); ctx.ellipse(gx, gy - H, 32, 13, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#e4c98a'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.ellipse(gx, gy - H, 32, 13, 0, 0, 7); ctx.stroke();
     const bob = 5 * Math.sin(G.time*3 + u.id);
-    const cs = 16 + 2*Math.sin(G.time*4 + u.id);
-    const cy = gy - H - 30 + bob;
+    const cs = 21 + 2.5*Math.sin(G.time*4 + u.id);
+    const cy = gy - H - 34 + bob;
+    // soft gold radiance behind the guardian, like the reference's statue glow
+    const gg = ctx.createRadialGradient(gx, cy, 4, gx, cy, cs*2.6);
+    gg.addColorStop(0, 'rgba(255,220,140,0.4)');
+    gg.addColorStop(1, 'rgba(255,220,140,0)');
+    ctx.fillStyle = gg;
+    ctx.beginPath(); ctx.arc(gx, cy, cs*2.6, 0, 7); ctx.fill();
+    // slowly-turning gold halo ring
+    ctx.strokeStyle = 'rgba(255,215,130,0.6)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(gx, cy, cs*1.5, cs*0.55, 0, G.time*0.8, G.time*0.8 + 5.2); ctx.stroke();
     ctx.shadowColor = tc; ctx.shadowBlur = u.invulnerable ? 6 : 22;
     ctx.fillStyle = tc;
     ctx.beginPath();

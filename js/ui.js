@@ -908,8 +908,14 @@ const UI = {
 
   drawMinimap() {
     const c = this.mmCtx, S = this.mmCanvas.width / WORLD;
-    c.fillStyle = 'rgba(8,14,20,0.85)';
+    c.fillStyle = '#0b140f';
     c.fillRect(0, 0, this.mmCanvas.width, this.mmCanvas.height);
+    // real terrain art as the minimap base, like MLBB's painted minimap
+    if (typeof mapCanvas !== 'undefined' && mapCanvas) {
+      c.globalAlpha = 0.92;
+      c.drawImage(mapCanvas, 0, 0, this.mmCanvas.width, this.mmCanvas.height);
+      c.globalAlpha = 1;
+    }
     // lanes
     c.strokeStyle = 'rgba(210,190,150,0.25)';
     c.lineWidth = 5; c.lineCap = 'round';
