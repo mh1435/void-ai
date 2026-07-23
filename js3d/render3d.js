@@ -126,7 +126,7 @@ const Render3D = (() => {
     // just above the ground so unexplored/out-of-vision terrain darkens
     const fogGeo = new THREE.PlaneGeometry(WORLD, WORLD, 1, 1);
     fogGeo.rotateX(-Math.PI / 2);
-    fogTexture = new THREE.CanvasTexture(fogMask);
+    fogTexture = new THREE.CanvasTexture(typeof fogSmooth !== 'undefined' && fogSmooth ? fogSmooth : fogMask);
     fogTexture.colorSpace = THREE.SRGBColorSpace;
     const fogMat = new THREE.MeshBasicMaterial({ map: fogTexture, transparent: true, depthWrite: false });
     fogMesh = new THREE.Mesh(fogGeo, fogMat);
@@ -373,6 +373,16 @@ const Render3D = (() => {
     e.current = name;
   }
 
+  // lighter-weight action switcher for non-hero animated units (minions)
+  function setGenericAction(anim, name, fade = 0.15) {
+    if (anim.current === name || !anim.clips[name]) return;
+    const next = anim.clips[name];
+    next.reset(); next.play();
+    const prev = anim.clips[anim.current];
+    if (prev && prev !== next) prev.crossFadeTo(next, fade, false);
+    anim.current = name;
+  }
+
   function updateHero(e, u, dt) {
     const [x, z] = toScene(u.x, u.y);
     e.group.position.set(x, 0, z);
@@ -427,16 +437,52 @@ const Render3D = (() => {
     const group = new THREE.Group();
     let h = 40;
     if (u.type === 'minion') {
-      const bodyGeo = sharedGeo('minionBody', () => new THREE.CapsuleGeometry(10, 14, 4, 8));
-      const headGeo = sharedGeo('minionHead', () => new THREE.SphereGeometry(7, 10, 10));
-      // dozens of these can be alive at once, so the material (unlike a
-      // hero's, which needs a unique tint) is cached per team, not per instance
-      const mat = sharedMat('minion_' + u.team, () =>
-        new THREE.MeshStandardMaterial({ color: TEAM_HEX_D[u.team], roughness: 0.6, emissive: TEAM_HEX[u.team], emissiveIntensity: 0.15 }));
-      const body = new THREE.Mesh(bodyGeo, mat); body.position.y = 14; body.castShadow = true;
-      const head = new THREE.Mesh(headGeo, mat); head.position.y = 26; head.castShadow = true;
-      group.add(body, head);
-      h = 34;
+      // rigged KayKit skeleton soldiers (melee grunt / robed caster), tinted
+      // toward their team color; capsule-bot fallback if the pack didn't load
+      const modelName = u.ranged ? 'Skeleton_Mage' : 'Skeleton_Minion';
+      const src = heroModels[modelName];
+      if (src && typeof SkeletonClone === 'function') {
+        const root = SkeletonClone(src.scene);
+        root.scale.setScalar(HERO_SCALE * 0.7);
+        const tint = new THREE.Color(TEAM_HEX[u.team]);
+        root.traverse(o => {
+          if (!o.isMesh) return;
+          o.castShadow = true;
+          o.frustumCulled = false;
+          if (o.isSkinnedMesh && o.geometry && o.geometry.attributes.skinWeight) o.normalizeSkinWeights();
+          const mats = (Array.isArray(o.material) ? o.material : [o.material]).map(m => {
+            const c = m.clone();
+            if (c.color) c.color.lerp(tint, 0.4);
+            return c;
+          });
+          o.material = Array.isArray(o.material) ? mats : mats[0];
+        });
+        group.add(root);
+        const mixer = new THREE.AnimationMixer(root);
+        const find = n => THREE.AnimationClip.findByName(src.animations, n);
+        const clips = {};
+        for (const [key, nm] of [['walk','Walking_A'], ['idle','Idle']]) {
+          const c = find(nm); if (c) clips[key] = mixer.clipAction(c);
+        }
+        const atk = find(u.ranged ? 'Spellcast_Shoot' : '1H_Melee_Attack_Chop');
+        if (atk) { clips.attack = mixer.clipAction(atk); clips.attack.setLoop(THREE.LoopOnce, 1); }
+        const start = clips.walk || clips.idle;
+        if (start) start.play();
+        mixer.update(Math.random() * 0.8);   // desync the marching column, skip T-pose
+        group.userData.anim = { mixer, clips, current: clips.walk ? 'walk' : 'idle', attackEnd: 0, wasAttacking: false };
+        h = 42;
+      } else {
+        const bodyGeo = sharedGeo('minionBody', () => new THREE.CapsuleGeometry(10, 14, 4, 8));
+        const headGeo = sharedGeo('minionHead', () => new THREE.SphereGeometry(7, 10, 10));
+        // dozens of these can be alive at once, so the material (unlike a
+        // hero's, which needs a unique tint) is cached per team, not per instance
+        const mat = sharedMat('minion_' + u.team, () =>
+          new THREE.MeshStandardMaterial({ color: TEAM_HEX_D[u.team], roughness: 0.6, emissive: TEAM_HEX[u.team], emissiveIntensity: 0.15 }));
+        const body = new THREE.Mesh(bodyGeo, mat); body.position.y = 14; body.castShadow = true;
+        const head = new THREE.Mesh(headGeo, mat); head.position.y = 26; head.castShadow = true;
+        group.add(body, head);
+        h = 34;
+      }
     } else if (u.type === 'jungle') {
       const s = u.boss ? 2.1 : 1;
       const bodyGeo = sharedGeo('jungleBody', () => {
@@ -511,10 +557,22 @@ const Render3D = (() => {
     return { group, hpBar: bar, barHeight: h + 14, kind: u.type };
   }
 
-  function updateGeneric(e, u) {
+  function updateGeneric(e, u, dt) {
     const [x, z] = toScene(u.x, u.y);
     e.group.position.set(x, 0, z);
     if (u.type === 'minion') e.group.rotation.y = -u.facing + Math.PI/2;
+    // animated skeleton minions: walk loop, one-shot attack on the swing edge
+    const anim = e.group.userData.anim;
+    if (anim) {
+      const attacking = u.atkTimer > 0 && u.atkTimer > u.atkCd * 0.6;
+      if (anim.clips.attack && attacking && !anim.wasAttacking) {
+        anim.attackEnd = G.time + Math.min(anim.clips.attack.getClip().duration, 0.8);
+        setGenericAction(anim, 'attack', 0.06);
+      }
+      anim.wasAttacking = attacking;
+      if (G.time >= anim.attackEnd) setGenericAction(anim, u.moving !== false ? 'walk' : 'idle');
+      anim.mixer.update(dt || 0.016);
+    }
     if (e.group.userData.crystal) {
       const pulse = 1 + 0.08*Math.sin(G.time*3 + u.id);
       e.group.userData.crystal.scale.setScalar(pulse);
@@ -747,7 +805,7 @@ const Render3D = (() => {
       }
       e.group.visible = true;
       if (u.type === 'hero') updateHero(e, u, dt);
-      else updateGeneric(e, u);
+      else updateGeneric(e, u, dt);
     }
     for (const [id, e] of unitMeshes) {
       if (!alive.has(id)) {
