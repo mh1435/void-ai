@@ -394,9 +394,11 @@ function updateFogMask() {
 
   const ec = fogExplored.getContext('2d');
   for (const c of circles) {
+    // wide taper so explored borders fade gently — hard rims make the
+    // leftover fog pockets between circles read as sharp black shards
     const g = ec.createRadialGradient(c.x*FOG_S, c.y*FOG_S, 0, c.x*FOG_S, c.y*FOG_S, c.r*FOG_S);
     g.addColorStop(0, 'rgba(255,255,255,1)');
-    g.addColorStop(0.75, 'rgba(255,255,255,1)');
+    g.addColorStop(0.45, 'rgba(255,255,255,1)');
     g.addColorStop(1, 'rgba(255,255,255,0)');
     ec.fillStyle = g;
     ec.beginPath(); ec.arc(c.x*FOG_S, c.y*FOG_S, c.r*FOG_S, 0, 7); ec.fill();
@@ -406,16 +408,16 @@ function updateFogMask() {
   mc.globalCompositeOperation = 'source-over';
   // MLBB-style daylight fog: unexplored is dusk, not blackout, and explored
   // ground stays clearly readable under a light haze
-  mc.fillStyle = 'rgba(8,14,22,0.62)';
+  mc.fillStyle = 'rgba(8,14,22,0.55)';
   mc.fillRect(0, 0, FOG_RES, FOG_RES);
   // dim (but don't fully clear) areas the team has explored before
   mc.globalCompositeOperation = 'destination-out';
   mc.globalAlpha = 0.6;
   mc.drawImage(fogExplored, 0, 0);
   mc.globalAlpha = 1;
-  // fully clear current live vision
+  // fully clear current live vision, with a long soft edge
   for (const c of circles) {
-    const g = mc.createRadialGradient(c.x*FOG_S, c.y*FOG_S, c.r*FOG_S*0.5, c.x*FOG_S, c.y*FOG_S, c.r*FOG_S);
+    const g = mc.createRadialGradient(c.x*FOG_S, c.y*FOG_S, c.r*FOG_S*0.3, c.x*FOG_S, c.y*FOG_S, c.r*FOG_S);
     g.addColorStop(0, 'rgba(0,0,0,1)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
     mc.fillStyle = g;
@@ -1370,46 +1372,86 @@ function drawUnit(ctx, u) {
   }
 
   if (u.type === 'minion') {
-    const bob = 2 * Math.sin(G.time*7 + u.id);
-    const lift = 15 + bob;
+    // little lane soldiers, MLBB-style: armored sword grunts and hooded
+    // robed casters marching in team colors
+    const ph = G.time*9 + u.id;
+    const swing = Math.sin(ph)*3.5;
+    const bobY = -Math.abs(Math.sin(ph))*1.5;
+    const side = Math.cos(u.facing) >= 0 ? 1 : -1;
+    const dark = TEAM_COLOR_D[u.team];
     ctx.fillStyle = 'rgba(0,0,0,0.32)';
     ctx.beginPath(); ctx.ellipse(gx, gy, u.radius*0.95, u.radius*0.4, 0, 0, 7); ctx.fill();
-    // hover flame
-    ctx.fillStyle = tc;
-    ctx.globalAlpha = 0.35;
-    ctx.beginPath(); ctx.ellipse(gx, gy - 4, 5, 8 + bob, 0, 0, 7); ctx.fill();
-    ctx.globalAlpha = 1;
-    const mg = ctx.createRadialGradient(gx - 5, gy - lift - 5, 3, gx, gy - lift, u.radius);
-    mg.addColorStop(0, lighten(TEAM_COLOR_D[u.team], 0.3));
-    mg.addColorStop(1, TEAM_COLOR_D[u.team]);
-    ctx.fillStyle = mg;
-    ctx.beginPath(); ctx.arc(gx, gy - lift, u.radius, 0, 7); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(gx, gy - lift, u.radius, 0, 7); ctx.stroke();
-    ctx.strokeStyle = tc; ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.arc(gx, gy - lift, u.radius, 0, 7); ctx.stroke();
-    // glowing eye facing travel direction
-    const ex = Math.cos(u.facing)*u.radius*0.45, ey = Math.sin(u.facing)*u.radius*0.28;
-    ctx.fillStyle = '#fff';
-    ctx.shadowColor = tc; ctx.shadowBlur = 6;
-    ctx.beginPath(); ctx.arc(gx + ex, gy - lift + ey, 3.5, 0, 7); ctx.fill();
-    ctx.shadowBlur = 0;
+    ctx.save();
+    ctx.translate(gx, gy + bobY);
+    ctx.lineCap = 'round';
     if (u.ranged) {
-      // antenna orb
-      ctx.strokeStyle = tc; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(gx, gy - lift - u.radius); ctx.lineTo(gx, gy - lift - u.radius - 7); ctx.stroke();
-      ctx.fillStyle = tc;
-      ctx.beginPath(); ctx.arc(gx, gy - lift - u.radius - 9, 3.5, 0, 7); ctx.fill();
-    } else {
-      // blade fin
-      ctx.fillStyle = tc;
+      // robed caster: cowled cloak sweeping to the ground, glowing staff
+      const rg = ctx.createLinearGradient(0, -26, 0, 0);
+      rg.addColorStop(0, lighten(dark, 0.28)); rg.addColorStop(1, dark);
+      ctx.fillStyle = rg;
       ctx.beginPath();
-      ctx.moveTo(gx - 7, gy - lift - u.radius + 3);
-      ctx.lineTo(gx, gy - lift - u.radius - 8);
-      ctx.lineTo(gx + 7, gy - lift - u.radius + 3);
+      ctx.moveTo(0, -26);
+      ctx.quadraticCurveTo(-11, -14, -8 - swing*0.4, 0);
+      ctx.lineTo(8 + swing*0.4, 0);
+      ctx.quadraticCurveTo(11, -14, 0, -26);
       ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1.8; ctx.stroke();
+      // rope belt
+      ctx.strokeStyle = 'rgba(255,220,150,0.5)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(-7, -11); ctx.lineTo(7, -11); ctx.stroke();
+      // deep hood with glowing eyes
+      ctx.fillStyle = lighten(dark, 0.15);
+      ctx.beginPath(); ctx.arc(0, -27, 7.5, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(8,10,16,0.95)';
+      ctx.beginPath(); ctx.arc(side*1.5, -26.5, 5, 0, 7); ctx.fill();
+      ctx.fillStyle = tc; ctx.shadowColor = tc; ctx.shadowBlur = 5;
+      ctx.beginPath(); ctx.arc(side*3, -27, 1.4, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(side*0.5, -27, 1.4, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0;
+      // staff with a crackling orb
+      ctx.strokeStyle = '#5b4a33'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(side*9, 0); ctx.lineTo(side*11, -30); ctx.stroke();
+      ctx.fillStyle = tc; ctx.shadowColor = tc; ctx.shadowBlur = 9;
+      ctx.beginPath(); ctx.arc(side*11, -33, 3.6 + Math.sin(G.time*5 + u.id)*0.8, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0;
+    } else {
+      // armored grunt: stubby legs, chest plate, kettle helm, sword + shield
+      ctx.strokeStyle = '#1c222b'; ctx.lineWidth = 4.5;
+      ctx.beginPath(); ctx.moveTo(-4, -10); ctx.lineTo(-4 + swing, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(4, -10); ctx.lineTo(4 - swing, 0); ctx.stroke();
+      const bg = ctx.createLinearGradient(0, -24, 0, -8);
+      bg.addColorStop(0, lighten(dark, 0.32)); bg.addColorStop(1, dark);
+      ctx.fillStyle = bg;
+      roundRect(ctx, -9, -24, 18, 16, 6); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1.8;
+      roundRect(ctx, -9, -24, 18, 16, 6); ctx.stroke();
+      // team tabard stripe
+      ctx.fillStyle = tc;
+      ctx.fillRect(-3, -23, 6, 14);
+      // kettle helm with brim + plume
+      ctx.fillStyle = '#8b95a3';
+      ctx.beginPath(); ctx.arc(0, -27, 6.5, Math.PI, 0); ctx.fill();
+      ctx.fillRect(-8, -27.5, 16, 2.5);
+      ctx.fillStyle = tc;
+      ctx.beginPath(); ctx.ellipse(0, -33, 2, 3.5, 0, 0, 7); ctx.fill();
+      // face shadow + eyes
+      ctx.fillStyle = '#2a2015';
+      ctx.fillRect(-4.5, -24.5, 9, 3.5);
+      // round shield on off-hand
+      ctx.fillStyle = lighten(dark, 0.2);
+      ctx.beginPath(); ctx.arc(-side*10, -14, 5.5, 0, 7); ctx.fill();
+      ctx.strokeStyle = 'rgba(230,220,190,0.6)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(-side*10, -14, 5.5, 0, 7); ctx.stroke();
+      // short sword, raised a touch mid-swing
+      const striking = u.atkTimer > 0 && u.atkTimer > u.atkCd*0.7;
+      ctx.strokeStyle = '#d9dde3'; ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(side*9, -15);
+      ctx.lineTo(side*(striking ? 20 : 16), striking ? -26 : -21);
+      ctx.stroke();
     }
-    drawHpBar(ctx, u, 34, gx, gy - lift - u.radius - 16);
+    ctx.restore();
+    drawHpBar(ctx, u, 34, gx, gy - 48);
     return;
   }
 
@@ -1500,37 +1542,13 @@ function drawHero(ctx, h) {
   const swing = h.moving ? Math.sin(ph)*5 : 0;
   const bobY = h.moving ? -Math.abs(Math.sin(ph))*2.5 : Math.sin(G.time*2 + h.id)*1.2;
   const side = Math.cos(h.facing) >= 0 ? 1 : -1;
+  const striking = h.atkTimer > (h.atkCd / h.asMult) * 0.7;
 
   ctx.save();
   ctx.translate(gx, gy + bobY);
   ctx.lineCap = 'round';
 
-  // legs
-  ctx.strokeStyle = '#1c222b'; ctx.lineWidth = 6;
-  ctx.beginPath(); ctx.moveTo(-6, -16); ctx.lineTo(-6 + swing*0.6, -1); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(6, -16); ctx.lineTo(6 - swing*0.6, -1); ctx.stroke();
-
-  // torso armor in the hero's color
-  const tg = ctx.createLinearGradient(0, -40, 0, -12);
-  tg.addColorStop(0, lighten(c, 0.30));
-  tg.addColorStop(1, c);
-  ctx.fillStyle = tg;
-  roundRect(ctx, -13, -38, 26, 24, 8);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 2;
-  roundRect(ctx, -13, -38, 26, 24, 8);
-  ctx.stroke();
-  // team sash
-  ctx.fillStyle = tc;
-  ctx.fillRect(-13, -20, 26, 4);
-  // shoulder pads
-  ctx.fillStyle = lighten(c, 0.12);
-  ctx.beginPath(); ctx.arc(-13, -34, 6, 0, 7); ctx.fill();
-  ctx.beginPath(); ctx.arc(13, -34, 6, 0, 7); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(-13, -34, 6, 0, 7); ctx.stroke();
-  ctx.beginPath(); ctx.arc(13, -34, 6, 0, 7); ctx.stroke();
-
+  drawHeroBody(ctx, h.def, tc, { swing, side, striking });
   drawHeroHead(ctx, h.def.id);
   drawHeroWeapon(ctx, h, side);
 
@@ -1563,13 +1581,155 @@ function drawHero(ctx, h) {
     }
   }
 
-  drawHpBar(ctx, h, 66, gx, gy - 76, true);
+  drawHeroPlate(ctx, h, gx, gy - 76);
+}
 
-  // name + level
-  ctx.fillStyle = h.isPlayer ? '#fff' : tc;
-  ctx.font = 'bold 15px Rajdhani, sans-serif';
+// MLBB-style overhead hero plate: level diamond + HP bar segmented into
+// fixed-size chunks (so max HP is readable at a glance) + mana sliver
+function drawHeroPlate(ctx, h, cx, cy) {
+  const tc = TEAM_COLOR[h.team];
+  const w = 66, x = cx - w/2, y = cy;
+  // name
+  ctx.fillStyle = h.isPlayer ? '#ffe9a8' : tc;
+  ctx.font = 'bold 14px Rajdhani, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(h.name + ' · ' + h.level, gx, gy - 82);
+  ctx.fillText(h.name, cx + 5, y - 5);
+  // backing plate
+  ctx.fillStyle = 'rgba(6,10,16,0.72)';
+  roundRect(ctx, x - 14, y - 2, w + 18, 15, 3.5); ctx.fill();
+  // level diamond on the left lip
+  ctx.fillStyle = TEAM_COLOR_D[h.team];
+  ctx.save();
+  ctx.translate(x - 5, y + 5.5);
+  ctx.rotate(Math.PI/4);
+  ctx.fillRect(-6.4, -6.4, 12.8, 12.8);
+  ctx.strokeStyle = h.isPlayer ? '#ffd166' : 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.6;
+  ctx.strokeRect(-6.4, -6.4, 12.8, 12.8);
+  ctx.restore();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 11px Rajdhani, sans-serif';
+  ctx.fillText(h.level, x - 5, y + 9.5);
+  // HP fill
+  const frac = clamp(h.hp / h.hpMax(), 0, 1);
+  const ally = h.team === G.player.team;
+  const hg = ctx.createLinearGradient(0, y, 0, y + 7);
+  hg.addColorStop(0, ally ? '#5cf291' : '#ff7385');
+  hg.addColorStop(1, ally ? '#1ea854' : '#c9243a');
+  ctx.fillStyle = hg;
+  ctx.fillRect(x + 3, y + 1, (w - 4) * frac, 7);
+  // shield overlay
+  const sh = h.shieldTotal ? h.shieldTotal() : 0;
+  if (sh > 0) {
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillRect(x + 3 + (w - 4)*frac, y + 1, (w - 4) * clamp(sh / h.hpMax(), 0, 1 - frac), 7);
+  }
+  // fixed-chunk pips every 500 max HP
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  const chunk = 500 / h.hpMax();
+  for (let q = chunk; q < 1; q += chunk) ctx.fillRect(x + 3 + (w - 4)*q - 0.5, y + 1, 1, 7);
+  // mana sliver
+  if (h.manaMax > 0) {
+    ctx.fillStyle = '#2b5f9e';
+    ctx.fillRect(x + 3, y + 9, w - 4, 3);
+    ctx.fillStyle = '#6fb9ff';
+    ctx.fillRect(x + 3, y + 9, (w - 4) * clamp(h.mana / h.manaMax, 0, 1), 3);
+  }
+}
+
+// shared hero body used in-game and on UI cards: role-based silhouette
+// (robes for casters, heavy pauldrons for bruisers), swinging arms, and an
+// attack lunge — feet anchored at local (0,0)
+function drawHeroBody(ctx, def, teamColor, anim) {
+  const c = def.color;
+  const sw = anim.swing || 0, side = anim.side || 1;
+  const robe = def.role === 'Mage' || def.role === 'Support';
+  const heavy = def.role === 'Tank' || def.role === 'Fighter';
+  const hw = heavy ? 15 : 13;                     // torso half-width
+  ctx.save();
+  if (anim.striking) ctx.rotate(side * 0.10);     // lunge into the attack
+
+  // off-hand arm behind the torso, counter-swinging the legs
+  ctx.strokeStyle = lighten(c, -0.18); ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(-side*hw*0.8, -33);
+  ctx.lineTo(-side*(hw + 3) - sw*0.5, -18);
+  ctx.stroke();
+  ctx.fillStyle = '#f0c49b';
+  ctx.beginPath(); ctx.arc(-side*(hw + 3) - sw*0.5, -17, 3, 0, 7); ctx.fill();
+
+  if (robe) {
+    // flowing robe: hem sways opposite the stride
+    const rg = ctx.createLinearGradient(0, -38, 0, 0);
+    rg.addColorStop(0, lighten(c, 0.28)); rg.addColorStop(1, lighten(c, -0.25));
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    ctx.moveTo(-hw, -36);
+    ctx.quadraticCurveTo(-hw - 4, -16, -11 - sw*0.5, 0);
+    ctx.lineTo(11 - sw*0.5, 0);
+    ctx.quadraticCurveTo(hw + 4, -16, hw, -36);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 2; ctx.stroke();
+    // hem trim
+    ctx.strokeStyle = 'rgba(255,240,200,0.4)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-10 - sw*0.5, -2.5); ctx.lineTo(10 - sw*0.5, -2.5); ctx.stroke();
+  } else {
+    // legs with boots
+    ctx.strokeStyle = '#1c222b'; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(-6, -16); ctx.lineTo(-6 + sw*0.6, -1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(6, -16); ctx.lineTo(6 - sw*0.6, -1); ctx.stroke();
+    ctx.fillStyle = lighten(c, -0.3);
+    ctx.beginPath(); ctx.ellipse(-6 + sw*0.6, -1, 4.5, 2.5, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(6 - sw*0.6, -1, 4.5, 2.5, 0, 0, 7); ctx.fill();
+    // hip fauld
+    ctx.fillStyle = lighten(c, -0.12);
+    roundRect(ctx, -hw + 1, -20, (hw - 1)*2, 7, 3); ctx.fill();
+  }
+
+  // chest plate with rim light
+  const tg = ctx.createLinearGradient(0, -40, 0, -14);
+  tg.addColorStop(0, lighten(c, 0.30));
+  tg.addColorStop(1, c);
+  ctx.fillStyle = tg;
+  roundRect(ctx, -hw, -38, hw*2, robe ? 20 : 24, 8);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 2;
+  roundRect(ctx, -hw, -38, hw*2, robe ? 20 : 24, 8);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-hw + 5, -36.5); ctx.quadraticCurveTo(0, -39.5, hw - 5, -36.5); ctx.stroke();
+  // team sash
+  ctx.fillStyle = teamColor;
+  ctx.fillRect(-hw, robe ? -22 : -20, hw*2, 4);
+  // belt buckle glint
+  ctx.fillStyle = 'rgba(255,230,170,0.85)';
+  ctx.beginPath(); ctx.arc(0, robe ? -20 : -18, 2.2, 0, 7); ctx.fill();
+
+  // pauldrons — spiked and oversized on heavy roles
+  ctx.fillStyle = lighten(c, 0.12);
+  const pr = heavy ? 8 : 6;
+  ctx.beginPath(); ctx.arc(-hw, -34, pr, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(hw, -34, pr, 0, 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(-hw, -34, pr, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(hw, -34, pr, 0, 7); ctx.stroke();
+  if (heavy) {
+    ctx.fillStyle = lighten(c, 0.3);
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(s*hw - 4, -40); ctx.lineTo(s*hw, -50); ctx.lineTo(s*hw + 4, -40);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // weapon-side arm reaching to the weapon anchor
+  ctx.strokeStyle = lighten(c, -0.1); ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(side*hw*0.8, -33);
+  ctx.lineTo(side*(hw + 2), anim.striking ? -27 : -23);
+  ctx.stroke();
+  ctx.fillStyle = '#f0c49b';
+  ctx.beginPath(); ctx.arc(side*(hw + 2), anim.striking ? -26 : -22, 3, 0, 7); ctx.fill();
+  ctx.restore();
 }
 
 // heads: hair, helmets and hoods that make each hero readable at a glance
@@ -1722,29 +1882,13 @@ function drawHeroWeapon(ctx, h, side) {
   }
 }
 
-// full standing character for UI cards and portraits
+// full standing character for UI cards and portraits — same body as in-game
 function drawHeroCardArt(ctx, def, x, footY, scale) {
   ctx.save();
   ctx.translate(x, footY);
   ctx.scale(scale, scale);
   ctx.lineCap = 'round';
-  // legs
-  ctx.strokeStyle = '#1c222b'; ctx.lineWidth = 6;
-  ctx.beginPath(); ctx.moveTo(-6, -16); ctx.lineTo(-6, -1); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(6, -16); ctx.lineTo(6, -1); ctx.stroke();
-  // torso
-  const tg = ctx.createLinearGradient(0, -40, 0, -12);
-  tg.addColorStop(0, lighten(def.color, 0.30));
-  tg.addColorStop(1, def.color);
-  ctx.fillStyle = tg;
-  roundRect(ctx, -13, -38, 26, 24, 8); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 2;
-  roundRect(ctx, -13, -38, 26, 24, 8); ctx.stroke();
-  ctx.fillStyle = '#7df9ff';
-  ctx.fillRect(-13, -20, 26, 4);
-  ctx.fillStyle = lighten(def.color, 0.12);
-  ctx.beginPath(); ctx.arc(-13, -34, 6, 0, 7); ctx.fill();
-  ctx.beginPath(); ctx.arc(13, -34, 6, 0, 7); ctx.fill();
+  drawHeroBody(ctx, def, '#7df9ff', { swing: 0, side: 1, striking: false });
   drawHeroHead(ctx, def.id);
   drawHeroWeapon(ctx, { def, atkTimer: 0, atkCd: 1, asMult: 1 }, 1);
   ctx.restore();
@@ -1874,6 +2018,6 @@ function drawHpBar(ctx, u, w, cx, cy, withMana) {
 function lighten(hex, amt) {
   const n = parseInt(hex.slice(1), 16);
   let r = (n >> 16) + Math.round(255*amt), g = ((n >> 8) & 255) + Math.round(255*amt), b = (n & 255) + Math.round(255*amt);
-  r = Math.min(255, r); g = Math.min(255, g); b = Math.min(255, b);
+  r = Math.min(255, Math.max(0, r)); g = Math.min(255, Math.max(0, g)); b = Math.min(255, Math.max(0, b));
   return 'rgb(' + r + ',' + g + ',' + b + ')';
 }
