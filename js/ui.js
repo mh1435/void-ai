@@ -655,11 +655,16 @@ const UI = {
   // raw emoji, which render inconsistently across phones and read as
   // placeholder art. Unknown glyphs fall back to text.
   drawSkillIcon(cv, glyph, accent) {
-    const c = cv.getContext('2d'), S = cv.width, u = S / 64;
+    const c = cv.getContext('2d'), S = cv.width, u = S / 64, R = S/2 - 1;
     c.clearRect(0, 0, S, S);
-    const g = c.createRadialGradient(S/2, S*0.42, 2, S/2, S/2, S*0.55);
-    g.addColorStop(0, 'rgba(255,255,255,0.10)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-    c.fillStyle = g; c.fillRect(0, 0, S, S);
+    c.save();
+    // glossy circular badge behind the glyph, tinted by the skill accent
+    c.beginPath(); c.arc(S/2, S/2, R, 0, 7); c.clip();
+    const bg = c.createRadialGradient(S*0.36, S*0.32, 2, S/2, S/2, R*1.18);
+    bg.addColorStop(0, hexA(accent, 0.36));
+    bg.addColorStop(0.7, hexA(accent, 0.12));
+    bg.addColorStop(1, 'rgba(6,10,18,0.55)');
+    c.fillStyle = bg; c.fillRect(0, 0, S, S);
     c.strokeStyle = '#f2fbff'; c.fillStyle = '#f2fbff';
     c.lineWidth = 4.5*u; c.lineCap = 'round'; c.lineJoin = 'round';
     c.shadowColor = accent; c.shadowBlur = 10*u;
@@ -720,6 +725,15 @@ const UI = {
         c.fillText(glyph, 32*u, 34*u);
     }
     c.shadowBlur = 0;
+    // glass gloss sweep across the top, then close the round clip + rim glow
+    const gl = c.createLinearGradient(0, S*0.04, 0, S*0.62);
+    gl.addColorStop(0, 'rgba(255,255,255,0.30)');
+    gl.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = gl;
+    c.beginPath(); c.ellipse(S/2, S*0.3, R*0.86, R*0.56, 0, 0, 7); c.fill();
+    c.restore();
+    c.strokeStyle = hexA(accent, 0.7); c.lineWidth = 1.4*u;
+    c.beginPath(); c.arc(S/2, S/2, R - 0.8, 0, 7); c.stroke();
   },
 
   // ---------- skill buttons (tap = smart cast, drag = aim) ----------
@@ -728,6 +742,12 @@ const UI = {
     holder.innerHTML = '';
     this.skillEls = [];
     G.aimPreview = null;
+    // glossy crossed-blades emblem on the basic-attack button (matches skills)
+    const atk = this.els.btnAttack;
+    if (atk && !atk.querySelector('canvas.atkIcon')) {
+      atk.innerHTML = '<canvas class="atkIcon" width="72" height="72"></canvas>';
+      this.drawSkillIcon(atk.querySelector('canvas.atkIcon'), '⚔', '#ff6a78');
+    }
     const defs = G.player.def.skills;
     defs.forEach((sk, i) => {
       const maxLv = i === 2 ? 3 : 5;
@@ -964,24 +984,33 @@ const UI = {
     }
   },
 
-  // hand-drawn per-item emblem (unique art for each item), framed in its
-  // category color. Accepts either an item object or a category string.
+  // glossy circular item badge — vignette background, a depth-shadowed metal
+  // emblem, a glass gloss sweep on top, and a colored rim glow. Accepts an
+  // item object (unique emblem) or a bare category string (fallback emblem).
   drawItemIcon(cv, item) {
     const c = cv.getContext('2d');
-    const W = cv.width, H = cv.height;
+    const W = cv.width, H = cv.height, cx = W/2, cy = H/2, R = Math.min(W, H)/2 - 1;
     const cat = (item && item.id) ? this.itemCat(item) : item;
     const id = (item && item.id) || null;
     const accent = { attack:'#ff8a5c', arcane:'#c77dff', defense:'#7db7ff', move:'#7dff9b' }[cat] || '#ffd166';
     c.clearRect(0, 0, W, H);
-    const g = c.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, hexA(accent, 0.30)); g.addColorStop(1, hexA(accent, 0.07));
-    c.fillStyle = g;
-    roundRect(c, 2, 2, W-4, H-4, 8); c.fill();
-    c.strokeStyle = hexA(accent, 0.65); c.lineWidth = 1.5;
-    roundRect(c, 2, 2, W-4, H-4, 8); c.stroke();
-    c.save(); c.translate(W/2, H/2); c.strokeStyle = accent; c.fillStyle = accent;
+    c.save();
+    // round frame
+    c.beginPath(); c.arc(cx, cy, R, 0, 7); c.clip();
+    // radial vignette: accent-lit near the top-left, sinking to near-black rim
+    const bg = c.createRadialGradient(cx - R*0.32, cy - R*0.42, R*0.15, cx, cy, R*1.15);
+    bg.addColorStop(0, lighten(accent, 0.10));
+    bg.addColorStop(0.5, hexA(accent, 0.42));
+    bg.addColorStop(0.82, 'rgba(10,14,22,0.92)');
+    bg.addColorStop(1, 'rgba(4,6,12,1)');
+    c.fillStyle = bg; c.fillRect(0, 0, W, H);
+    // emblem, scaled to the badge size and lifted off the surface with a shadow
+    c.save();
+    c.translate(cx, cy); c.scale(R/20, R/20);
+    c.strokeStyle = accent; c.fillStyle = accent;
     c.lineWidth = 2.6; c.lineCap = 'round'; c.lineJoin = 'round';
-    const steel = '#dfe7ee', gold = '#ffd98a';
+    c.shadowColor = 'rgba(0,0,0,0.6)'; c.shadowBlur = 3; c.shadowOffsetY = 1.5;
+    const steel = '#eef3f8', gold = '#ffd98a';
     switch (id) {
       case 'blade': { // broad war sword
         c.fillStyle = steel;
@@ -1061,7 +1090,20 @@ const UI = {
         else { c.beginPath(); c.moveTo(-9,-6); c.lineTo(-9,8); c.lineTo(11,8); c.lineTo(11,2); c.lineTo(-2,2); c.lineTo(-2,-6); c.closePath(); c.stroke(); }
       }
     }
-    c.restore();
+    c.restore(); // emblem
+    // glass gloss: a bright crescent across the upper third of the badge
+    const gl = c.createLinearGradient(0, cy - R, 0, cy + R*0.3);
+    gl.addColorStop(0, 'rgba(255,255,255,0.34)');
+    gl.addColorStop(0.55, 'rgba(255,255,255,0.05)');
+    gl.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = gl;
+    c.beginPath(); c.ellipse(cx, cy - R*0.5, R*0.92, R*0.66, 0, 0, 7); c.fill();
+    c.restore(); // clip
+    // rim: dark seat + colored glow ring
+    c.strokeStyle = 'rgba(0,0,0,0.55)'; c.lineWidth = 2;
+    c.beginPath(); c.arc(cx, cy, R - 0.5, 0, 7); c.stroke();
+    c.strokeStyle = hexA(accent, 0.85); c.lineWidth = 1.4;
+    c.beginPath(); c.arc(cx, cy, R - 1.6, 0, 7); c.stroke();
   },
 
   refreshShop() {
