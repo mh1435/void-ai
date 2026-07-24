@@ -408,13 +408,13 @@ function updateFogMask() {
 
   const mc = fogMask.getContext('2d');
   mc.globalCompositeOperation = 'source-over';
-  // MLBB-style daylight fog: unexplored is dusk, not blackout, and explored
-  // ground stays clearly readable under a light haze
-  mc.fillStyle = 'rgba(8,14,22,0.55)';
+  // light MLBB-style fog: unexplored is only a gentle blue dim (never black),
+  // and anywhere the team has explored is left almost fully clear
+  mc.fillStyle = 'rgba(14,22,34,0.32)';
   mc.fillRect(0, 0, FOG_RES, FOG_RES);
-  // dim (but don't fully clear) areas the team has explored before
+  // clear most of the dim from previously-explored ground
   mc.globalCompositeOperation = 'destination-out';
-  mc.globalAlpha = 0.6;
+  mc.globalAlpha = 0.82;
   mc.drawImage(fogExplored, 0, 0);
   mc.globalAlpha = 1;
   // fully clear current live vision, with a long soft edge
