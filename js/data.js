@@ -32,11 +32,11 @@ const CFG = {
   bossSpawnAt: 120,
   bossRespawn: 180,
   jungleRespawn: 55,
-  viewHeight: 880,         // world units visible vertically (lower = closer, hero-focused MLBB framing)
-  visionHero: 700,
-  visionTower: 720,
-  visionCore: 620,
-  visionMinion: 380,
+  viewHeight: 1240,        // world units visible vertically (higher = see much more of the map)
+  visionHero: 1050,
+  visionTower: 1000,
+  visionCore: 900,
+  visionMinion: 520,
 };
 
 function xpToNext(level) { return 150 + level * 95; }

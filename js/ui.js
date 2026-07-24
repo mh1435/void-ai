@@ -1011,83 +1011,105 @@ const UI = {
     c.lineWidth = 2.6; c.lineCap = 'round'; c.lineJoin = 'round';
     c.shadowColor = 'rgba(0,0,0,0.6)'; c.shadowBlur = 3; c.shadowOffsetY = 1.5;
     const steel = '#eef3f8', gold = '#ffd98a';
+    // shaded fills for a crafted, metallic look + a dark seam outline helper
+    const steelG = (y0,y1) => { const gr=c.createLinearGradient(0,y0,0,y1);
+      gr.addColorStop(0,'#ffffff'); gr.addColorStop(0.35,'#cdd7e3'); gr.addColorStop(1,'#5f6b7a'); return gr; };
+    const goldG = (y0,y1) => { const gr=c.createLinearGradient(0,y0,0,y1);
+      gr.addColorStop(0,'#fff4cf'); gr.addColorStop(0.45,'#ffce68'); gr.addColorStop(1,'#9a661b'); return gr; };
+    const seam = (w) => { const sc=c.shadowColor, sb=c.shadowBlur; c.shadowColor='transparent'; c.shadowBlur=0;
+      c.strokeStyle='rgba(16,20,28,0.9)'; c.lineWidth=w; c.stroke(); c.shadowColor=sc; c.shadowBlur=sb; };
+    const shine = (x0,y0,x1,y1,w) => { c.shadowColor='transparent'; c.strokeStyle='rgba(255,255,255,0.75)';
+      c.lineWidth=w||1; c.beginPath(); c.moveTo(x0,y0); c.lineTo(x1,y1); c.stroke(); };
     switch (id) {
-      case 'blade': { // broad war sword
-        c.fillStyle = steel;
-        c.beginPath(); c.moveTo(0,-15); c.lineTo(3.5,-6); c.lineTo(3.5,6); c.lineTo(-3.5,6); c.lineTo(-3.5,-6); c.closePath(); c.fill();
-        c.strokeStyle = accent; c.beginPath(); c.moveTo(-8,6); c.lineTo(8,6); c.stroke();  // crossguard
-        c.fillStyle = gold; c.fillRect(-2,7,4,7);
+      case 'blade': { // broadsword: tapered steel blade w/ fuller, gold guard + pommel
+        c.beginPath(); c.moveTo(0,-16); c.lineTo(4,-7); c.lineTo(4,5); c.lineTo(-4,5); c.lineTo(-4,-7); c.closePath();
+        c.fillStyle = steelG(-16,5); c.fill(); seam(1.5);
+        shine(0,-14,0,3,1); shine(-2.4,-9,-2.4,3,0.8);
+        c.fillStyle = goldG(5,10);
+        c.beginPath(); c.moveTo(-9,5); c.lineTo(9,5); c.lineTo(7,9); c.lineTo(-7,9); c.closePath(); c.fill(); seam(1.1);
+        c.fillStyle='#5a4630'; c.fillRect(-1.8,9,3.6,5);
+        c.fillStyle=goldG(13,17); c.beginPath(); c.arc(0,15,2.4,0,7); c.fill(); seam(1);
         break; }
-      case 'bow': { // recurve bow + arrow
-        c.strokeStyle = gold; c.lineWidth = 3;
-        c.beginPath(); c.arc(4, 0, 13, 2.3, 3.98); c.stroke();
-        c.strokeStyle = steel; c.lineWidth = 1.5;
-        c.beginPath(); c.moveTo(-5,-11); c.lineTo(-5,11); c.stroke();  // string
-        c.strokeStyle = accent; c.lineWidth = 2.4;
-        c.beginPath(); c.moveTo(-5,0); c.lineTo(13,0); c.stroke();     // arrow
-        c.beginPath(); c.moveTo(13,0); c.lineTo(8,-3); c.moveTo(13,0); c.lineTo(8,3); c.stroke();
+      case 'bow': { // recurve gold bow + steel arrow
+        c.strokeStyle = goldG(-14,14); c.lineWidth = 3.6;
+        c.beginPath(); c.arc(3,0,14,2.2,4.08); c.stroke();
+        c.strokeStyle='rgba(255,255,255,0.5)'; c.lineWidth=1; c.beginPath(); c.arc(3,0,14,2.4,3.9); c.stroke();
+        c.strokeStyle='rgba(235,242,252,0.85)'; c.lineWidth=1; c.beginPath(); c.moveTo(-6.5,-12); c.lineTo(-6.5,12); c.stroke();
+        c.strokeStyle=steelG(-2,2); c.lineWidth=2.2; c.beginPath(); c.moveTo(-6.5,0); c.lineTo(13,0); c.stroke();
+        c.fillStyle=steel; c.beginPath(); c.moveTo(16.5,0); c.lineTo(11,-3.6); c.lineTo(11,3.6); c.closePath(); c.fill(); seam(1);
+        c.fillStyle=goldG(-4,4); c.beginPath(); c.moveTo(-6.5,0); c.lineTo(-11,-3.5); c.lineTo(-9,0); c.lineTo(-11,3.5); c.closePath(); c.fill();
         break; }
-      case 'vamp': { // curved dagger + blood drop
-        c.strokeStyle = steel; c.lineWidth = 2.6;
-        c.beginPath(); c.moveTo(-9,10); c.quadraticCurveTo(10,2,9,-13); c.stroke();
-        c.strokeStyle = accent; c.beginPath(); c.moveTo(-11,10); c.lineTo(-4,10); c.stroke();
-        c.fillStyle = '#ff5c6e'; c.beginPath(); c.arc(-6,-6,3.2,0,7); c.fill();
-        c.beginPath(); c.moveTo(-6,-11); c.lineTo(-9,-6); c.lineTo(-3,-6); c.closePath(); c.fill();
+      case 'vamp': { // curved steel dagger + blood drop
+        c.beginPath(); c.moveTo(-8,11); c.quadraticCurveTo(14,3,10,-15); c.quadraticCurveTo(4,-3,-8,7); c.closePath();
+        c.fillStyle=steelG(-15,11); c.fill(); seam(1.4);
+        c.strokeStyle='rgba(255,255,255,0.7)'; c.lineWidth=1; c.beginPath(); c.moveTo(-5,7); c.quadraticCurveTo(9,0,8,-11); c.stroke();
+        c.fillStyle=goldG(7,11); c.beginPath(); c.moveTo(-12,7); c.lineTo(-3,7); c.lineTo(-4,11); c.lineTo(-11,11); c.closePath(); c.fill(); seam(1);
+        c.fillStyle='#ff3b52'; c.beginPath(); c.moveTo(-4,-9); c.quadraticCurveTo(-9.5,-2.5,-4,0); c.quadraticCurveTo(1.5,-2.5,-4,-9); c.closePath(); c.fill();
+        c.fillStyle='rgba(255,255,255,0.75)'; c.beginPath(); c.arc(-5.5,-4.5,1.1,0,7); c.fill();
         break; }
-      case 'edge': { // executioner's axe
-        c.fillStyle = steel;
-        c.beginPath(); c.moveTo(2,-14); c.quadraticCurveTo(15,-10,13,2); c.quadraticCurveTo(6,-2,2,-2); c.closePath(); c.fill();
-        c.strokeStyle = gold; c.lineWidth = 3; c.beginPath(); c.moveTo(0,-15); c.lineTo(-2,14); c.stroke();
+      case 'edge': { // executioner axe: steel head, gold haft
+        c.strokeStyle=goldG(-15,15); c.lineWidth=3; c.beginPath(); c.moveTo(2,-15); c.lineTo(-3,15); c.stroke();
+        c.beginPath(); c.moveTo(2,-14); c.quadraticCurveTo(16,-11,14,3); c.quadraticCurveTo(7,-1,1,-3); c.closePath();
+        c.fillStyle=steelG(-14,3); c.fill(); seam(1.4);
+        c.strokeStyle='rgba(255,255,255,0.7)'; c.lineWidth=1; c.beginPath(); c.moveTo(4,-10); c.quadraticCurveTo(12.5,-8,12.5,0); c.stroke();
         break; }
-      case 'plate': { // heavy tower shield with rivets
-        c.fillStyle = hexA(accent, 0.5); c.strokeStyle = steel; c.lineWidth = 2;
-        c.beginPath(); c.moveTo(0,-14); c.lineTo(11,-9); c.lineTo(9,7); c.lineTo(0,14); c.lineTo(-9,7); c.lineTo(-11,-9); c.closePath();
-        c.fill(); c.stroke();
-        c.fillStyle = steel;
-        for (const [rx,ry] of [[-6,-6],[6,-6],[0,0],[-5,6],[5,6]]) { c.beginPath(); c.arc(rx,ry,1.4,0,7); c.fill(); }
+      case 'plate': { // tower shield, blue steel with boss + rivets
+        const bg=c.createLinearGradient(0,-14,0,15); bg.addColorStop(0,'#bfe0ff'); bg.addColorStop(0.5,'#5f93d0'); bg.addColorStop(1,'#2f5788');
+        c.fillStyle=bg;
+        c.beginPath(); c.moveTo(0,-14); c.lineTo(12,-9); c.lineTo(10,7); c.lineTo(0,15); c.lineTo(-10,7); c.lineTo(-12,-9); c.closePath(); c.fill(); seam(1.6);
+        c.strokeStyle=steelG(-14,15); c.lineWidth=1.6; c.stroke();
+        c.fillStyle=steelG(-4,4); c.beginPath(); c.arc(0,-1,3.2,0,7); c.fill();
+        c.fillStyle='rgba(230,240,255,0.85)'; for(const[rx,ry]of[[-6.5,-6],[6.5,-6],[-5,6.5],[5,6.5]]){c.beginPath();c.arc(rx,ry,1.2,0,7);c.fill();}
+        shine(-8,-8,-2,-11,1.2);
         break; }
       case 'aegis': { // round warded shield
-        c.fillStyle = hexA(accent, 0.5); c.strokeStyle = steel; c.lineWidth = 2;
-        c.beginPath(); c.arc(0,0,13,0,7); c.fill(); c.stroke();
-        c.strokeStyle = '#eaf3ff'; c.lineWidth = 2;
-        c.beginPath(); c.arc(0,0,8,0,7); c.stroke();
-        c.fillStyle = '#eaf3ff'; c.beginPath(); c.arc(0,0,2.4,0,7); c.fill();
+        const bg=c.createRadialGradient(-4,-5,2,0,0,14); bg.addColorStop(0,'#cfe6ff'); bg.addColorStop(0.6,'#5f93d0'); bg.addColorStop(1,'#2f5788');
+        c.fillStyle=bg; c.beginPath(); c.arc(0,0,14,0,7); c.fill(); seam(1.6);
+        c.strokeStyle=goldG(-14,14); c.lineWidth=2.2; c.beginPath(); c.arc(0,0,14,0,7); c.stroke();
+        c.strokeStyle='#eaf3ff'; c.lineWidth=1.6; c.beginPath(); c.arc(0,0,7.5,0,7); c.stroke();
+        c.fillStyle='#eaf3ff'; c.beginPath(); c.arc(0,0,2.6,0,7); c.fill();
+        c.fillStyle='rgba(255,255,255,0.6)'; c.beginPath(); c.ellipse(-4,-5,3,1.8,-0.6,0,7); c.fill();
         break; }
-      case 'heart': { // faceted heart gem
-        c.fillStyle = '#ff5c8a';
-        c.beginPath();
-        c.moveTo(0,12); c.bezierCurveTo(-14,-1,-8,-14,0,-5); c.bezierCurveTo(8,-14,14,-1,0,12); c.closePath(); c.fill();
-        c.strokeStyle = 'rgba(255,255,255,0.7)'; c.lineWidth = 1.4;
-        c.beginPath(); c.moveTo(-4,-4); c.lineTo(-1,0); c.stroke();
+      case 'heart': { // faceted crimson heart gem
+        const bg=c.createLinearGradient(0,-13,0,14); bg.addColorStop(0,'#ffb3cf'); bg.addColorStop(0.5,'#ff3f74'); bg.addColorStop(1,'#a81a4c');
+        c.fillStyle=bg;
+        c.beginPath(); c.moveTo(0,13); c.bezierCurveTo(-15,-1,-9,-15,0,-5); c.bezierCurveTo(9,-15,15,-1,0,13); c.closePath(); c.fill(); seam(1.4);
+        c.strokeStyle='rgba(255,255,255,0.45)'; c.lineWidth=1;
+        c.beginPath(); c.moveTo(0,-5); c.lineTo(-6,2); c.moveTo(0,-5); c.lineTo(6,2); c.moveTo(0,-5); c.lineTo(0,10); c.stroke();
+        c.fillStyle='rgba(255,255,255,0.9)'; c.beginPath(); c.ellipse(-5,-5,2.6,1.5,-0.6,0,7); c.fill();
         break; }
       case 'orb': { // glowing arcane orb
-        const og = c.createRadialGradient(-3,-3,1,0,0,12);
-        og.addColorStop(0,'#f0e0ff'); og.addColorStop(0.6,accent); og.addColorStop(1,'#5a2a8a');
-        c.fillStyle = og; c.beginPath(); c.arc(0,0,11,0,7); c.fill();
-        c.strokeStyle = 'rgba(255,255,255,0.6)'; c.lineWidth = 1.4;
-        c.beginPath(); c.arc(0,0,11,3.6,5.2); c.stroke();
+        const og=c.createRadialGradient(-4,-5,1,0,0,13); og.addColorStop(0,'#faf0ff'); og.addColorStop(0.5,'#c77dff'); og.addColorStop(1,'#54237f');
+        c.fillStyle=og; c.beginPath(); c.arc(0,0,13,0,7); c.fill(); seam(1.3);
+        c.strokeStyle='rgba(255,255,255,0.5)'; c.lineWidth=1.3; c.beginPath(); c.arc(0,0,13,3.5,5.2); c.stroke();
+        c.fillStyle='rgba(255,255,255,0.95)'; c.beginPath(); c.arc(-4,-5,2.6,0,7); c.fill();
+        c.fillStyle='rgba(255,255,255,0.5)'; c.beginPath(); c.arc(4,4,1.4,0,7); c.fill();
         break; }
-      case 'staff': { // warlock staff with gem
-        c.strokeStyle = '#a97c3c'; c.lineWidth = 2.8;
-        c.beginPath(); c.moveTo(-7,14); c.lineTo(6,-8); c.stroke();
-        c.fillStyle = accent; c.shadowColor = accent; c.shadowBlur = 8;
-        c.beginPath();
-        c.moveTo(7,-15); c.lineTo(12,-9); c.lineTo(7,-3); c.lineTo(2,-9); c.closePath(); c.fill();
-        c.shadowBlur = 0;
+      case 'staff': { // wooden haft + glowing gem
+        const wg=c.createLinearGradient(-8,15,7,-6); wg.addColorStop(0,'#6b4a28'); wg.addColorStop(1,'#c08f52');
+        c.strokeStyle=wg; c.lineWidth=3.2; c.beginPath(); c.moveTo(-8,15); c.lineTo(6,-6); c.stroke(); seam(0.6);
+        c.shadowColor='#c77dff'; c.shadowBlur=7;
+        const gg=c.createLinearGradient(1,-16,13,-2); gg.addColorStop(0,'#f4dcff'); gg.addColorStop(1,'#9b4dd6');
+        c.fillStyle=gg; c.beginPath(); c.moveTo(7,-16); c.lineTo(13,-9); c.lineTo(7,-2); c.lineTo(1,-9); c.closePath(); c.fill();
+        c.shadowBlur=0; seam(1);
+        c.fillStyle='rgba(255,255,255,0.85)'; c.beginPath(); c.arc(6,-11,1.4,0,7); c.fill();
         break; }
       case 'boots': { // winged boot
-        c.fillStyle = hexA(accent,0.55); c.strokeStyle = accent; c.lineWidth = 2;
-        c.beginPath(); c.moveTo(-8,-4); c.lineTo(-3,-4); c.lineTo(-3,6); c.lineTo(11,6); c.lineTo(11,11); c.lineTo(-8,11); c.closePath();
-        c.fill(); c.stroke();
-        c.strokeStyle = '#eafff0'; c.lineWidth = 1.8;
-        for (let i=0;i<3;i++){ const yy=-9+i*4; c.beginPath(); c.moveTo(-15,yy); c.lineTo(-7,yy-1); c.stroke(); }
+        const bg=c.createLinearGradient(0,-6,0,12); bg.addColorStop(0,'#c7ffdb'); bg.addColorStop(0.55,'#3cc274'); bg.addColorStop(1,'#1c7a48');
+        c.fillStyle=bg;
+        c.beginPath(); c.moveTo(-8,-6); c.lineTo(-2,-6); c.lineTo(-2,5); c.lineTo(12,5); c.lineTo(12,12); c.lineTo(-8,12); c.closePath(); c.fill(); seam(1.4);
+        c.fillStyle=goldG(4,9); c.fillRect(-2,3,14,2.4);
+        c.strokeStyle='#eafff0'; c.lineWidth=1.6;
+        for(let i=0;i<3;i++){const yy=-9+i*3.4; c.beginPath(); c.moveTo(-16,yy); c.lineTo(-8,yy-1); c.stroke();}
+        shine(-6,-5,-6,10,1);
         break; }
       default: {
         // category fallbacks (also used by the recommended strip)
-        if (cat === 'attack') { c.beginPath(); c.moveTo(0,-13); c.lineTo(0,8); c.moveTo(-6,4); c.lineTo(6,4); c.stroke(); }
-        else if (cat === 'arcane') { c.beginPath(); c.arc(0,0,9,0,7); c.stroke(); }
-        else if (cat === 'defense') { c.beginPath(); c.moveTo(0,-13); c.lineTo(11,-8); c.lineTo(9,6); c.lineTo(0,14); c.lineTo(-9,6); c.lineTo(-11,-8); c.closePath(); c.stroke(); }
-        else { c.beginPath(); c.moveTo(-9,-6); c.lineTo(-9,8); c.lineTo(11,8); c.lineTo(11,2); c.lineTo(-2,2); c.lineTo(-2,-6); c.closePath(); c.stroke(); }
+        c.fillStyle = steelG(-13,13); c.strokeStyle = accent;
+        if (cat === 'attack') { c.lineWidth=3; c.beginPath(); c.moveTo(0,-13); c.lineTo(0,8); c.moveTo(-6,4); c.lineTo(6,4); c.stroke(); }
+        else if (cat === 'arcane') { c.beginPath(); c.arc(0,0,10,0,7); c.fillStyle=hexA(accent,0.7); c.fill(); seam(1.2); }
+        else if (cat === 'defense') { c.beginPath(); c.moveTo(0,-13); c.lineTo(11,-8); c.lineTo(9,6); c.lineTo(0,14); c.lineTo(-9,6); c.lineTo(-11,-8); c.closePath(); c.fillStyle=hexA(accent,0.6); c.fill(); seam(1.2); }
+        else { c.lineWidth=2.6; c.beginPath(); c.moveTo(-9,-6); c.lineTo(-9,8); c.lineTo(11,8); c.lineTo(11,2); c.lineTo(-2,2); c.lineTo(-2,-6); c.closePath(); c.stroke(); }
       }
     }
     c.restore(); // emblem

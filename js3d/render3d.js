@@ -45,12 +45,12 @@ const Render3D = (() => {
         }
       });
     }
-    camOffset = new THREE.Vector3(0, 560, 470); // lower + closer: a more immersive, hero-focused angle
+    camOffset = new THREE.Vector3(0, 820, 700); // pulled back + up so much more of the map is visible
     camTarget = new THREE.Vector3();
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a1420);
-    scene.fog = new THREE.Fog(0x0a1420, 950, 2500);
+    scene.background = new THREE.Color(0x1a2a3a);
+    scene.fog = new THREE.Fog(0x2a3d4e, 1600, 3400);
 
     camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 1, 4000);
 
