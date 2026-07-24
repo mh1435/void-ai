@@ -1718,24 +1718,27 @@ function drawHero(ctx, h) {
   const tc = TEAM_COLOR[h.team];
   const c = h.def.color;
   const gx = h.x, gy = h.y * YS;
+  // characters are drawn bigger than their collision radius so they stay
+  // prominent and readable at the wide MLBB-style camera zoom
+  const DS = 1.32;
 
   // ground team ring
   ctx.save();
   ctx.translate(gx, gy);
   ctx.scale(1, YS);
-  ctx.globalAlpha = h.isPlayer ? 1 : 0.75;
+  ctx.globalAlpha = h.isPlayer ? 1 : 0.8;
   ctx.strokeStyle = tc; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.arc(0, 0, h.radius + 6, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, h.radius + 8, 0, 7); ctx.stroke();
   if (h.isPlayer) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(0, 0, h.radius + 12, 0, 7); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0, 0, h.radius + 14, 0, 7); ctx.stroke();
   }
   ctx.restore();
   ctx.globalAlpha = 1;
 
   // shadow
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.beginPath(); ctx.ellipse(gx, gy, 19, 7.5, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(gx, gy, 23, 9, 0, 0, 7); ctx.fill();
 
   // walk cycle / idle breathing
   const ph = h.moving ? G.time*11 + h.id : 0;
@@ -1746,6 +1749,7 @@ function drawHero(ctx, h) {
 
   ctx.save();
   ctx.translate(gx, gy + bobY);
+  ctx.scale(DS, DS);
   ctx.lineCap = 'round';
 
   drawHeroBody(ctx, h.def, tc, { swing, side, striking });
@@ -1769,7 +1773,7 @@ function drawHero(ctx, h) {
   if (h.shieldTotal() > 0) {
     ctx.globalAlpha = 0.4;
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.ellipse(gx, gy - 28, 26, 35, 0, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(gx, gy - 34, 32, 44, 0, 0, 7); ctx.stroke();
     ctx.globalAlpha = 1;
   }
   // stun stars
@@ -1777,11 +1781,11 @@ function drawHero(ctx, h) {
     ctx.fillStyle = '#ffe27d';
     for (let i = 0; i < 3; i++) {
       const a = G.time*5 + i*2.1;
-      ctx.beginPath(); ctx.arc(gx + Math.cos(a)*16, gy - 64 + Math.sin(a)*4, 4, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(gx + Math.cos(a)*18, gy - 84 + Math.sin(a)*4, 4, 0, 7); ctx.fill();
     }
   }
 
-  drawHeroPlate(ctx, h, gx, gy - 76);
+  drawHeroPlate(ctx, h, gx, gy - 96);
 }
 
 // MLBB-style overhead hero plate: level diamond + HP bar segmented into

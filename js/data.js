@@ -32,7 +32,7 @@ const CFG = {
   bossSpawnAt: 120,
   bossRespawn: 180,
   jungleRespawn: 55,
-  viewHeight: 1240,        // world units visible vertically (higher = see much more of the map)
+  viewHeight: 720,         // world units visible vertically (lower = zoomed in, hero prominent)
   visionHero: 1050,
   visionTower: 1000,
   visionCore: 900,
