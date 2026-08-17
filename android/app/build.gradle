@@ -1,0 +1,98 @@
+plugins {
+    id 'com.android.application'
+}
+
+/*
+ * The web app is NOT duplicated into the Android project. It is copied out of
+ * the repository root at build time, so `index.html` and friends stay the single
+ * source of truth for both the hosted PWA and the APK.
+ */
+def webAssetsDir = layout.buildDirectory.dir("generated/webAssets").get().asFile
+def repoRoot = rootProject.file("..")
+
+tasks.register('syncWebApp', Sync) {
+    description = 'Copies the web app into the APK assets.'
+    from(repoRoot) {
+        include 'index.html'
+        include 'sw.js'
+        include 'manifest.webmanifest'
+        include 'css/**'
+        include 'js/**'
+        include 'assets/**'
+    }
+    into new File(webAssetsDir, "www")
+}
+
+android {
+    namespace 'dev.voidmusic.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'dev.voidmusic.app'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '1.0.0'
+        resourceConfigurations += ['en']
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs += webAssetsDir
+        }
+    }
+
+    // Declared before buildTypes: the release type below resolves
+    // signingConfigs.release at configuration time, so it must already exist.
+    if (project.hasProperty('VOID_KEYSTORE')) {
+        signingConfigs {
+            release {
+                storeFile file(project.property('VOID_KEYSTORE'))
+                storePassword project.property('VOID_KEYSTORE_PASSWORD')
+                keyAlias project.property('VOID_KEY_ALIAS')
+                keyPassword project.property('VOID_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            // Debug builds are signed with the standard debug key, which is
+            // what makes them directly sideloadable without any setup.
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            // Signed only when a keystore is supplied (see the CI workflow).
+            // Without one this produces an unsigned APK, which cannot be installed.
+            if (project.hasProperty('VOID_KEYSTORE')) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        resources.excludes += ['META-INF/*.version', 'DebugProbesKt.bin']
+    }
+}
+
+// Make sure the copy runs before anything tries to package assets.
+tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'syncWebApp' }
+tasks.matching { it.name ==~ /^merge.*Assets$/ }.configureEach { dependsOn 'syncWebApp' }
+
+dependencies {
+    // WebViewAssetLoader serves the bundled files over a real https:// origin,
+    // which is what lets IndexedDB, service workers and the rest behave exactly
+    // as they do in a browser. androidx.core is only used for the notification.
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.core:core:1.13.1'
+}

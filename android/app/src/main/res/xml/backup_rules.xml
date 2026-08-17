@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The WebView's IndexedDB holds playlists, likes and saved audio. Saved audio
+     can be large, so it is excluded from cloud backup; the library metadata is
+     small and worth keeping. -->
+<full-backup-content>
+    <include domain="database" path="." />
+    <include domain="sharedpref" path="." />
+    <exclude domain="file" path="app_webview/Default/Service Worker/" />
+</full-backup-content>

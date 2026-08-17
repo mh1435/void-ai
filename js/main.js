@@ -6,6 +6,7 @@ import * as A from './archive.js';
 import { likes, loadSettings, getSetting, setSetting, persist } from './store.js';
 import { health, bus, diag } from './net.js';
 import { $, el, fmtTime, toast, artNode, svg, ICONS } from './ui.js';
+import { initNative, isNativeApp } from './native.js';
 import './demo.js'; // registers the generated-audio provider
 
 /* ── Routing ───────────────────────────────────────────────────────── */
@@ -338,6 +339,9 @@ function wireInstall() {
   let deferred = null;
   const btn = $('#install-btn');
 
+  // Already installed as an APK — there is nothing left to install.
+  if (isNativeApp) return;
+
   addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferred = e;
@@ -401,6 +405,7 @@ async function boot() {
   P.hydrate();
   await V.refreshMarks();
 
+  initNative();
   wireSearch();
   wirePlaybar();
   wireQueue();

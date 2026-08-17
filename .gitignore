@@ -1,5 +1,5 @@
-# Nothing here is built or installed — the app runs as-is.
-# These are just local editor/OS artefacts.
+# The web app itself is built by nothing — it runs as-is.
+# These are local editor/OS artefacts.
 .DS_Store
 Thumbs.db
 *.swp
@@ -7,3 +7,19 @@ Thumbs.db
 .idea/
 .vscode/
 node_modules/
+
+# Android build outputs. The web assets are copied into app/build at build
+# time, so nothing under here is source.
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Python bytecode from the icon generators
+__pycache__/
+*.pyc

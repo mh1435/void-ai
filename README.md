@@ -95,17 +95,71 @@ python3 -m http.server 8000
 Deploying is just uploading the folder. It works on any static host, or on a small VPS with
 nginx — which is the better option if you want a deployment that no third party can pull.
 
-### Installing on Android
+---
 
-Open the site in Chrome and choose **Install app** / **Add to Home screen**. You get a real
-app icon and a full-screen window with no browser chrome, **without going through the Play
-Store** — which matters, because Play is exactly the piece that's unavailable in a lot of the
-places this app is meant to work.
+## The Android app
 
-For a signed `.apk` you can sideload or distribute yourself, wrap this PWA with
-[Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap) (`bubblewrap init --manifest
-https://your-host/manifest.webmanifest`). The app needs no changes for that — but the installed
-PWA already covers most of what an APK would give you.
+`android/` is a native APK wrapper. The whole web app is **bundled inside the APK**, so it
+installs and runs with no server anywhere and works offline from the first launch.
+
+### Getting the APK
+
+**From CI (no toolchain needed).** Every push builds one. Open the repo's **Actions → Build
+APK** run and download the `void-music-apk` artifact. Tagging a commit `v1.0.0` also attaches
+the APK to a GitHub Release.
+
+**Locally**, with the Android SDK installed:
+
+```bash
+cd android
+./gradlew assembleDebug
+# app/build/outputs/apk/debug/app-debug.apk
+```
+
+Copy the `.apk` to the phone and open it (Android will ask you to allow installing from that
+source). Debug builds are signed with the standard debug key, which is what makes them
+installable with no setup. To ship signed release builds, set the `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` repository secrets
+and push a `v*` tag.
+
+### Why a WebView wrapper and not a TWA
+
+Bubblewrap-style Trusted Web Activities need the site hosted on HTTPS, a Digital Asset Links
+file served from that domain, and Chrome present on the device — a chain of dependencies that
+fails in exactly the conditions this project targets. This wrapper bundles the assets instead
+and serves them through `WebViewAssetLoader` over `https://appassets.androidplatform.net/`.
+
+That origin detail is the important part: loading from `file://` would put the app on an opaque
+origin where IndexedDB is unreliable and service workers refuse to register. Served this way the
+packaged app is an ordinary secure origin, so playlists, offline audio and the rest behave
+exactly as they do in a browser — with no server involved at all.
+
+### What the native layer adds
+
+- **Background playback.** A `mediaPlayback` foreground service keeps audio running when the
+  app is backgrounded or the screen is off, with the notification Android requires in exchange.
+  The audio still belongs to the WebView — there is no second player — the web app just tells
+  the service when something is playing via `window.VoidNative`.
+- **File import.** The system file picker is wired to the web app's import control.
+- **Back button** maps to the app's own history.
+- **External links** (an item's "Source" button) open in the browser rather than inside the app.
+
+### Notes
+
+- The APK is HTTPS-only (`usesCleartextTraffic="false"`). A self-hosted mirror configured under
+  Settings must therefore be `https://` — a plain `http://` mirror works in a desktop browser
+  but is blocked inside the app.
+- `minSdk` is 24 (Android 7.0). Playback quality depends on the system WebView version.
+- The web app is **not** duplicated into `android/`. A Gradle `Sync` task copies it from the
+  repo root at build time, so `index.html` and friends stay the single source of truth for both
+  the hosted PWA and the APK; CI fails the build if that copy comes out empty.
+
+### Installing as a PWA instead
+
+You don't need the APK. Open the site in Chrome and choose **Install app** / **Add to Home
+screen** — you get an icon and a full-screen window **without the Play Store**, which matters
+because Play is exactly the piece that's unavailable in a lot of the places this app is meant to
+work. The APK mainly buys you background playback and a file you can pass around directly.
 
 ---
 
@@ -121,10 +175,13 @@ js/archive.js           Internet Archive client: search, metadata, stream URLs
 js/store.js             IndexedDB: playlists, likes, offline blobs, imports
 js/player.js            audio engine: queue, failover, Media Session
 js/demo.js              Web Audio synthesis for the offline demo album
+js/native.js            optional bridge to the Android wrapper (no-op in a browser)
 js/views.js             route views
 js/ui.js                DOM helpers, formatting, toasts
 js/main.js              routing and wiring
+android/                native APK wrapper (bundles the web app above)
 tools/make_icons.py     regenerates assets/ icons (pure Python, no deps)
+tools/make_android_icons.py  regenerates the APK launcher icons
 ```
 
 ## Notes and limits
