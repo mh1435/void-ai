@@ -82,16 +82,34 @@ function escapeLucene(s) {
   return String(s).replace(/([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g, '\\$1').trim();
 }
 
-function buildQuery({ query, collection }) {
+/**
+ * Audio on the Archive is far more than music: audiobooks, sermons, lectures,
+ * scanner traffic and news all carry mediatype:audio. Without this list a
+ * search for a song title returns mostly talking.
+ */
+const NON_MUSIC_COLLECTIONS = [
+  'librivoxaudio', 'oldtimeradio', 'audio_bookspoetry', 'audio_news',
+  'audio_religion', 'audio_political', 'radioprograms', 'podcasts',
+  'samples_only', 'audio_tech', 'gratefuldead_covers_only', 'gdlivetapes',
+];
+
+function buildQuery({ query, collection, musicOnly = true }) {
   const parts = ['mediatype:(audio)'];
   if (collection) parts.push(`collection:(${escapeLucene(collection)})`);
+
   if (query) {
     const q = escapeLucene(query);
-    parts.push(`(title:(${q}) OR creator:(${q}) OR subject:(${q}) OR description:(${q}))`);
+    // Title and creator are what people actually search for; description
+    // matches drag in anything that merely name-drops the artist.
+    parts.push(`(title:(${q}) OR creator:(${q}))`);
   }
-  // Spoken-word collections dominate plain audio searches otherwise.
-  parts.push('-collection:(librivoxaudio)');
-  parts.push('-collection:(oldtimeradio)');
+
+  if (musicOnly) {
+    // Require a browser-playable derivative. This alone removes most of the
+    // junk: text-only items, video rips and lossless-only uploads.
+    parts.push('format:(MP3)');
+    for (const c of NON_MUSIC_COLLECTIONS) parts.push(`-collection:(${c})`);
+  }
   return parts.join(' AND ');
 }
 
@@ -312,6 +330,105 @@ export async function getItem(identifier, { signal } = {}) {
     pageUrl: `${DEFAULT_BASE}/details/${encodeURIComponent(meta.identifier)}`,
     tracks,
   };
+}
+
+/* ── Song-level search ─────────────────────────────────────────────── */
+
+/** Strip punctuation and case so "Roi" matches "roi." and "ROI". */
+function norm(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** How well a track answers the query. Higher is better; 0 means "not this". */
+function scoreTrack(track, qNorm, qTerms) {
+  const title = norm(track.title);
+  const artist = norm(track.artist);
+  if (!title) return 0;
+
+  let score = 0;
+  if (title === qNorm) score += 100;
+  else if (title.startsWith(qNorm)) score += 70;
+  else if (title.includes(qNorm)) score += 55;
+
+  const inTitle = qTerms.filter((w) => title.includes(w)).length;
+  const inArtist = qTerms.filter((w) => artist.includes(w)).length;
+  score += (inTitle / qTerms.length) * 30;
+  score += (inArtist / qTerms.length) * 12;
+
+  // A song is usually minutes, not seconds or an hour-long concert file.
+  if (track.duration > 45 && track.duration < 900) score += 8;
+  else if (track.duration > 2400) score -= 10;
+
+  return score;
+}
+
+/** Run `fn` over `list` with bounded concurrency. */
+async function mapLimit(list, limit, fn) {
+  const queue = [...list];
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      await fn(item);
+    }
+  });
+  await Promise.all(workers);
+}
+
+/**
+ * Search for individual songs.
+ *
+ * The Archive's index only describes items (albums, concerts, compilations),
+ * not the tracks inside them — which is why a plain search hands back a wall of
+ * collections rather than the song someone asked for. So: find the most likely
+ * items, read their file lists, and rank the actual tracks.
+ *
+ * `onPartial` is called as results firm up, so the list fills in instead of
+ * making the user stare at a spinner until every item has been read.
+ */
+export async function searchSongs({ query, signal, itemLimit = 12, limit = 40, onPartial } = {}) {
+  if (!query?.trim()) return [];
+
+  const { items } = await search({ query, rows: itemLimit, signal });
+  const qNorm = norm(query);
+  const qTerms = qNorm.split(' ').filter(Boolean);
+  if (!qTerms.length) return [];
+
+  const found = [];
+  const seen = new Set();
+
+  await mapLimit(items, 4, async (item) => {
+    if (signal?.aborted) return;
+
+    let full;
+    try {
+      full = await getItem(item.id, { signal });
+    } catch {
+      return; // one unreadable item must not sink the whole search
+    }
+
+    const best = full.tracks
+      .map((track) => ({ track, score: scoreTrack(track, qNorm, qTerms) }))
+      .filter((x) => x.score >= 25)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4); // don't let one album flood the results
+
+    for (const { track, score } of best) {
+      // The same recording appears across many compilations.
+      const key = `${norm(track.title)}|${norm(track.artist)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push({ ...track, score, albumTitle: full.title });
+    }
+
+    found.sort((a, b) => b.score - a.score);
+    if (!signal?.aborted) onPartial?.(found.slice(0, limit));
+  });
+
+  return found.slice(0, limit);
 }
 
 function stripHtml(html) {

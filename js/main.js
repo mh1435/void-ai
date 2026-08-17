@@ -1,47 +1,46 @@
-/* Bootstrap: routing, play-bar wiring, keyboard shortcuts, install prompt. */
+/* Bootstrap: routing, transport wiring, now playing, keyboard shortcuts. */
 
 import * as P from './player.js';
 import * as V from './views.js';
 import * as A from './archive.js';
 import { likes, loadSettings, getSetting, setSetting, persist } from './store.js';
 import { health, bus, diag } from './net.js';
-import { $, el, fmtTime, toast, artNode, svg, ICONS } from './ui.js';
+import { $, el, fmtTime, toast, artNode, tintFor } from './ui.js';
 import { initNative, isNativeApp } from './native.js';
 import './demo.js'; // registers the generated-audio provider
 
 /* ── Routing ───────────────────────────────────────────────────────── */
 
 const ROUTES = [
-  [/^#\/home$/,                 () => V.renderHome()],
-  [/^#\/search$/,               () => V.renderSearch('')],
-  [/^#\/search\/(.+)$/,         (m) => V.renderSearch(decodeURIComponent(m[1]))],
-  [/^#\/collection\/(.+)$/,     (m) => V.renderCollection(decodeURIComponent(m[1]))],
-  [/^#\/item\/(.+)$/,           (m) => V.renderItem(decodeURIComponent(m[1]))],
-  [/^#\/library$/,              () => V.renderLibrary()],
-  [/^#\/liked$/,                () => V.renderLiked()],
-  [/^#\/offline$/,              () => V.renderOffline()],
-  [/^#\/imported$/,             () => V.renderImported()],
-  [/^#\/playlist\/(.+)$/,       (m) => V.renderPlaylist(decodeURIComponent(m[1]))],
-  [/^#\/settings$/,             () => V.renderSettings()],
+  [/^#\/home$/,             () => V.renderHome()],
+  [/^#\/search$/,           () => V.renderSearch('')],
+  [/^#\/search\/(.+)$/,     (m) => V.renderSearch(decodeURIComponent(m[1]))],
+  [/^#\/collection\/(.+)$/, (m) => V.renderCollection(decodeURIComponent(m[1]))],
+  [/^#\/item\/(.+)$/,       (m) => V.renderItem(decodeURIComponent(m[1]))],
+  [/^#\/library$/,          () => V.renderLibrary()],
+  [/^#\/offline$/,          () => V.renderOffline()],
+  [/^#\/playlist\/(.+)$/,   (m) => V.renderPlaylist(decodeURIComponent(m[1]))],
+  [/^#\/settings$/,         () => V.renderSettings()],
 ];
 
-/** Which nav item lights up for a given route. */
 function navKeyFor(hash) {
   if (hash.startsWith('#/search')) return 'search';
   if (hash.startsWith('#/settings')) return 'settings';
-  if (/^#\/(library|liked|offline|imported|playlist)/.test(hash)) return 'library';
+  if (hash.startsWith('#/offline')) return 'offline';
+  if (/^#\/(library|playlist)/.test(hash)) return 'library';
   if (/^#\/(collection|item)/.test(hash)) return '';
   return 'home';
 }
 
-let navDepth = 0;
+/** Routes that are a destination in their own right, not a drill-down. */
+const TOP_LEVEL = /^#\/(home|search|library|offline|settings)$/;
+
+let depth = 0;
 
 export function navigate(hash) {
-  if (location.hash === hash) {
-    route();
-    return;
-  }
-  navDepth++;
+  if (location.hash === hash) { route(); return; }
+  if (!TOP_LEVEL.test(hash)) depth++;
+  else depth = 0;
   location.hash = hash;
 }
 
@@ -55,18 +54,8 @@ function route() {
     a.classList.toggle('active', a.dataset.nav === key);
   });
 
-  // Keep the search box in step with the URL.
-  const input = $('#search-input');
-  const m = hash.match(/^#\/search\/(.+)$/);
-  if (m) {
-    const q = decodeURIComponent(m[1]);
-    if (input.value !== q) input.value = q;
-  } else if (hash === '#/search') {
-    input.value = '';
-  }
-  $('#search-clear').hidden = !input.value;
-  $('#back-btn').disabled = navDepth === 0;
-
+  $('#back-btn').hidden = TOP_LEVEL.test(hash);
+  $('#ticker').hidden = hash !== '#/home';
   setSetting('lastRoute', hash);
 
   for (const [re, handler] of ROUTES) {
@@ -84,92 +73,61 @@ function route() {
 
 addEventListener('hashchange', route);
 
-/* ── Search box ────────────────────────────────────────────────────── */
+/* ── Now playing sheet ─────────────────────────────────────────────── */
 
-let searchTimer = null;
+let npOpen = false;
 
-function wireSearch() {
-  const form = $('#search-form');
-  const input = $('#search-input');
-  const clear = $('#search-clear');
-
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    clearTimeout(searchTimer);
-    const q = input.value.trim();
-    navigate(q ? `#/search/${encodeURIComponent(q)}` : '#/search');
-    input.blur();
-  });
-
-  input.addEventListener('input', () => {
-    clear.hidden = !input.value;
-    clearTimeout(searchTimer);
-    const q = input.value.trim();
-    if (!q) return;
-    // Debounce so a fast typist doesn't fire a request per keystroke.
-    searchTimer = setTimeout(() => {
-      navigate(`#/search/${encodeURIComponent(q)}`);
-    }, 450);
-  });
-
-  clear.addEventListener('click', () => {
-    input.value = '';
-    clear.hidden = true;
-    input.focus();
-    navigate('#/search');
-  });
+function openNowPlaying() {
+  if (!P.state.track) return;
+  const sheet = $('#nowplaying');
+  sheet.hidden = false;
+  sheet.classList.remove('closing');
+  npOpen = true;
 }
 
-/* ── Play bar ──────────────────────────────────────────────────────── */
+function closeNowPlaying() {
+  const sheet = $('#nowplaying');
+  if (sheet.hidden) return;
+  sheet.classList.add('closing');
+  npOpen = false;
+  setTimeout(() => {
+    sheet.hidden = true;
+    sheet.classList.remove('closing');
+  }, 240);
+}
+
+/* ── Transport wiring ──────────────────────────────────────────────── */
 
 let seeking = false;
 
-function wirePlaybar() {
-  const bar = $('#playbar');
-  const seek = $('#seek');
-  const vol = $('#vol');
+function wireTransport() {
+  const mini = $('#miniplayer');
+  const sheet = $('#nowplaying');
+  const range = $('#np-range');
 
-  $('#btn-play').addEventListener('click', () => P.toggle());
-  $('#btn-next').addEventListener('click', () => P.next(false));
-  $('#btn-prev').addEventListener('click', () => P.prev());
+  $('#mini-open').addEventListener('click', openNowPlaying);
+  $('#np-close').addEventListener('click', closeNowPlaying);
 
-  $('#btn-shuffle').addEventListener('click', (e) => {
+  $('#mini-play').addEventListener('click', (e) => { e.stopPropagation(); P.toggle(); });
+  $('#mini-next').addEventListener('click', (e) => { e.stopPropagation(); P.next(false); });
+
+  $('#np-play').addEventListener('click', () => P.toggle());
+  $('#np-next').addEventListener('click', () => P.next(false));
+  $('#np-prev').addEventListener('click', () => P.prev());
+
+  $('#np-shuffle').addEventListener('click', (e) => {
     const on = P.toggleShuffle();
     e.currentTarget.setAttribute('aria-pressed', String(on));
     toast(on ? 'Shuffle on' : 'Shuffle off');
   });
 
-  $('#btn-repeat').addEventListener('click', (e) => {
+  $('#np-repeat').addEventListener('click', (e) => {
     const mode = P.cycleRepeat();
     e.currentTarget.dataset.mode = mode;
-    e.currentTarget.setAttribute('aria-label',
-      mode === 'off' ? 'Repeat off' : mode === 'all' ? 'Repeat all' : 'Repeat one');
     toast(mode === 'off' ? 'Repeat off' : mode === 'all' ? 'Repeat all' : 'Repeat one');
   });
 
-  seek.addEventListener('input', () => {
-    seeking = true;
-    const dur = P.state.duration || 0;
-    $('#t-cur').textContent = fmtTime((seek.value / 1000) * dur);
-    seek.style.setProperty('--fill', `${seek.value / 10}%`);
-  });
-  seek.addEventListener('change', () => {
-    P.seekFraction(seek.value / 1000);
-    seeking = false;
-  });
-
-  vol.value = 100;
-  vol.style.setProperty('--fill', '100%');
-  vol.addEventListener('input', () => {
-    P.setVolume(vol.value / 100);
-    vol.style.setProperty('--fill', `${vol.value}%`);
-  });
-
-  $('#btn-mute').addEventListener('click', () => {
-    P.setMuted(!P.state.muted);
-  });
-
-  $('#pb-like').addEventListener('click', async (e) => {
+  $('#np-like').addEventListener('click', async (e) => {
     if (!P.state.track) return;
     const on = await likes.toggle(P.state.track);
     e.currentTarget.setAttribute('aria-pressed', String(on));
@@ -177,42 +135,69 @@ function wirePlaybar() {
     toast(on ? 'Saved to Liked' : 'Removed from Liked', on ? 'ok' : '');
   });
 
+  range.addEventListener('input', () => {
+    seeking = true;
+    const dur = P.state.duration || 0;
+    $('#np-cur').textContent = fmtTime((range.value / 1000) * dur);
+    range.style.setProperty('--fill', `${range.value / 10}%`);
+  });
+  range.addEventListener('change', () => {
+    P.seekFraction(range.value / 1000);
+    seeking = false;
+  });
+
+  // Swipe down on the artwork to dismiss, like a native sheet.
+  let touchY = null;
+  sheet.addEventListener('touchstart', (e) => { touchY = e.touches[0].clientY; }, { passive: true });
+  sheet.addEventListener('touchend', (e) => {
+    if (touchY === null) return;
+    const dy = e.changedTouches[0].clientY - touchY;
+    if (dy > 90 && sheet.scrollTop <= 0) closeNowPlaying();
+    touchY = null;
+  }, { passive: true });
+
   P.player.addEventListener('track', async (e) => {
     const t = e.detail.track;
-    bar.dataset.empty = 'false';
-    $('#pb-title').textContent = t.title;
-    $('#pb-artist').textContent = t.artist;
-    $('#t-dur').textContent = fmtTime(t.duration);
+    mini.dataset.empty = 'false';
 
-    const art = artNode(t.cover, '♪', 'pb-art');
-    art.id = 'pb-art';
-    $('#pb-art').replaceWith(art);
+    $('#mini-title').textContent = t.title;
+    $('#mini-artist').textContent = t.artist || '';
+    $('#np-title').textContent = t.title;
+    $('#np-artist').textContent = t.artist || '';
+    $('#np-source').textContent = t.album || 'Void Music';
+    $('#np-quality').textContent = qualityLine(t);
 
-    $('#pb-like').setAttribute('aria-pressed', String(await likes.has(t.id)));
+    swapArt('#mini-art', t, 'mini-art');
+    swapArt('#np-art', t, 'np-art');
+
+    // Tint the backdrop from the track identity so each song feels distinct
+    // even when the item has no cover art to sample.
+    $('#np-glow').style.setProperty('--np-tint', tintFor(t.itemId || t.title).solid);
+
+    $('#np-like').setAttribute('aria-pressed', String(await likes.has(t.id)));
     document.title = `${t.title} — ${t.artist} · Void Music`;
   });
 
   P.player.addEventListener('status', (e) => {
     const s = e.detail;
-    bar.dataset.state = s.loading ? 'loading' : s.playing ? 'playing' : 'paused';
-    $('#btn-play').setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
-    $('#btn-shuffle').setAttribute('aria-pressed', String(s.shuffle));
-    $('#btn-repeat').dataset.mode = s.repeat;
-
-    vol.value = Math.round((s.muted ? 0 : s.volume) * 100);
-    vol.style.setProperty('--fill', `${vol.value}%`);
-    $('#vol-waves').style.opacity = s.muted || s.volume === 0 ? '0.25' : '1';
+    const state = s.loading ? 'loading' : s.playing ? 'playing' : 'paused';
+    mini.dataset.state = state;
+    sheet.dataset.state = state;
+    $('#mini-play').setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
+    $('#np-play').setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
+    $('#np-shuffle').setAttribute('aria-pressed', String(s.shuffle));
+    $('#np-repeat').dataset.mode = s.repeat;
   });
 
   P.player.addEventListener('time', (e) => {
     const { time, duration } = e.detail;
-    $('#t-cur').textContent = fmtTime(time);
-    $('#t-dur').textContent = fmtTime(duration);
-    if (!seeking && duration) {
-      const pct = (time / duration) * 1000;
-      seek.value = String(pct);
-      seek.style.setProperty('--fill', `${pct / 10}%`);
-    }
+    const pct = duration ? (time / duration) * 100 : 0;
+    $('#mini-bar').style.width = `${pct}%`;
+    if (seeking) return;
+    $('#np-cur').textContent = fmtTime(time);
+    $('#np-rem').textContent = duration ? `-${fmtTime(Math.max(0, duration - time))}` : '0:00';
+    range.value = String(pct * 10);
+    range.style.setProperty('--fill', `${pct}%`);
   });
 
   P.player.addEventListener('error', (e) => {
@@ -220,12 +205,29 @@ function wirePlaybar() {
   });
 
   P.player.addEventListener('blocked', () => {
-    toast('Tap play to start — your browser blocks autoplay until you interact', 'warn', 5000);
+    toast('Tap play to start — the browser blocks autoplay until you interact', 'warn', 5000);
   });
 
-  P.player.addEventListener('ended', () => {
-    document.title = 'Void Music';
-  });
+  P.player.addEventListener('ended', () => { document.title = 'Void Music'; });
+}
+
+function qualityLine(track) {
+  const bits = [];
+  if (track.ext) bits.push(track.ext.toUpperCase());
+  if (track.source === 'demo') bits.push('generated on device');
+  else if (track.source === 'local') bits.push('your file');
+  else bits.push('via archive.org');
+  return bits.join(' · ');
+}
+
+function swapArt(selector, track, className) {
+  const old = $(selector);
+  if (!old) return;
+  const next = artNode(track.cover, '♪', className);
+  next.id = old.id;
+  const { c1, c2 } = tintFor(track.itemId || track.title);
+  next.style.background = `linear-gradient(140deg, ${c1}, ${c2})`;
+  old.replaceWith(next);
 }
 
 /* ── Queue drawer ──────────────────────────────────────────────────── */
@@ -245,69 +247,55 @@ function wireQueue() {
       list.replaceChildren(el('p', { class: 'modal-hint' }, 'The queue is empty.'));
       return;
     }
-    list.replaceChildren(...items.map(({ track, orderPos, current }) => {
-      const row = el('div', {
-        class: `track${current ? ' playing' : ''}`,
-        dataset: { trackId: track.id },
-        tabindex: '0', role: 'button',
-        onclick: () => { P.state.pos = orderPos; P.playTrack(track); },
-      },
-        el('div', { class: 'track-idx' }, current ? '▶' : String(orderPos + 1)),
-        el('div', { class: 'track-main' },
-          el('div', { class: 'track-title' }, track.title),
-          el('div', { class: 'track-sub' }, track.artist),
-        ),
-        el('div', { class: 'track-actions' },
-          el('button', {
-            class: 'icon-btn keep-mobile', type: 'button', 'aria-label': 'Remove from queue',
-            onclick: (e) => { e.stopPropagation(); P.removeFromQueue(orderPos); },
-          }, svg(ICONS.x, 18)),
-        ),
-      );
-      return row;
-    }));
+    list.replaceChildren(...items.map(({ track, orderPos, current }) => el('div', {
+      class: `track${current ? ' playing' : ''}`,
+      dataset: { trackId: track.id },
+      tabindex: '0', role: 'button',
+      onclick: () => { P.state.pos = orderPos; P.playTrack(track); },
+    },
+      el('div', { class: 'track-art' }, el('i', { class: 'art-glyph' }, current ? '▶' : '♪')),
+      el('div', { class: 'track-main' },
+        el('div', { class: 'track-title' }, track.title),
+        el('div', { class: 'track-sub' }, track.artist || ''),
+      ),
+    )));
   }
 
-  $('#btn-queue').addEventListener('click', () => (drawer.hidden ? open() : close()));
+  $('#np-queue').addEventListener('click', () => (drawer.hidden ? open() : close()));
   $('#queue-close').addEventListener('click', close);
-  $('#scrim').addEventListener('click', close);
+  scrim.addEventListener('click', close);
   $('#queue-clear').addEventListener('click', () => { P.clearQueue(); paint(); });
 
   P.player.addEventListener('queue', paint);
   P.player.addEventListener('track', paint);
 }
 
-/* ── Connection chip ───────────────────────────────────────────────── */
+/* ── Connection pill ───────────────────────────────────────────────── */
 
 function wireHealth() {
+  const pill = $('#net-chip');
   const paint = () => {
     const label = {
-      ok: 'Connected',
-      slow: 'Slow connection',
-      blocked: 'Archive unreachable',
-      offline: 'Offline',
-      probing: 'Checking…',
+      ok: 'Online', slow: 'Slow', blocked: 'No Archive', offline: 'Offline', probing: 'Checking',
     }[health.state] || 'Unknown';
     $('#net-label').textContent = label;
-    $('#net-dot').dataset.state = health.state;
-    $('#net-dot-mini').dataset.state = health.state;
-    $('#net-chip').title = health.latency ? `${label} · ${health.latency} ms` : label;
+    pill.dataset.state = health.state;
+    pill.title = health.latency ? `${label} · ${health.latency} ms` : label;
   };
 
   bus.addEventListener('health', paint);
   paint();
 
-  $('#net-chip').addEventListener('click', () => navigate('#/settings'));
-  $('#mini-net').addEventListener('click', () => navigate('#/settings'));
+  pill.addEventListener('click', () => navigate('#/settings'));
+  $('#settings-shortcut').addEventListener('click', () => navigate('#/settings'));
 
-  // One quiet probe at startup so the chip means something before you search.
   A.ping().then(
     (ms) => diag.log('ok', `archive.org reachable in ${ms} ms`),
     (err) => diag.log('warn', `archive.org unreachable at startup: ${err.message}`),
   );
 }
 
-/* ── Keyboard shortcuts ────────────────────────────────────────────── */
+/* ── Keyboard ──────────────────────────────────────────────────────── */
 
 function wireKeys() {
   addEventListener('keydown', (e) => {
@@ -319,47 +307,18 @@ function wireKeys() {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 
     switch (e.key) {
-      case ' ':      e.preventDefault(); P.toggle(); break;
-      case 'ArrowRight': if (e.shiftKey) { P.next(false); } else { P.seek(P.state.time + 10); } break;
-      case 'ArrowLeft':  if (e.shiftKey) { P.prev(); } else { P.seek(P.state.time - 10); } break;
-      case 'ArrowUp':    e.preventDefault(); P.setVolume(P.state.volume + 0.05); break;
-      case 'ArrowDown':  e.preventDefault(); P.setVolume(P.state.volume - 0.05); break;
+      case ' ': e.preventDefault(); P.toggle(); break;
+      case 'Escape': if (npOpen) closeNowPlaying(); break;
+      case 'ArrowRight': if (e.shiftKey) P.next(false); else P.seek(P.state.time + 10); break;
+      case 'ArrowLeft': if (e.shiftKey) P.prev(); else P.seek(P.state.time - 10); break;
+      case 'ArrowUp': e.preventDefault(); P.setVolume(P.state.volume + 0.05); break;
+      case 'ArrowDown': e.preventDefault(); P.setVolume(P.state.volume - 0.05); break;
       case 'm': P.setMuted(!P.state.muted); break;
       case 's': P.toggleShuffle(); break;
       case 'r': P.cycleRepeat(); break;
-      case '/': e.preventDefault(); $('#search-input').focus(); break;
+      case '/': e.preventDefault(); navigate('#/search'); setTimeout(V.focusSearch, 60); break;
       default: break;
     }
-  });
-}
-
-/* ── Install prompt ────────────────────────────────────────────────── */
-
-function wireInstall() {
-  let deferred = null;
-  const btn = $('#install-btn');
-
-  // Already installed as an APK — there is nothing left to install.
-  if (isNativeApp) return;
-
-  addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferred = e;
-    btn.hidden = false;
-  });
-
-  btn.addEventListener('click', async () => {
-    if (!deferred) return;
-    deferred.prompt();
-    const { outcome } = await deferred.userChoice;
-    deferred = null;
-    btn.hidden = true;
-    if (outcome === 'accepted') toast('Installed — look for Void on your home screen', 'ok');
-  });
-
-  addEventListener('appinstalled', () => {
-    btn.hidden = true;
-    toast('Void Music installed', 'ok');
   });
 }
 
@@ -367,14 +326,15 @@ function wireInstall() {
 
 function wireServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
-  // file:// has no service-worker support; skip rather than throwing.
   if (location.protocol === 'file:') return;
 
   const register = () => {
     navigator.serviceWorker.register('sw.js').then(
       (reg) => {
         diag.log('ok', 'offline support active');
-        reg.addEventListener('updatefound', () => {
+        // Some environments (locked-down browsers, automation) resolve the
+        // registration as undefined rather than rejecting.
+        reg?.addEventListener?.('updatefound', () => {
           const sw = reg.installing;
           sw?.addEventListener('statechange', () => {
             if (sw.state === 'installed' && navigator.serviceWorker.controller) {
@@ -393,6 +353,33 @@ function wireServiceWorker() {
   else addEventListener('load', register, { once: true });
 }
 
+/* ── Install prompt ────────────────────────────────────────────────── */
+
+function wireInstall() {
+  if (isNativeApp) return;
+  let deferred = null;
+
+  addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferred = e;
+    // Offer it once, unobtrusively, rather than taking up permanent chrome.
+    setTimeout(() => {
+      if (!deferred) return;
+      const t = toast('Add Void to your home screen', '', 9000);
+      t?.addEventListener('click', async () => {
+        deferred.prompt();
+        await deferred.userChoice;
+        deferred = null;
+      });
+    }, 4000);
+  });
+
+  addEventListener('appinstalled', () => {
+    deferred = null;
+    toast('Void Music installed', 'ok');
+  });
+}
+
 /* ── Boot ──────────────────────────────────────────────────────────── */
 
 async function boot() {
@@ -406,8 +393,7 @@ async function boot() {
   await V.refreshMarks();
 
   initNative();
-  wireSearch();
-  wirePlaybar();
+  wireTransport();
   wireQueue();
   wireHealth();
   wireKeys();
@@ -415,19 +401,18 @@ async function boot() {
   wireServiceWorker();
 
   $('#back-btn').addEventListener('click', () => {
-    if (navDepth > 0) { navDepth--; history.back(); }
+    if (depth > 0) { depth--; history.back(); } else navigate('#/home');
   });
 
   if (!location.hash) location.hash = '#/home';
   route();
 
-  // Best-effort: ask the browser to keep our offline audio around.
   persist().then((ok) => diag.log(ok ? 'ok' : 'warn',
     ok ? 'storage marked persistent' : 'storage may be evicted under pressure'));
 }
 
 boot().catch((err) => {
-  document.body.innerHTML = `<div style="padding:2rem;font:15px system-ui;color:#eceafa">
+  document.body.innerHTML = `<div style="padding:2rem;font:15px system-ui;color:#f1eefb">
     <h1 style="font-size:20px">Void Music failed to start</h1>
-    <p style="color:#9c98be">${err.message}</p></div>`;
+    <p style="color:#9d98bd">${err.message}</p></div>`;
 });

@@ -45,6 +45,9 @@ export const ICONS = {
   queueAdd:'M3 6h12v2H3zm0 5h12v2H3zm0 5h8v2H3zm14-6h2v3h3v2h-3v3h-2v-3h-3v-2h3z',
   external:'M14 3h7v7h-2V6.4l-8.3 8.3-1.4-1.4L17.6 5H14zM5 5h5v2H7v10h10v-3h2v5H5z',
   x:       'M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7l1.4-1.4 6.3 6.3 6.3-6.3z',
+  search:  'M10.5 3a7.5 7.5 0 1 0 4.55 13.46l4.24 4.25 1.42-1.42-4.25-4.24A7.5 7.5 0 0 0 10.5 3m0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11',
+  wifi:    'M12 18.5a1.75 1.75 0 1 0 0 3.5 1.75 1.75 0 0 0 0-3.5m0-4.5a5.5 5.5 0 0 0-3.9 1.6l1.5 1.5a3.4 3.4 0 0 1 4.8 0l1.5-1.5A5.5 5.5 0 0 0 12 14m0-4.6a10 10 0 0 0-7.1 2.9l1.5 1.5a7.9 7.9 0 0 1 11.2 0l1.5-1.5A10 10 0 0 0 12 9.4m0-4.6A14.5 14.5 0 0 0 1.7 9l1.5 1.5a12.4 12.4 0 0 1 17.6 0L22.3 9A14.5 14.5 0 0 0 12 4.8',
+  chevron: 'M9.3 6.7 14.6 12l-5.3 5.3 1.4 1.4L17.4 12l-6.7-6.7z',
 };
 
 /* ── Formatting ────────────────────────────────────────────────────── */
@@ -101,15 +104,46 @@ function dismiss(node) {
  */
 export function artNode(src, fallback = '♪', className = 'art') {
   const box = el('div', { class: className });
-  const span = el('span', { class: 'art-fallback' }, fallback);
-  box.append(span);
+  const glyph = el('i', { class: 'art-glyph' }, fallback);
+  box.append(glyph);
   if (!src) return box;
 
   const img = el('img', { alt: '', loading: 'lazy', decoding: 'async', src });
-  img.addEventListener('load', () => span.remove(), { once: true });
+  img.addEventListener('load', () => glyph.remove(), { once: true });
   img.addEventListener('error', () => img.remove(), { once: true });
   box.append(img);
   return box;
+}
+
+/**
+ * Give a string a stable colour, so artwork-less items still look deliberate
+ * rather than like a row of identical grey squares.
+ */
+export function tintFor(seed) {
+  // FNV-1a: neighbouring ids ("item-1" / "item-2") must land on visibly
+  // different hues, which a plain sum-of-chars hash does not do.
+  const s = String(seed);
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const hue = (h >>> 0) % 360;
+  return {
+    c1: `hsl(${hue} 42% 30%)`,
+    c2: `hsl(${(hue + 40) % 360} 38% 16%)`,
+    solid: `hsl(${hue} 45% 34%)`,
+  };
+}
+
+/** artNode plus a generated tint, for tiles and rows without cover art. */
+export function tintedArt(src, seed, className, fallback = '♪') {
+  const node = artNode(src, fallback, className);
+  const { c1, c2 } = tintFor(seed || 'void');
+  node.style.setProperty('--c1', c1);
+  node.style.setProperty('--c2', c2);
+  node.style.background = `linear-gradient(140deg, ${c1}, ${c2})`;
+  return node;
 }
 
 /* ── Common blocks ─────────────────────────────────────────────────── */
