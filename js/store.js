@@ -1,0 +1,272 @@
+/* Local persistence.
+ *
+ * Everything lives on the device: playlists, likes, imported files, and the
+ * bytes of anything saved for offline. There is no server, no account, and
+ * nothing to sign in to — which is also why nobody can region-lock it. */
+
+const DB_NAME = 'void-music';
+const DB_VERSION = 1;
+
+const STORES = {
+  playlists: { keyPath: 'id' },
+  likes:     { keyPath: 'id' },
+  offline:   { keyPath: 'id' },   // { id, track, blob, savedAt, bytes }
+  local:     { keyPath: 'id' },   // imported files: { id, track, blob }
+  settings:  { keyPath: 'key' },
+  recent:    { keyPath: 'id' },   // recently played items
+};
+
+let dbPromise = null;
+
+function open() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    let req;
+    try {
+      req = indexedDB.open(DB_NAME, DB_VERSION);
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      for (const [name, opts] of Object.entries(STORES)) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, opts);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('IndexedDB blocked by another tab'));
+  });
+  return dbPromise;
+}
+
+function tx(store, mode, fn) {
+  return open().then((db) => new Promise((resolve, reject) => {
+    const t = db.transaction(store, mode);
+    const req = fn(t.objectStore(store));
+    t.oncomplete = () => resolve(req?.result);
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  }));
+}
+
+const get     = (store, key)  => tx(store, 'readonly',  (s) => s.get(key));
+const getAll  = (store)       => tx(store, 'readonly',  (s) => s.getAll());
+const put     = (store, val)  => tx(store, 'readwrite', (s) => s.put(val));
+const del     = (store, key)  => tx(store, 'readwrite', (s) => s.delete(key));
+const clear   = (store)       => tx(store, 'readwrite', (s) => s.clear());
+const count   = (store)       => tx(store, 'readonly',  (s) => s.count());
+
+/* ── Settings ──────────────────────────────────────────────────────── */
+
+const DEFAULTS = {
+  volume: 1,
+  muted: false,
+  repeat: 'off',
+  shuffle: false,
+  preferLowBitrate: false,
+  autoOfflineLiked: false,
+  mirrors: '',
+  lastRoute: '#/home',
+};
+
+let settingsCache = null;
+
+export async function loadSettings() {
+  if (settingsCache) return settingsCache;
+  settingsCache = { ...DEFAULTS };
+  try {
+    for (const row of await getAll('settings')) {
+      if (row && row.key in DEFAULTS) settingsCache[row.key] = row.value;
+    }
+  } catch {
+    // Private-browsing modes can refuse IndexedDB entirely; defaults still work.
+  }
+  return settingsCache;
+}
+
+export async function setSetting(key, value) {
+  if (settingsCache) settingsCache[key] = value;
+  try {
+    await put('settings', { key, value });
+  } catch { /* non-fatal */ }
+}
+
+export function getSetting(key) {
+  return (settingsCache ?? DEFAULTS)[key];
+}
+
+/* ── Likes ─────────────────────────────────────────────────────────── */
+
+export const likes = {
+  async all() {
+    const rows = await getAll('likes').catch(() => []);
+    return rows.sort((a, b) => b.likedAt - a.likedAt).map((r) => r.track);
+  },
+  async has(id) {
+    return Boolean(await get('likes', id).catch(() => null));
+  },
+  async add(track) {
+    await put('likes', { id: track.id, track, likedAt: Date.now() });
+  },
+  remove(id) {
+    return del('likes', id);
+  },
+  async toggle(track) {
+    if (await this.has(track.id)) {
+      await this.remove(track.id);
+      return false;
+    }
+    await this.add(track);
+    return true;
+  },
+  count: () => count('likes').catch(() => 0),
+};
+
+/* ── Playlists ─────────────────────────────────────────────────────── */
+
+const newId = () => `pl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+export const playlists = {
+  async all() {
+    const rows = await getAll('playlists').catch(() => []);
+    return rows.sort((a, b) => b.updatedAt - a.updatedAt);
+  },
+  get: (id) => get('playlists', id),
+  async create(name) {
+    const pl = { id: newId(), name: name.trim() || 'New playlist', tracks: [], createdAt: Date.now(), updatedAt: Date.now() };
+    await put('playlists', pl);
+    return pl;
+  },
+  async rename(id, name) {
+    const pl = await get('playlists', id);
+    if (!pl) return null;
+    pl.name = name.trim() || pl.name;
+    pl.updatedAt = Date.now();
+    await put('playlists', pl);
+    return pl;
+  },
+  async addTrack(id, track) {
+    const pl = await get('playlists', id);
+    if (!pl) return null;
+    if (!pl.tracks.some((t) => t.id === track.id)) pl.tracks.push(track);
+    pl.updatedAt = Date.now();
+    await put('playlists', pl);
+    return pl;
+  },
+  async addTracks(id, tracks) {
+    const pl = await get('playlists', id);
+    if (!pl) return null;
+    for (const track of tracks) {
+      if (!pl.tracks.some((t) => t.id === track.id)) pl.tracks.push(track);
+    }
+    pl.updatedAt = Date.now();
+    await put('playlists', pl);
+    return pl;
+  },
+  async removeTrack(id, trackId) {
+    const pl = await get('playlists', id);
+    if (!pl) return null;
+    pl.tracks = pl.tracks.filter((t) => t.id !== trackId);
+    pl.updatedAt = Date.now();
+    await put('playlists', pl);
+    return pl;
+  },
+  remove: (id) => del('playlists', id),
+};
+
+/* ── Offline copies ────────────────────────────────────────────────── */
+
+export const offline = {
+  async has(id) {
+    return Boolean(await get('offline', id).catch(() => null));
+  },
+  async ids() {
+    const rows = await getAll('offline').catch(() => []);
+    return new Set(rows.map((r) => r.id));
+  },
+  async all() {
+    const rows = await getAll('offline').catch(() => []);
+    return rows.sort((a, b) => b.savedAt - a.savedAt).map((r) => r.track);
+  },
+  async save(track, blob) {
+    await put('offline', { id: track.id, track, blob, bytes: blob.size, savedAt: Date.now() });
+  },
+  async blob(id) {
+    const row = await get('offline', id).catch(() => null);
+    return row?.blob ?? null;
+  },
+  remove: (id) => del('offline', id),
+  clear: () => clear('offline'),
+  async bytes() {
+    const rows = await getAll('offline').catch(() => []);
+    return rows.reduce((n, r) => n + (r.bytes || 0), 0);
+  },
+  count: () => count('offline').catch(() => 0),
+};
+
+/* ── Imported local files ──────────────────────────────────────────── */
+
+export const local = {
+  async all() {
+    const rows = await getAll('local').catch(() => []);
+    return rows.sort((a, b) => (a.track.title || '').localeCompare(b.track.title || '')).map((r) => r.track);
+  },
+  async add(track, blob) {
+    await put('local', { id: track.id, track, blob, addedAt: Date.now() });
+  },
+  async blob(id) {
+    const row = await get('local', id).catch(() => null);
+    return row?.blob ?? null;
+  },
+  remove: (id) => del('local', id),
+  clear: () => clear('local'),
+  count: () => count('local').catch(() => 0),
+};
+
+/* ── Recently played ───────────────────────────────────────────────── */
+
+export const recent = {
+  async all(limit = 12) {
+    const rows = await getAll('recent').catch(() => []);
+    return rows.sort((a, b) => b.at - a.at).slice(0, limit);
+  },
+  async push(item) {
+    await put('recent', { id: item.id, title: item.title, creator: item.creator, cover: item.cover, at: Date.now() });
+    // Keep the list from growing without bound.
+    const rows = await getAll('recent').catch(() => []);
+    if (rows.length > 40) {
+      const stale = rows.sort((a, b) => b.at - a.at).slice(40);
+      await Promise.all(stale.map((r) => del('recent', r.id)));
+    }
+  },
+  clear: () => clear('recent'),
+};
+
+/** Storage pressure, for the Settings panel. */
+export async function usage() {
+  if (!navigator.storage?.estimate) return null;
+  try {
+    const { usage: used, quota } = await navigator.storage.estimate();
+    return { used: used || 0, quota: quota || 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** Ask the browser not to evict us under pressure. */
+export async function persist() {
+  if (!navigator.storage?.persist) return false;
+  try {
+    if (await navigator.storage.persisted()) return true;
+    return await navigator.storage.persist();
+  } catch {
+    return false;
+  }
+}
+
+export async function wipeAll() {
+  await Promise.all(Object.keys(STORES).map((s) => clear(s).catch(() => {})));
+  settingsCache = null;
+}

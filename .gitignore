@@ -1,0 +1,9 @@
+# Nothing here is built or installed — the app runs as-is.
+# These are just local editor/OS artefacts.
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+node_modules/

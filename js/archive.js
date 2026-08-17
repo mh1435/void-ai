@@ -1,0 +1,361 @@
+/* Internet Archive client.
+ *
+ * Everything the app streams comes from archive.org's open collections:
+ * public-domain recordings, Creative Commons netlabels, and artist-authorised
+ * live-music trading (etree). No login, no ads, no subscription — because the
+ * material is genuinely free to stream, not because we routed around a paywall.
+ *
+ * archive.org itself is reachable from most networks, but if a user's ISP
+ * blocks it they can point `mirrors` at their own reverse proxy in Settings and
+ * every request follows. */
+
+import { raceHosts, requestJSON, request, diag } from './net.js';
+
+const DEFAULT_BASE = 'https://archive.org';
+
+/** Extra bases tried in parallel with the default; set from Settings. */
+export const config = {
+  mirrors: [],
+  /** Prefer smaller files on metered/slow links. */
+  preferLowBitrate: false,
+};
+
+function bases() {
+  return [...config.mirrors.filter(Boolean), DEFAULT_BASE];
+}
+
+function urlsFor(path) {
+  return bases().map((b) => b.replace(/\/+$/, '') + path);
+}
+
+/* ── Curated entry points ──────────────────────────────────────────── */
+
+export const COLLECTIONS = [
+  {
+    id: 'netlabels',
+    name: 'Netlabels',
+    blurb: 'Creative Commons electronic, ambient and indie releases',
+    glyph: '◈',
+    c1: '#4b2a7a', c2: '#1e2a52',
+  },
+  {
+    id: 'etree',
+    name: 'Live Concerts',
+    blurb: 'Artist-authorised live recordings, taped and traded legally',
+    glyph: '♬',
+    c1: '#7a3a52', c2: '#2a1e46',
+  },
+  {
+    id: 'georgeblood',
+    name: '78 RPM Archive',
+    blurb: 'Digitised 78s — jazz, blues and early pop, public domain',
+    glyph: '◎',
+    c1: '#6a4a24', c2: '#2e2418',
+  },
+  {
+    id: 'audio_music',
+    name: 'Open Music',
+    blurb: 'The Archive‑wide music pool, freely licensed',
+    glyph: '♫',
+    c1: '#2a5a6a', c2: '#182838',
+  },
+  {
+    id: 'classicalmusicarchive',
+    name: 'Classical',
+    blurb: 'Orchestral and chamber recordings in the public domain',
+    glyph: '𝄞',
+    c1: '#3a4a7a', c2: '#1c2036',
+  },
+  {
+    id: 'audio_field_recordings',
+    name: 'Field Recordings',
+    blurb: 'Folk, traditional and location recordings from around the world',
+    glyph: '◍',
+    c1: '#2e6a4a', c2: '#182e26',
+  },
+];
+
+/* ── Search ────────────────────────────────────────────────────────── */
+
+/** Escape Lucene syntax so a user's punctuation can't break the query. */
+function escapeLucene(s) {
+  return String(s).replace(/([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g, '\\$1').trim();
+}
+
+function buildQuery({ query, collection }) {
+  const parts = ['mediatype:(audio)'];
+  if (collection) parts.push(`collection:(${escapeLucene(collection)})`);
+  if (query) {
+    const q = escapeLucene(query);
+    parts.push(`(title:(${q}) OR creator:(${q}) OR subject:(${q}) OR description:(${q}))`);
+  }
+  // Spoken-word collections dominate plain audio searches otherwise.
+  parts.push('-collection:(librivoxaudio)');
+  parts.push('-collection:(oldtimeradio)');
+  return parts.join(' AND ');
+}
+
+/**
+ * Search the Archive. Returns { total, items:[{id,title,creator,year,downloads}] }.
+ */
+export async function search({ query = '', collection = '', page = 1, rows = 48, signal } = {}) {
+  const params = new URLSearchParams();
+  params.set('q', buildQuery({ query, collection }));
+  for (const f of ['identifier', 'title', 'creator', 'year', 'downloads', 'item_size']) {
+    params.append('fl[]', f);
+  }
+  params.set('sort[]', query ? 'downloads desc' : 'week desc');
+  params.set('rows', String(rows));
+  params.set('page', String(page));
+  params.set('output', 'json');
+
+  const path = `/advancedsearch.php?${params}`;
+
+  let data;
+  try {
+    data = await raceHosts(urlsFor(path), { timeout: 14000, signal, label: `search "${query || collection}"` });
+  } catch (err) {
+    // advancedsearch.php is occasionally rate-limited; the scrape service is a
+    // separate code path on the same host and often still answers.
+    diag.log('warn', `advancedsearch failed (${err.message}); trying scrape API`);
+    return searchViaScrape({ query, collection, rows, signal });
+  }
+
+  const docs = data?.response?.docs;
+  if (!Array.isArray(docs)) throw new Error('Unexpected search response shape');
+
+  return {
+    total: Number(data.response.numFound) || docs.length,
+    page,
+    items: docs.map(normaliseDoc),
+  };
+}
+
+async function searchViaScrape({ query, collection, rows, signal }) {
+  const params = new URLSearchParams({
+    q: buildQuery({ query, collection }),
+    fields: 'identifier,title,creator,year,downloads',
+    count: String(Math.min(rows, 100)),
+  });
+  const data = await raceHosts(urlsFor(`/services/search/v1/scrape?${params}`), {
+    timeout: 14000, signal, label: 'search (scrape)',
+  });
+  const items = data?.items;
+  if (!Array.isArray(items)) throw new Error('Unexpected scrape response shape');
+  return { total: Number(data.total) || items.length, page: 1, items: items.map(normaliseDoc) };
+}
+
+function normaliseDoc(d) {
+  return {
+    id: d.identifier,
+    title: cleanText(firstOf(d.title)) || d.identifier,
+    creator: cleanText(firstOf(d.creator)) || 'Unknown artist',
+    year: firstOf(d.year) || '',
+    downloads: Number(d.downloads) || 0,
+    cover: coverUrl(d.identifier),
+  };
+}
+
+/* ── Item metadata → playable tracks ───────────────────────────────── */
+
+/** Formats a browser can realistically play, best first. */
+const AUDIO_FORMATS = [
+  { match: /^VBR MP3$/i,              ext: 'mp3',  rank: 1,  mime: 'audio/mpeg' },
+  { match: /^(\d+)Kbps MP3$/i,        ext: 'mp3',  rank: 2,  mime: 'audio/mpeg' },
+  { match: /^MP3$/i,                  ext: 'mp3',  rank: 3,  mime: 'audio/mpeg' },
+  { match: /^Ogg Vorbis$/i,           ext: 'ogg',  rank: 4,  mime: 'audio/ogg' },
+  { match: /^(MPEG-4 Audio|M4A|AAC)$/i, ext: 'm4a', rank: 5, mime: 'audio/mp4' },
+  { match: /^(Flac|24bit Flac)$/i,    ext: 'flac', rank: 8,  mime: 'audio/flac' },
+  { match: /^(WAVE|AIFF)$/i,          ext: 'wav',  rank: 9,  mime: 'audio/wav' },
+];
+
+function formatInfo(fmt) {
+  if (!fmt) return null;
+  for (const f of AUDIO_FORMATS) {
+    const m = String(fmt).match(f.match);
+    if (m) {
+      // Rank bitrate variants against each other: prefer higher unless the
+      // user asked to save data.
+      let rank = f.rank;
+      if (m[1] && /Kbps/i.test(fmt)) {
+        const kbps = Number(m[1]);
+        rank = config.preferLowBitrate ? f.rank + kbps / 1000 : f.rank + (320 - Math.min(kbps, 320)) / 1000;
+      }
+      return { ...f, rank };
+    }
+  }
+  return null;
+}
+
+/** IA's `length` is either seconds ("245.67") or clock time ("4:05"). */
+export function parseDuration(len) {
+  if (len == null) return 0;
+  const s = String(len).trim();
+  if (!s) return 0;
+  if (s.includes(':')) {
+    return s.split(':').reduce((acc, p) => acc * 60 + (parseFloat(p) || 0), 0);
+  }
+  return parseFloat(s) || 0;
+}
+
+function firstOf(v) {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+function cleanText(s) {
+  if (s == null) return '';
+  return String(s).replace(/\s+/g, ' ').trim();
+}
+
+function baseName(name) {
+  return String(name).replace(/\.[^./]+$/, '');
+}
+
+function trackNumber(t) {
+  if (t == null) return null;
+  // Values look like "7", "07", or "7/12".
+  const m = String(t).match(/^\s*(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+export function coverUrl(identifier, base = DEFAULT_BASE) {
+  return `${base}/services/img/${encodeURIComponent(identifier)}`;
+}
+
+/**
+ * Build every URL that can serve a given file, fastest first.
+ *
+ * `d1`/`d2` are the two datanodes holding the item; hitting them directly
+ * skips archive.org's redirect hop, and having both means a dead node costs
+ * one failed request instead of the whole track.
+ */
+function streamUrls(meta, fileName) {
+  const enc = String(fileName).split('/').map(encodeURIComponent).join('/');
+  const dir = (meta.dir || '').replace(/^\/+|\/+$/g, '');
+  const urls = [];
+  for (const host of [meta.server, meta.d1, meta.d2]) {
+    if (host && dir) urls.push(`https://${host}/${dir}/${enc}`);
+  }
+  for (const b of bases()) {
+    urls.push(`${b.replace(/\/+$/, '')}/download/${encodeURIComponent(meta.identifier)}/${enc}`);
+  }
+  return [...new Set(urls)];
+}
+
+/**
+ * Fetch an item and turn its file list into playable tracks.
+ */
+export async function getItem(identifier, { signal } = {}) {
+  const meta = await raceHosts(urlsFor(`/metadata/${encodeURIComponent(identifier)}`), {
+    timeout: 15000, signal, label: `metadata ${identifier}`,
+  });
+
+  if (!meta || typeof meta !== 'object') throw new Error('Empty metadata response');
+  if (meta.is_dark) throw new Error('This item is no longer publicly available');
+
+  const files = Array.isArray(meta.files) ? meta.files : [];
+  const md = meta.metadata || {};
+  meta.identifier = md.identifier || identifier;
+
+  // One logical track can exist in several formats; keep the best of each.
+  const groups = new Map();
+  for (const f of files) {
+    if (!f?.name || f.source === 'metadata') continue;
+    const info = formatInfo(f.format);
+    if (!info) continue;
+
+    const key = baseName(f.original || f.name).toLowerCase();
+    const existing = groups.get(key);
+    if (!existing || info.rank < existing.info.rank) {
+      groups.set(key, { file: f, info });
+    }
+  }
+
+  const albumArtist = cleanText(firstOf(md.creator)) || 'Unknown artist';
+  const albumTitle = cleanText(firstOf(md.title)) || identifier;
+
+  const tracks = [...groups.values()].map(({ file, info }, i) => {
+    const num = trackNumber(file.track);
+    return {
+      id: `${meta.identifier}::${file.name}`,
+      itemId: meta.identifier,
+      file: file.name,
+      title: cleanText(file.title) || baseName(file.name).replace(/[_-]+/g, ' '),
+      artist: cleanText(file.artist || file.creator) || albumArtist,
+      album: cleanText(file.album) || albumTitle,
+      duration: parseDuration(file.length),
+      size: Number(file.size) || 0,
+      mime: info.mime,
+      ext: info.ext,
+      trackNo: num ?? i + 1,
+      cover: coverUrl(meta.identifier),
+      urls: streamUrls(meta, file.name),
+      source: 'archive',
+    };
+  });
+
+  tracks.sort((a, b) => a.trackNo - b.trackNo || a.file.localeCompare(b.file));
+  tracks.forEach((t, i) => { t.index = i; });
+
+  if (!tracks.length) {
+    throw new Error('No streamable audio in this item');
+  }
+
+  return {
+    id: meta.identifier,
+    title: albumTitle,
+    creator: albumArtist,
+    year: cleanText(firstOf(md.year || md.date)) || '',
+    description: stripHtml(firstOf(md.description) || ''),
+    licence: cleanText(firstOf(md.licenseurl) || ''),
+    cover: coverUrl(meta.identifier),
+    pageUrl: `${DEFAULT_BASE}/details/${encodeURIComponent(meta.identifier)}`,
+    tracks,
+  };
+}
+
+function stripHtml(html) {
+  const el = document.createElement('div');
+  el.innerHTML = String(html);
+  return cleanText(el.textContent).slice(0, 600);
+}
+
+/** Cheap reachability check used by the connection chip. */
+export async function ping({ signal } = {}) {
+  const started = performance.now();
+  await requestJSON(`${bases()[0].replace(/\/+$/, '')}/metadata/nasa`, {
+    timeout: 8000, attempts: 1, signal, cache: 'no-store', label: 'ping',
+  });
+  return Math.round(performance.now() - started);
+}
+
+/** Download a track's bytes for offline use, trying each mirror in turn. */
+export async function fetchTrackBlob(track, { signal, onProgress } = {}) {
+  let lastErr;
+  for (const url of track.urls) {
+    try {
+      const res = await request(url, { attempts: 1, timeout: 45000, signal, label: `download ${track.title}` });
+      const total = Number(res.headers.get('content-length')) || track.size || 0;
+
+      if (!res.body || !onProgress) return await res.blob();
+
+      // Stream so the UI can show real progress on a slow link.
+      const reader = res.body.getReader();
+      const chunks = [];
+      let received = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (total) onProgress(received / total);
+      }
+      return new Blob(chunks, { type: track.mime });
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      lastErr = err;
+      diag.log('warn', `mirror failed for "${track.title}": ${new URL(url).host}`);
+    }
+  }
+  throw lastErr ?? new Error('All mirrors failed');
+}
