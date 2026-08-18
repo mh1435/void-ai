@@ -8,6 +8,8 @@ import { health, diag, bus, probe } from './net.js';
 import { resolveCover } from './artwork.js';
 import { currentTheme, amoledOn, setTheme, setAmoled } from './theme.js';
 import { checkForUpdate, APP_VERSION } from './update.js';
+import { importFiles, filesFromDrop } from './import.js';
+import { scrobbler } from './scrobble.js';
 import {
   $, el, svg, ICONS, fmtTime, fmtBytes, fmtCount, toast, artNode, tintedArt,
   loadingRow, emptyState, errorBox,
@@ -950,22 +952,51 @@ async function paintLibraryTab(body) {
 
   if (libraryTab === 'imported') {
     const tracks = await local.all();
-    const input = el('input', {
+
+    const fileInput = el('input', {
       type: 'file', accept: 'audio/*', multiple: true, style: 'display:none',
-      onchange: (e) => importFiles([...e.target.files], e.target),
+      onchange: (e) => { const f = [...e.target.files]; e.target.value = ''; runImport(f); },
     });
+    // webkitdirectory is what turns the picker into a folder picker. It is not
+    // in the HTML spec but every browser that can do this at all uses the name.
+    const folderInput = el('input', {
+      type: 'file', multiple: true, style: 'display:none',
+      onchange: (e) => { const f = [...e.target.files]; e.target.value = ''; runImport(f); },
+    });
+    folderInput.setAttribute('webkitdirectory', '');
+    folderInput.setAttribute('directory', '');
+
+    const drop = el('div', { class: 'dropzone', id: 'import-drop' },
+      el('strong', {}, 'Add your own music'),
+      el('span', {}, 'Pick a folder and everything in it comes in at once — titles, artists, '
+        + 'albums and covers are read from the files themselves.'),
+      el('div', { class: 'dropzone-actions' },
+        el('button', { class: 'btn', type: 'button', onclick: () => folderInput.click() },
+          svg(ICONS.plus, 18), 'Add a folder'),
+        el('button', { class: 'btn secondary', type: 'button', onclick: () => fileInput.click() },
+          'Choose files'),
+      ),
+      el('span', { class: 'dropzone-hint' }, 'or drag music here'),
+    );
+
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      drop.classList.remove('over');
+      runImport(await filesFromDrop(e.dataTransfer));
+    });
+
     body.replaceChildren(
-      input,
-      el('button', {
-        class: 'btn block', type: 'button', style: 'margin-bottom:18px',
-        onclick: () => input.click(),
-      }, svg(ICONS.plus, 18), 'Add files from this device'),
+      fileInput, folderInput, drop,
       tracks.length
-        ? el('div', { class: 'tracks' },
-            ...tracks.map((t) => trackRow(t, tracks, {
-              context: 'Imported',
-              onRemove: async (x) => { await local.remove(x.id); renderLibrary(); },
-            })))
+        ? el('div', {},
+            playAllBar(tracks, 'Imported'),
+            el('div', { class: 'tracks' },
+              ...tracks.map((t) => trackRow(t, tracks, {
+                context: 'Imported',
+                onRemove: async (x) => { await local.remove(x.id); renderLibrary(); },
+              }))))
         : el('p', { class: 'modal-hint' }, 'Your own files stay on this device and play with no connection.'),
     );
     return;
@@ -1006,34 +1037,55 @@ async function paintLibraryTab(body) {
   );
 }
 
-async function importFiles(files, input) {
-  if (input) input.value = '';
-  if (!files.length) return;
-  let ok = 0;
-  for (const f of files) {
-    try {
-      await local.add({
-        id: `local::${f.name}::${f.size}`,
-        itemId: 'local',
-        file: f.name,
-        title: f.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '),
-        artist: 'Imported',
-        album: 'Your files',
-        duration: 0,
-        size: f.size,
-        mime: f.type || 'audio/mpeg',
-        ext: (f.name.split('.').pop() || '').toLowerCase(),
-        trackNo: ok + 1,
-        cover: null,
-        urls: [],
-        source: 'local',
-      }, f);
-      ok++;
-    } catch (err) {
-      toast(`Couldn't import ${f.name}`, 'err');
-    }
+/**
+ * Run an import with a progress sheet in front of it. A folder of several
+ * hundred files takes a while, and a frozen-looking screen is the fastest way
+ * to make someone force-quit halfway through.
+ */
+async function runImport(files) {
+  const audio = files.filter((f) => /^audio\//i.test(f.type || '')
+    || /\.(mp3|m4a|m4b|aac|mp4|flac|ogg|oga|opus|wav|aiff?|wma)$/i.test(f.name || ''));
+
+  if (!audio.length) {
+    toast('No audio files in that selection', 'warn');
+    return;
   }
-  toast(`Imported ${ok} file${ok === 1 ? '' : 's'}`, 'ok');
+
+  const controller = new AbortController();
+  const bar = el('i');
+  const count = el('strong', {}, `0 of ${audio.length}`);
+  const now = el('span', { class: 'import-current' }, 'Reading tags…');
+  let sheetClose = () => {};
+
+  openSheet((box, close) => {
+    sheetClose = close;
+    box.append(
+      sheetHead(`Importing ${audio.length} file${audio.length === 1 ? '' : 's'}`, () => {
+        controller.abort();
+        close();
+      }),
+      el('div', { class: 'import-body' },
+        el('div', { class: 'import-bar' }, bar),
+        el('div', { class: 'import-stats' }, count, now),
+      ),
+    );
+  });
+
+  const result = await importFiles(audio, {
+    signal: controller.signal,
+    onProgress: (p) => {
+      bar.style.width = `${Math.round((p.done / p.total) * 100)}%`;
+      count.textContent = `${p.done} of ${p.total}`;
+      now.textContent = p.current || '';
+    },
+  });
+
+  sheetClose();
+
+  const parts = [`Imported ${result.added}`];
+  if (result.skipped) parts.push(`${result.skipped} already here`);
+  if (result.failed) parts.push(`${result.failed} unreadable`);
+  toast(parts.join(' · '), result.added ? 'ok' : 'warn', 4500);
   renderLibrary();
 }
 
@@ -1203,6 +1255,101 @@ export async function renderSettings() {
         await setSetting('preferLowBitrate', on);
         A.config.preferLowBitrate = on;
       }),
+  ));
+
+  /* Playback */
+  const xfValue = el('span', { class: 'range-value' });
+  const xfInput = el('input', {
+    type: 'range', min: '0', max: '12', step: '1',
+    value: String(P.state.crossfade || 0), 'aria-label': 'Crossfade seconds',
+  });
+  const paintXf = () => {
+    const v = Number(xfInput.value);
+    xfValue.textContent = v ? `${v}s` : 'Off';
+  };
+  paintXf();
+  xfInput.addEventListener('input', paintXf);
+  xfInput.addEventListener('change', () => {
+    const v = P.setCrossfade(Number(xfInput.value));
+    toast(v ? `Crossfade ${v} seconds` : 'Crossfade off');
+  });
+
+  root.append(el('p', { class: 'group-label' }, 'Playback'));
+  root.append(el('div', { class: 'group' },
+    el('div', { class: 'setting static' },
+      el('span', { class: 'setting-icon' }, svg(ICONS.play, 22)),
+      el('span', { class: 'setting-body' },
+        el('strong', {}, 'Crossfade'),
+        el('span', {}, 'Overlap the end of one track with the start of the next. '
+          + 'At zero the next song still begins the instant this one ends — it is '
+          + 'already buffered before it is needed.'),
+        el('span', { class: 'range-row' }, xfInput, xfValue),
+      ),
+    ),
+  ));
+
+  /* Listening history */
+  const lbToken = el('input', {
+    type: 'password', value: getSetting('scrobbleToken') || '',
+    placeholder: 'ListenBrainz user token', 'aria-label': 'ListenBrainz user token',
+    autocomplete: 'off', spellcheck: false,
+  });
+  const lbStatus = el('span', {}, getSetting('scrobbleToken') ? 'Token saved' : 'Not connected');
+  const pendingCount = await scrobbler.pending();
+
+  root.append(el('p', { class: 'group-label' }, 'Listening history'));
+  root.append(el('div', { class: 'group' },
+    el('div', { class: 'setting static' },
+      el('span', { class: 'setting-icon' }, svg(ICONS.external, 22)),
+      el('span', { class: 'setting-body' },
+        el('strong', {}, 'ListenBrainz'),
+        el('span', {}, 'Keep a history of what you play, on an open service with no ads and '
+          + 'nothing to sign away. Paste the user token from your ListenBrainz profile.'),
+        el('span', { style: 'margin-top:10px;display:flex;gap:8px' }, lbToken,
+          el('button', {
+            class: 'btn secondary', type: 'button', style: 'flex:none',
+            onclick: async (e) => {
+              const btn = e.currentTarget;
+              btn.disabled = true;
+              lbStatus.textContent = 'Checking…';
+              const r = await scrobbler.validate(lbToken.value);
+              btn.disabled = false;
+              if (r.ok) {
+                await scrobbler.setToken(lbToken.value);
+                lbStatus.textContent = `Connected as ${r.user}`;
+                toast(`Connected to ListenBrainz as ${r.user}`, 'ok');
+              } else {
+                lbStatus.textContent = `Token rejected — ${r.error}`;
+                toast('That token did not work', 'err');
+              }
+            },
+          }, 'Connect')),
+        lbStatus,
+      ),
+    ),
+    toggleRow('Scrobble what I play', 'Sends a listen once a track has played for half its length, '
+      + 'or four minutes. Anything that fails to send is kept and retried.',
+      ICONS.check, Boolean(getSetting('scrobbleEnabled')), async (on) => {
+        await scrobbler.setEnabled(on);
+        toast(on ? 'Scrobbling on' : 'Scrobbling off');
+      }),
+    pendingCount ? el('button', {
+      class: 'setting', type: 'button',
+      onclick: async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        const sent = await scrobbler.flush();
+        toast(sent ? `Sent ${sent} listen${sent === 1 ? '' : 's'}` : 'Still cannot reach ListenBrainz',
+          sent ? 'ok' : 'warn');
+        renderSettings();
+      },
+    },
+      el('span', { class: 'setting-icon' }, svg(ICONS.download, 22)),
+      el('span', { class: 'setting-body' },
+        el('strong', {}, `${pendingCount} listen${pendingCount === 1 ? '' : 's'} waiting`),
+        el('span', {}, 'Saved while offline. Tap to send them now.')),
+      el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
+    ) : null,
   ));
 
   /* Storage */

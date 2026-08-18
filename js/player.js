@@ -1,27 +1,43 @@
 /* Playback engine.
  *
- * Owns one <audio> element, the queue, and the failover logic that makes a
- * track keep playing when a mirror dies mid-request. A second, hidden element
- * pre-buffers the next track so transitions don't stall on a slow link. */
+ * Two <audio> decks, not one. Only one is audible at a time; the other holds
+ * whatever plays next. That single decision buys three things:
+ *
+ *   - crossfade, because both decks can sound at once while their volumes
+ *     cross over;
+ *   - near-gapless advance with crossfade off, because the next track is
+ *     already decoded and just gets promoted;
+ *   - failover, because a dead mirror can be retried on a deck that isn't
+ *     the one currently making noise.
+ *
+ * The rule that keeps it honest: exactly one deck is "active" at any moment,
+ * and every event handler ignores the deck that isn't. */
 
 import { offline, local, getSetting, setSetting } from './store.js';
 import { diag } from './net.js';
 
 export const player = new EventTarget();
 
-const audio = new Audio();
-audio.preload = 'auto';
-// Deliberately no crossOrigin: we never read the samples or draw them to a
-// canvas, and requesting CORS would make playback fail outright on any mirror
-// that doesn't send the headers. Plain media loads have no such requirement.
+function makeDeck() {
+  const a = new Audio();
+  a.preload = 'auto';
+  // Deliberately no crossOrigin: we never read the samples or draw them to a
+  // canvas, and requesting CORS would make playback fail outright on any
+  // mirror that doesn't send the headers.
+  return a;
+}
 
-const preloader = new Audio();
-preloader.preload = 'auto';
-preloader.muted = true;
+const decks = [makeDeck(), makeDeck()];
+let active = 0;
 
-/** Object URLs we minted and must revoke. */
-let currentObjectUrl = null;
-let preloadObjectUrl = null;
+/** Per-deck fade multiplier; the user's volume is applied on top. */
+const gain = [1, 1];
+
+/** What each deck currently holds: { trackId, url, isObjectUrl }. */
+const held = [null, null];
+
+/** The audible element. Reassigned on every swap; the export is a live binding. */
+export let audio = decks[0];
 
 export const state = {
   queue: [],
@@ -36,6 +52,7 @@ export const state = {
   time: 0,
   volume: 1,
   muted: false,
+  crossfade: 0,       // seconds; 0 = off
   urlIndex: 0,        // which mirror of the current track we're on
   context: null,      // where the queue came from, for the UI
 };
@@ -89,6 +106,7 @@ export function playNextUp(track) {
   const base = state.queue.length;
   state.queue.push(track);
   state.order.splice(state.pos + 1, 0, base);
+  invalidatePreload();
   emit('queue', { queue: state.queue });
 }
 
@@ -97,6 +115,21 @@ export function removeFromQueue(orderPos) {
   if (orderPos === state.pos) return; // don't yank the playing track
   state.order.splice(orderPos, 1);
   if (orderPos < state.pos) state.pos--;
+  invalidatePreload();
+  emit('queue', { queue: state.queue });
+}
+
+/** Move a queue entry to a different position, keeping playback where it is. */
+export function moveInQueue(from, to) {
+  const n = state.order.length;
+  if (from === to || from < 0 || from >= n || to < 0 || to >= n) return;
+
+  const playing = state.order[state.pos];
+  const [moved] = state.order.splice(from, 1);
+  state.order.splice(to, 0, moved);
+  // The current track may have shifted; follow it rather than the index.
+  state.pos = state.order.indexOf(playing);
+  invalidatePreload();
   emit('queue', { queue: state.queue });
 }
 
@@ -105,6 +138,7 @@ export function clearQueue() {
   state.queue = keep ? [keep] : [];
   state.order = keep ? [0] : [];
   state.pos = keep ? 0 : -1;
+  invalidatePreload();
   emit('queue', { queue: state.queue });
 }
 
@@ -125,7 +159,7 @@ export function registerBlobProvider(fn) {
 }
 
 /**
- * Work out what URL to feed the audio element.
+ * Work out what URL to feed a deck.
  * Locally-held bytes always win: they're instant and work with no network.
  */
 async function resolveSource(track, urlIndex) {
@@ -155,17 +189,29 @@ function hostOf(url) {
   try { return new URL(url).host; } catch { return url; }
 }
 
-function releaseCurrentUrl() {
-  if (currentObjectUrl) {
-    URL.revokeObjectURL(currentObjectUrl);
-    currentObjectUrl = null;
-  }
+/** Point a deck at a source, releasing whatever it held before. */
+function attach(deckIndex, track, src) {
+  const prev = held[deckIndex];
+  if (prev?.isObjectUrl) URL.revokeObjectURL(prev.url);
+  held[deckIndex] = { trackId: track.id, url: src.url, isObjectUrl: src.isObjectUrl };
+  decks[deckIndex].src = src.url;
+  decks[deckIndex].load();
 }
 
-function releasePreloadUrl() {
-  if (preloadObjectUrl) {
-    URL.revokeObjectURL(preloadObjectUrl);
-    preloadObjectUrl = null;
+function release(deckIndex) {
+  const prev = held[deckIndex];
+  if (prev?.isObjectUrl) URL.revokeObjectURL(prev.url);
+  held[deckIndex] = null;
+}
+
+const holds = (deckIndex, track) => held[deckIndex]?.trackId === track?.id;
+
+/* ── Volume ────────────────────────────────────────────────────────── */
+
+function applyVolume() {
+  for (let i = 0; i < decks.length; i++) {
+    decks[i].volume = Math.max(0, Math.min(1, state.volume * gain[i]));
+    decks[i].muted = state.muted;
   }
 }
 
@@ -173,11 +219,16 @@ function releasePreloadUrl() {
 
 let loadToken = 0;
 
-async function playCurrent(startAt = 0) {
+function currentTrack() {
   const qi = state.order[state.pos];
-  const track = state.queue[qi];
+  return state.queue[qi] || null;
+}
+
+async function playCurrent(startAt = 0) {
+  const track = currentTrack();
   if (!track) return;
 
+  cancelFade();
   const token = ++loadToken;
   state.track = track;
   state.urlIndex = 0;
@@ -187,9 +238,29 @@ async function playCurrent(startAt = 0) {
   emit('track', { track });
   emit('status', { ...state });
 
+  // If the standby deck already holds this track, promote it instead of
+  // re-fetching: that is what makes "next" feel instant.
+  if (startAt === 0 && holds(1 - active, track)) {
+    const from = active;
+    decks[from].pause();
+    swapTo(1 - active);
+    decks[active].currentTime = 0;
+    try {
+      await decks[active].play();
+      if (token !== loadToken) return;
+      onStarted(track, token);
+      return;
+    } catch (err) {
+      if (token !== loadToken) return;
+      if (!handleAutoplayBlock(err)) tryNextSource(track, token, err);
+      return;
+    }
+  }
+
   await loadAndPlay(track, token, startAt);
 }
 
+/** Load onto the active deck and start it. */
 async function loadAndPlay(track, token, startAt = 0) {
   let src;
   try {
@@ -203,43 +274,47 @@ async function loadAndPlay(track, token, startAt = 0) {
     return;
   }
 
-  releaseCurrentUrl();
-  if (src.isObjectUrl) currentObjectUrl = src.url;
-
-  audio.src = src.url;
+  attach(active, track, src);
+  gain[active] = 1;
+  applyVolume();
 
   try {
-    audio.load();
-    if (startAt > 0) {
-      audio.currentTime = startAt;
-    }
-    await audio.play();
+    if (startAt > 0) decks[active].currentTime = startAt;
+    await decks[active].play();
     if (token !== loadToken) return;
-    state.playing = true;
-    state.loading = false;
-    emit('status', { ...state });
-    updateMediaSession(track);
-    schedulePreload();
+    onStarted(track, token);
   } catch (err) {
     if (token !== loadToken) return;
-    if (err?.name === 'NotAllowedError') {
-      // Autoplay policy: the element is ready, the user just has to press play.
-      state.playing = false;
-      state.loading = false;
-      emit('status', { ...state });
-      emit('blocked', {});
-      return;
-    }
+    if (handleAutoplayBlock(err)) return;
     tryNextSource(track, token, err);
   }
+}
+
+function onStarted(track, token) {
+  if (token !== loadToken) return;
+  state.playing = true;
+  state.loading = false;
+  emit('status', { ...state });
+  updateMediaSession(track);
+  schedulePreload();
+}
+
+function handleAutoplayBlock(err) {
+  if (err?.name !== 'NotAllowedError') return false;
+  // Autoplay policy: the element is ready, the user just has to press play.
+  state.playing = false;
+  state.loading = false;
+  emit('status', { ...state });
+  emit('blocked', {});
+  return true;
 }
 
 function tryNextSource(track, token, err) {
   if (token !== loadToken) return;
   const urls = track.urls || [];
-  const isRemote = track.source !== 'local' && !currentObjectUrl;
+  const remote = track.source !== 'local' && !held[active]?.isObjectUrl;
 
-  if (isRemote && state.urlIndex + 1 < urls.length) {
+  if (remote && state.urlIndex + 1 < urls.length) {
     state.urlIndex++;
     diag.log('warn', `source failed for "${track.title}", trying mirror ${state.urlIndex + 1}/${urls.length}`);
     loadAndPlay(track, token, 0);
@@ -281,75 +356,91 @@ export async function playAll(tracks, startIndex = 0, context = null) {
 
 export async function toggle() {
   if (!state.track) return;
-  if (audio.paused) {
+  const deck = decks[active];
+  if (deck.paused) {
     try {
-      await audio.play();
+      await deck.play();
       state.playing = true;
     } catch (err) {
       if (err?.name !== 'NotAllowedError') tryNextSource(state.track, loadToken, err);
     }
   } else {
-    audio.pause();
+    deck.pause();
     state.playing = false;
   }
   emit('status', { ...state });
 }
 
 export function pause() {
-  audio.pause();
+  cancelFade();
+  decks[active].pause();
   state.playing = false;
   emit('status', { ...state });
+}
+
+/** Where the queue goes after the current position, or -1 if nowhere. */
+function nextPos(auto) {
+  if (state.pos + 1 < state.order.length) return state.pos + 1;
+  if (state.repeat === 'all' || !auto) return 0;
+  return -1;
 }
 
 export async function next(auto = false) {
   if (!state.order.length) return;
 
   if (state.repeat === 'one' && auto) {
-    audio.currentTime = 0;
-    await audio.play().catch(() => {});
+    decks[active].currentTime = 0;
+    await decks[active].play().catch(() => {});
     return;
   }
-  if (state.pos + 1 < state.order.length) {
-    state.pos++;
-  } else if (state.repeat === 'all' || !auto) {
-    state.pos = 0;
-  } else {
+
+  const to = nextPos(auto);
+  if (to < 0) {
     // End of queue with repeat off: stop cleanly.
     state.playing = false;
-    audio.pause();
+    decks[active].pause();
     emit('status', { ...state });
     emit('ended', {});
     return;
   }
+  state.pos = to;
   await playCurrent();
 }
 
 export async function prev() {
   if (!state.order.length) return;
   // Standard behaviour: restart the track unless you hit it twice quickly.
-  if (audio.currentTime > 3) {
-    audio.currentTime = 0;
+  if (decks[active].currentTime > 3) {
+    decks[active].currentTime = 0;
     return;
   }
   state.pos = state.pos > 0 ? state.pos - 1 : state.order.length - 1;
   await playCurrent();
 }
 
+/** Jump straight to a position in the play order (used by the queue drawer). */
+export async function playAt(orderPos) {
+  if (orderPos < 0 || orderPos >= state.order.length) return;
+  state.pos = orderPos;
+  await playCurrent();
+}
+
 export function seek(seconds) {
   if (!state.track || !Number.isFinite(seconds)) return;
-  const dur = audio.duration || state.duration;
+  const deck = decks[active];
+  const dur = deck.duration || state.duration;
   if (!dur) return;
-  audio.currentTime = Math.max(0, Math.min(seconds, dur - 0.25));
+  deck.currentTime = Math.max(0, Math.min(seconds, dur - 0.25));
 }
 
 export function seekFraction(f) {
-  const dur = audio.duration || state.duration;
+  const dur = decks[active].duration || state.duration;
   if (dur) seek(dur * f);
 }
 
 export function setVolume(v) {
   state.volume = Math.max(0, Math.min(1, v));
-  audio.volume = state.volume;
+  applyVolume();
   if (state.volume > 0 && state.muted) setMuted(false);
   setSetting('volume', state.volume);
   emit('status', { ...state });
@@ -357,7 +448,7 @@ export function setVolume(v) {
 
 export function setMuted(m) {
   state.muted = m;
-  audio.muted = m;
+  applyVolume();
   setSetting('muted', m);
   emit('status', { ...state });
 }
@@ -367,6 +458,7 @@ export function toggleShuffle() {
   setSetting('shuffle', state.shuffle);
   const currentQi = state.order[state.pos];
   buildOrder(currentQi ?? 0);
+  invalidatePreload();
   emit('status', { ...state });
   emit('queue', { queue: state.queue });
   return state.shuffle;
@@ -379,23 +471,174 @@ export function cycleRepeat() {
   return state.repeat;
 }
 
+/* ── Crossfade ─────────────────────────────────────────────────────── */
+
+/**
+ * Seconds of overlap between tracks. Zero keeps the old behaviour, where the
+ * next track simply starts the moment this one ends — which is already close
+ * to gapless because the standby deck is pre-buffered.
+ */
+export function setCrossfade(seconds) {
+  state.crossfade = Math.max(0, Math.min(12, Number(seconds) || 0));
+  setSetting('crossfade', state.crossfade);
+  emit('status', { ...state });
+  return state.crossfade;
+}
+
+let fadeTimer = null;
+let fading = false;
+/* timeupdate fires several times a second, and preparing a fade is async.
+ * Without this, every tick would start another attempt and they would cancel
+ * each other, so the fade kept slipping later and later. One at a time. */
+let preparingFade = false;
+
+function swapTo(index) {
+  active = index;
+  audio = decks[index];
+  gain[index] = 1;
+  gain[1 - index] = 0;
+  applyVolume();
+}
+
+function cancelFade() {
+  loadToken++;                 // abandons any fade still being prepared
+  if (fadeTimer) clearInterval(fadeTimer);
+  fadeTimer = null;
+  if (fading) {
+    // Whichever deck was on its way out stops now.
+    decks[1 - active].pause();
+    fading = false;
+  }
+  gain[active] = 1;
+  gain[1 - active] = 0;
+  applyVolume();
+}
+
+/**
+ * Bring the standby deck up while the active one goes down, on an equal-power
+ * curve so the middle of the fade doesn't sound like a dip in volume.
+ */
+function runFade(outIndex, inIndex, seconds) {
+  const started = performance.now();
+  const ms = seconds * 1000;
+  fading = true;
+
+  if (fadeTimer) clearInterval(fadeTimer);
+  fadeTimer = setInterval(() => {
+    const t = Math.min(1, (performance.now() - started) / ms);
+    gain[outIndex] = Math.cos((t * Math.PI) / 2);
+    gain[inIndex] = Math.sin((t * Math.PI) / 2);
+    applyVolume();
+    if (t >= 1) {
+      clearInterval(fadeTimer);
+      fadeTimer = null;
+      fading = false;
+      decks[outIndex].pause();
+      release(outIndex);
+      gain[outIndex] = 0;
+      applyVolume();
+      schedulePreload();
+    }
+  }, 50);
+}
+
+/** Called from timeupdate: decide whether it is time to start overlapping. */
+async function maybeCrossfade() {
+  if (fading || preparingFade || !state.playing || state.crossfade <= 0) return;
+  if (state.repeat === 'one') return;
+
+  const deck = decks[active];
+  const dur = deck.duration;
+  if (!Number.isFinite(dur) || dur <= 0) return;
+  // Never fade a clip shorter than twice the fade: it would be all fade.
+  if (dur < state.crossfade * 2 + 1) return;
+  if (dur - deck.currentTime > state.crossfade) return;
+
+  const to = nextPos(true);
+  if (to < 0 || to === state.pos) return;
+
+  const track = state.queue[state.order[to]];
+  if (!track) return;
+
+  preparingFade = true;
+  const token = ++loadToken;
+  const inIndex = 1 - active;
+
+  try {
+    if (!holds(inIndex, track)) {
+      let src;
+      try {
+        src = await resolveSource(track, 0);
+      } catch {
+        return;               // let the plain `ended` path handle it instead
+      }
+      if (token !== loadToken) {
+        if (src.isObjectUrl) URL.revokeObjectURL(src.url);
+        return;
+      }
+      attach(inIndex, track, src);
+    }
+    if (token !== loadToken) return;
+
+    gain[inIndex] = 0;
+    applyVolume();
+
+    try {
+      decks[inIndex].currentTime = 0;
+      await decks[inIndex].play();
+    } catch {
+      // Autoplay refusal or a dead source: fall back to a hard cut on `ended`.
+      return;
+    }
+    if (token !== loadToken) { decks[inIndex].pause(); return; }
+
+    // The incoming track is the current one from here on.
+    const outIndex = active;
+    state.pos = to;
+    state.track = track;
+    state.urlIndex = 0;
+    active = inIndex;
+    audio = decks[inIndex];
+    emit('track', { track });
+    emit('status', { ...state });
+    updateMediaSession(track);
+
+    runFade(outIndex, inIndex, state.crossfade);
+  } finally {
+    preparingFade = false;
+  }
+}
+
 /* ── Pre-buffering ─────────────────────────────────────────────────── */
 
-let preloadedId = null;
+function invalidatePreload() {
+  if (fading) return;
+  const idle = 1 - active;
+  if (held[idle]) {
+    decks[idle].pause();
+    decks[idle].removeAttribute('src');
+    release(idle);
+  }
+}
 
 async function schedulePreload() {
-  const nextPos = state.pos + 1;
-  if (nextPos >= state.order.length) return;
-  const track = state.queue[state.order[nextPos]];
-  if (!track || track.id === preloadedId) return;
+  if (fading) return;
+  const to = nextPos(true);
+  if (to < 0 || to === state.pos) return;
 
-  preloadedId = track.id;
+  const track = state.queue[state.order[to]];
+  const idle = 1 - active;
+  if (!track || holds(idle, track)) return;
+
   try {
     const src = await resolveSource(track, 0);
-    releasePreloadUrl();
-    if (src.isObjectUrl) preloadObjectUrl = src.url;
-    preloader.src = src.url;
-    preloader.load();
+    if (fading || idle === active) {
+      if (src.isObjectUrl) URL.revokeObjectURL(src.url);
+      return;
+    }
+    attach(idle, track, src);
+    gain[idle] = 0;
+    applyVolume();
   } catch {
     // Pre-buffering is best-effort; the real load will report any problem.
   }
@@ -424,8 +667,8 @@ if ('mediaSession' in navigator) {
     pause: () => pause(),
     previoustrack: () => prev(),
     nexttrack: () => next(false),
-    seekbackward: (d) => seek(audio.currentTime - (d?.seekOffset || 10)),
-    seekforward: (d) => seek(audio.currentTime + (d?.seekOffset || 10)),
+    seekbackward: (d) => seek(state.time - (d?.seekOffset || 10)),
+    seekforward: (d) => seek(state.time + (d?.seekOffset || 10)),
     seekto: (d) => { if (d?.seekTime != null) seek(d.seekTime); },
     stop: () => pause(),
   };
@@ -436,69 +679,80 @@ if ('mediaSession' in navigator) {
 
 /* ── Element wiring ────────────────────────────────────────────────── */
 
-audio.addEventListener('timeupdate', () => {
-  state.time = audio.currentTime;
-  if (audio.duration && Number.isFinite(audio.duration)) state.duration = audio.duration;
-  emit('time', { time: state.time, duration: state.duration });
+/* Both decks are wired identically; handlers drop anything from the deck that
+ * isn't currently audible, so a fading-out track can't drive the UI. */
+decks.forEach((deck, index) => {
+  const isActive = () => index === active;
 
-  if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && state.duration) {
-    try {
-      navigator.mediaSession.setPositionState({
-        duration: state.duration,
-        position: Math.min(state.time, state.duration),
-        playbackRate: audio.playbackRate || 1,
-      });
-    } catch { /* Safari throws on odd values */ }
-  }
-});
-
-audio.addEventListener('loadedmetadata', () => {
-  if (Number.isFinite(audio.duration)) {
-    state.duration = audio.duration;
+  deck.addEventListener('timeupdate', () => {
+    if (!isActive()) return;
+    state.time = deck.currentTime;
+    if (deck.duration && Number.isFinite(deck.duration)) state.duration = deck.duration;
     emit('time', { time: state.time, duration: state.duration });
-  }
-});
 
-audio.addEventListener('ended', () => {
-  // "Sleep at end of track" means this track, so honour it before advancing.
-  if (sleepAfterTrack) {
-    clearSleepTimer();
+    if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && state.duration) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: state.duration,
+          position: Math.min(state.time, state.duration),
+          playbackRate: deck.playbackRate || 1,
+        });
+      } catch { /* Safari throws on odd values */ }
+    }
+
+    maybeCrossfade();
+  });
+
+  deck.addEventListener('loadedmetadata', () => {
+    if (!isActive() || !Number.isFinite(deck.duration)) return;
+    state.duration = deck.duration;
+    emit('time', { time: state.time, duration: state.duration });
+  });
+
+  deck.addEventListener('ended', () => {
+    if (!isActive()) return;   // the outgoing half of a crossfade
+    // "Sleep at end of track" means this track, so honour it before advancing.
+    if (sleepAfterTrack) {
+      clearSleepTimer();
+      state.playing = false;
+      emit('status', { ...state });
+      emit('ended', {});
+      return;
+    }
+    next(true);
+  });
+
+  deck.addEventListener('error', () => {
+    if (!isActive() || !state.track) return;
+    // MEDIA_ELEMENT_ERROR with no src set fires spuriously on some browsers.
+    if (!deck.getAttribute('src')) return;
+    tryNextSource(state.track, loadToken, new Error(mediaErrorText(deck.error)));
+  });
+
+  deck.addEventListener('stalled', () => {
+    if (isActive() && state.playing) diag.log('warn', 'playback stalled — waiting for data');
+  });
+
+  deck.addEventListener('waiting', () => {
+    if (!isActive()) return;
+    state.loading = true;
+    emit('status', { ...state });
+  });
+
+  deck.addEventListener('playing', () => {
+    if (!isActive()) return;
+    state.playing = true;
+    state.loading = false;
+    emit('status', { ...state });
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+  });
+
+  deck.addEventListener('pause', () => {
+    if (!isActive() || fading) return;
     state.playing = false;
     emit('status', { ...state });
-    emit('ended', {});
-    return;
-  }
-  next(true);
-});
-
-audio.addEventListener('error', () => {
-  if (!state.track) return;
-  const err = audio.error;
-  // MEDIA_ELEMENT_ERROR with no src set fires spuriously on some browsers.
-  if (!audio.src) return;
-  tryNextSource(state.track, loadToken, new Error(mediaErrorText(err)));
-});
-
-audio.addEventListener('stalled', () => {
-  if (state.playing) diag.log('warn', 'playback stalled — waiting for data');
-});
-
-audio.addEventListener('waiting', () => {
-  state.loading = true;
-  emit('status', { ...state });
-});
-
-audio.addEventListener('playing', () => {
-  state.playing = true;
-  state.loading = false;
-  emit('status', { ...state });
-  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-});
-
-audio.addEventListener('pause', () => {
-  state.playing = false;
-  emit('status', { ...state });
-  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+  });
 });
 
 function mediaErrorText(err) {
@@ -551,14 +805,15 @@ export function sleepState() {
 }
 
 async function fadeToSleep() {
-  const from = audio.volume;
+  const deck = decks[active];
+  const from = state.volume;
   const steps = 24;
   for (let i = steps; i >= 0; i--) {
-    audio.volume = (from * i) / steps;
+    deck.volume = (from * i) / steps;
     await new Promise((r) => setTimeout(r, 125));
   }
   pause();
-  audio.volume = from;      // restore, so the next play is not silent
+  applyVolume();          // restore, so the next play is not silent
   clearSleepTimer();
 }
 
@@ -568,9 +823,9 @@ export function hydrate() {
   state.muted = Boolean(getSetting('muted'));
   state.repeat = getSetting('repeat') || 'off';
   state.shuffle = Boolean(getSetting('shuffle'));
-  audio.volume = state.volume;
-  audio.muted = state.muted;
+  state.crossfade = Number(getSetting('crossfade') ?? 0);
+  gain[active] = 1;
+  gain[1 - active] = 0;
+  applyVolume();
   emit('status', { ...state });
 }
-
-export { audio };

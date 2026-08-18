@@ -5,7 +5,7 @@
  * nothing to sign in to — which is also why nobody can region-lock it. */
 
 const DB_NAME = 'void-music';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORES = {
   playlists: { keyPath: 'id' },
@@ -15,6 +15,7 @@ const STORES = {
   settings:  { keyPath: 'key' },
   recent:    { keyPath: 'id' },   // recently played items
   covers:    { keyPath: 'key' },  // resolved artwork: { key, url, at }
+  listens:   { keyPath: 'id' },   // scrobbles waiting to be submitted
 };
 
 let dbPromise = null;
@@ -71,6 +72,9 @@ const DEFAULTS = {
   mirrors: '',
   theme: 'system',
   amoled: false,
+  crossfade: 0,
+  scrobbleToken: '',
+  scrobbleEnabled: false,
   lastRoute: '#/home',
 };
 
@@ -211,20 +215,63 @@ export const offline = {
 
 /* ── Imported local files ──────────────────────────────────────────── */
 
+/**
+ * Embedded artwork is kept as a blob, not a data URL: a 400-song import would
+ * otherwise carry tens of megabytes of base64 around in memory. Object URLs
+ * are minted once per track and reused for the life of the page.
+ */
+const coverUrls = new Map();
+
+function coverUrlFor(id, blob) {
+  if (!coverUrls.has(id)) coverUrls.set(id, URL.createObjectURL(blob));
+  return coverUrls.get(id);
+}
+
+function dropCoverUrl(id) {
+  const url = coverUrls.get(id);
+  if (url) {
+    URL.revokeObjectURL(url);
+    coverUrls.delete(id);
+  }
+}
+
 export const local = {
   async all() {
     const rows = await getAll('local').catch(() => []);
-    return rows.sort((a, b) => (a.track.title || '').localeCompare(b.track.title || '')).map((r) => r.track);
+    rows.sort((a, b) => {
+      const artist = (a.track.artist || '').localeCompare(b.track.artist || '');
+      if (artist) return artist;
+      const album = (a.track.album || '').localeCompare(b.track.album || '');
+      if (album) return album;
+      const no = (a.track.trackNo || 0) - (b.track.trackNo || 0);
+      return no || (a.track.title || '').localeCompare(b.track.title || '');
+    });
+    return rows.map((r) => (r.cover
+      ? { ...r.track, cover: coverUrlFor(r.id, r.cover) }
+      : r.track));
   },
-  async add(track, blob) {
-    await put('local', { id: track.id, track, blob, addedAt: Date.now() });
+  async has(id) {
+    return Boolean(await get('local', id).catch(() => null));
+  },
+  async ids() {
+    const rows = await getAll('local').catch(() => []);
+    return new Set(rows.map((r) => r.id));
+  },
+  async add(track, blob, cover = null) {
+    await put('local', { id: track.id, track, blob, cover, addedAt: Date.now() });
   },
   async blob(id) {
     const row = await get('local', id).catch(() => null);
     return row?.blob ?? null;
   },
-  remove: (id) => del('local', id),
-  clear: () => clear('local'),
+  async remove(id) {
+    dropCoverUrl(id);
+    return del('local', id);
+  },
+  async clear() {
+    for (const id of [...coverUrls.keys()]) dropCoverUrl(id);
+    return clear('local');
+  },
   count: () => count('local').catch(() => 0),
 };
 
@@ -264,6 +311,26 @@ export const covers = {
   },
   count: () => count('covers').catch(() => 0),
   clear: () => clear('covers'),
+};
+
+/* ── Pending scrobbles ─────────────────────────────────────────────── */
+
+/**
+ * Listens that could not be submitted yet. Being offline is the normal case
+ * for this app, not the exception, so a listen is written down first and sent
+ * when the network comes back.
+ */
+export const listens = {
+  async all() {
+    const rows = await getAll('listens').catch(() => []);
+    return rows.sort((a, b) => a.listened_at - b.listened_at);
+  },
+  async add(entry) {
+    await put('listens', entry).catch(() => {});
+  },
+  remove: (id) => del('listens', id).catch(() => {}),
+  count: () => count('listens').catch(() => 0),
+  clear: () => clear('listens'),
 };
 
 /** Storage pressure, for the Settings panel. */

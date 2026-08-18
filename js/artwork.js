@@ -21,18 +21,29 @@ import { diag } from './net.js';
 
 const MB = 'https://musicbrainz.org/ws/2';
 const CAA = 'https://coverartarchive.org';
+const ITUNES = 'https://itunes.apple.com/search';
 
 /** Roughly one request per second, as MusicBrainz asks. */
 const MIN_GAP_MS = 1100;
+/** iTunes has no published courtesy limit, but it does throttle bursts. */
+const ITUNES_GAP_MS = 300;
 const TIMEOUT_MS = 8000;
 
 let chain = Promise.resolve();
 let lastCall = 0;
 const inFlight = new Map();
 
-/** Turn off after repeated failures so a blocked host stops costing time. */
-let consecutiveFailures = 0;
-let disabled = false;
+/** Turn each source off after repeated failures, independently: one blocked
+ *  host must not take the other down with it. */
+const failures = { itunes: 0, mb: 0 };
+const dead = { itunes: false, mb: false };
+
+function noteFailure(source) {
+  if (++failures[source] >= 5) {
+    dead[source] = true;
+    diag.log('warn', `${source === 'mb' ? 'Cover Art Archive' : 'iTunes'} artwork lookup unavailable`);
+  }
+}
 
 function normalise(s) {
   return String(s || '')
@@ -97,9 +108,9 @@ async function fetchJSON(url, signal) {
 }
 
 /** Serialise every outbound call, spacing them politely. */
-function queued(fn) {
+function queued(fn, gap = MIN_GAP_MS) {
   const run = chain.then(async () => {
-    const wait = Math.max(0, MIN_GAP_MS - (Date.now() - lastCall));
+    const wait = Math.max(0, gap - (Date.now() - lastCall));
     if (wait) await new Promise((r) => setTimeout(r, wait));
     lastCall = Date.now();
     return fn();
@@ -112,6 +123,42 @@ function queued(fn) {
 /** Does the Cover Art Archive actually hold a front image for this release? */
 function caaFront(mbid, kind = 'release') {
   return `${CAA}/${kind}/${mbid}/front-500`;
+}
+
+/**
+ * Apple's search endpoint. It is open, needs no key, answers in one round trip
+ * and covers modern releases far better than MusicBrainz does — which is
+ * exactly the gap that was leaving songs with a plain coloured tile.
+ *
+ * The catch is that it always returns *something*, so a result is only used
+ * when the artist it names actually matches the artist we asked about.
+ */
+async function lookupItunes(artist, subject, signal) {
+  const term = `${artist} ${subject}`.trim();
+  const url = `${ITUNES}?term=${encodeURIComponent(term)}&entity=song&limit=8`;
+  const data = await fetchJSON(url, signal);
+
+  const wanted = normalise(artist);
+  const wantedSubject = normalise(subject);
+
+  for (const r of data?.results || []) {
+    const gotArtist = normalise(r.artistName);
+    const gotTitle = normalise(r.trackName);
+    const gotAlbum = normalise(r.collectionName);
+    if (!r.artworkUrl100) continue;
+    if (!gotArtist || !related(gotArtist, wanted)) continue;
+    if (!related(gotTitle, wantedSubject) && !related(gotAlbum, wantedSubject)) continue;
+
+    // The 100px thumbnail URL is the same asset at a different size.
+    return r.artworkUrl100.replace(/\/\d+x\d+bb\.(jpg|png)/, '/600x600bb.$1');
+  }
+  return null;
+}
+
+/** Loose containment either way: "videoclub" vs "videoclub (fr)". */
+function related(a, b) {
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
 }
 
 async function lookupRelease(artist, album, signal) {
@@ -157,7 +204,7 @@ function imageLoads(url, signal) {
  * exists. Never throws — artwork is decoration, not function.
  */
 export async function resolveCover({ artist, title, album }, { signal } = {}) {
-  if (disabled || !navigator.onLine) return null;
+  if ((dead.itunes && dead.mb) || !navigator.onLine) return null;
   if (isUseless(artist)) return null;
 
   // An album lookup covers every track on it, so prefer it when we have one.
@@ -174,23 +221,36 @@ export async function resolveCover({ artist, title, album }, { signal } = {}) {
 
   const job = (async () => {
     let url = null;
-    try {
-      // Try the release first — one hit covers a whole record. Fall back to
-      // the recording, which catches singles and loose uploads.
-      url = await queued(() => lookupRelease(cleanArtist, cleanSubject, signal));
-      if (url && !(await imageLoads(url, signal))) url = null;
 
-      if (!url) {
-        url = await queued(() => lookupRecording(cleanArtist, cleanSubject, signal));
+    // iTunes first: one fast request, and it knows about current music.
+    if (!dead.itunes) {
+      try {
+        url = await queued(() => lookupItunes(cleanArtist, cleanSubject, signal), ITUNES_GAP_MS);
         if (url && !(await imageLoads(url, signal))) url = null;
+        failures.itunes = 0;
+      } catch {
+        noteFailure('itunes');
+        url = null;
       }
-      consecutiveFailures = 0;
-    } catch {
-      if (++consecutiveFailures >= 5) {
-        disabled = true;
-        diag.log('warn', 'cover lookup unavailable — using generated artwork');
+    }
+
+    // Then MusicBrainz, which is where anything older or more obscure lives.
+    if (!url && !dead.mb) {
+      try {
+        // The release covers a whole record; the recording catches singles
+        // and loose uploads.
+        url = await queued(() => lookupRelease(cleanArtist, cleanSubject, signal));
+        if (url && !(await imageLoads(url, signal))) url = null;
+
+        if (!url) {
+          url = await queued(() => lookupRecording(cleanArtist, cleanSubject, signal));
+          if (url && !(await imageLoads(url, signal))) url = null;
+        }
+        failures.mb = 0;
+      } catch {
+        noteFailure('mb');
+        url = null;
       }
-      url = null;
     }
 
     await covers.set(key, url);

@@ -9,6 +9,7 @@ import { $, el, svg, ICONS, fmtTime, toast, artNode, tintFor } from './ui.js';
 import { initNative, isNativeApp } from './native.js';
 import { getLyrics, lineAt } from './lyrics.js';
 import { applyTheme } from './theme.js';
+import { initScrobbler } from './scrobble.js';
 import './demo.js'; // registers the generated-audio provider
 
 /* ── Routing ───────────────────────────────────────────────────────── */
@@ -355,6 +356,7 @@ function wireQueue() {
   const drawer = $('#queue-drawer');
   const scrim = $('#scrim');
   const list = $('#queue-list');
+  const countLabel = $('#queue-count');
 
   const close = () => { drawer.hidden = true; scrim.hidden = true; };
   const open = () => { drawer.hidden = false; scrim.hidden = false; paint(); };
@@ -362,22 +364,55 @@ function wireQueue() {
   function paint() {
     if (drawer.hidden) return;
     const items = P.queueView();
+    const upNext = items.length - Math.max(0, P.state.pos) - 1;
+    countLabel.textContent = items.length
+      ? `${items.length} track${items.length === 1 ? '' : 's'} · ${Math.max(0, upNext)} up next`
+      : '';
+
     if (!items.length) {
       list.replaceChildren(el('p', { class: 'modal-hint' }, 'The queue is empty.'));
       return;
     }
-    list.replaceChildren(...items.map(({ track, orderPos, current }) => el('div', {
-      class: `track${current ? ' playing' : ''}`,
-      dataset: { trackId: track.id },
-      tabindex: '0', role: 'button',
-      onclick: () => { P.state.pos = orderPos; P.playTrack(track); },
-    },
-      el('div', { class: 'track-art' }, el('i', { class: 'art-glyph' }, current ? '▶' : '♪')),
-      el('div', { class: 'track-main' },
-        el('div', { class: 'track-title' }, track.title),
-        el('div', { class: 'track-sub' }, track.artist || ''),
-      ),
-    )));
+
+    list.replaceChildren(...items.map(({ track, orderPos, current }) => {
+      const row = el('div', {
+        class: `queue-row${current ? ' playing' : ''}`,
+        dataset: { trackId: track.id },
+      });
+
+      row.append(el('button', {
+        class: 'queue-main', type: 'button',
+        onclick: () => P.playAt(orderPos),
+      },
+        V.smartArt(track, track.id || track.title, 'queue-art'),
+        el('span', { class: 'queue-meta' },
+          el('span', { class: 'queue-title' }, track.title),
+          el('span', { class: 'queue-sub' }, track.artist || 'Unknown artist'),
+        ),
+        current ? el('span', { class: 'queue-now' }, '▶') : null,
+      ));
+
+      // Up/down rather than drag: it works the same with a thumb on a phone
+      // as with a mouse, and it cannot drop a track somewhere unintended.
+      const move = (to) => { P.moveInQueue(orderPos, to); paint(); };
+      row.append(el('div', { class: 'queue-tools' },
+        el('button', {
+          class: 'icon-btn', type: 'button', 'aria-label': `Move ${track.title} up`,
+          disabled: orderPos === 0, onclick: () => move(orderPos - 1),
+        }, svg('M12 6.6 18.4 13l-1.4 1.4L12 9.4 7 14.4 5.6 13z', 18)),
+        el('button', {
+          class: 'icon-btn', type: 'button', 'aria-label': `Move ${track.title} down`,
+          disabled: orderPos === items.length - 1, onclick: () => move(orderPos + 1),
+        }, svg('M5.6 11 7 9.6l5 5 5-5 1.4 1.4-6.4 6.4z', 18)),
+        el('button', {
+          class: 'icon-btn', type: 'button', 'aria-label': `Remove ${track.title} from queue`,
+          disabled: current,
+          onclick: () => { P.removeFromQueue(orderPos); paint(); },
+        }, svg(ICONS.x, 16)),
+      ));
+
+      return row;
+    }));
   }
 
   $('#np-queue').addEventListener('click', () => (drawer.hidden ? open() : close()));
@@ -521,6 +556,7 @@ async function boot() {
   wireKeys();
   wireInstall();
   wireServiceWorker();
+  initScrobbler();
 
   $('#back-btn').addEventListener('click', () => {
     if (depth > 0) { depth--; history.back(); } else navigate('#/home');
