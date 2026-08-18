@@ -69,6 +69,8 @@ const DEFAULTS = {
   preferLowBitrate: false,
   autoOfflineLiked: false,
   mirrors: '',
+  theme: 'system',
+  amoled: false,
   lastRoute: '#/home',
 };
 

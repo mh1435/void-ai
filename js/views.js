@@ -6,6 +6,8 @@ import { likes, playlists, offline, local, recent, usage, getSetting, setSetting
 import { demoItem, isDemoTrack, renderDemoBlob, DEMO_ITEM_ID } from './demo.js';
 import { health, diag, bus, probe } from './net.js';
 import { resolveCover } from './artwork.js';
+import { currentTheme, amoledOn, setTheme, setAmoled } from './theme.js';
+import { checkForUpdate, APP_VERSION } from './update.js';
 import {
   $, el, svg, ICONS, fmtTime, fmtBytes, fmtCount, toast, artNode, tintedArt,
   loadingRow, emptyState, errorBox,
@@ -1262,11 +1264,63 @@ export async function renderSettings() {
     log,
   ));
 
+  /* Appearance */
+  const themeGroup = el('div', { class: 'group' });
+  const paintTheme = () => {
+    const active = currentTheme();
+    themeGroup.replaceChildren(
+      ...[['dark', 'Dark'], ['light', 'Light'], ['system', 'Follow system']].map(([key, label]) =>
+        el('button', {
+          class: 'radio-row', type: 'button', role: 'radio',
+          'aria-checked': String(active === key),
+          onclick: async () => { await setTheme(key); paintTheme(); },
+        },
+          el('span', { class: 'radio-dot' }),
+          el('span', { class: 'radio-body' },
+            el('strong', {}, label),
+            key === 'system' ? el('span', {}, 'Matches your device’s day/night setting') : null),
+        )),
+      toggleRow('Pure black (AMOLED)', 'True-black backgrounds in dark mode — OLED pixels switch off, saving battery.',
+        ICONS.check, amoledOn(), async (on) => { await setAmoled(on); }),
+    );
+  };
+  paintTheme();
+  root.append(el('p', { class: 'group-label' }, 'Appearance'), themeGroup);
+
+  /* About & updates */
+  const updateLine = el('span', {}, `Version ${APP_VERSION}`);
   root.append(el('p', { class: 'group-label' }, 'About'));
   root.append(el('div', { class: 'group' },
+    el('button', {
+      class: 'setting', type: 'button',
+      onclick: async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        updateLine.textContent = 'Checking…';
+        const r = await checkForUpdate();
+        btn.disabled = false;
+
+        if (r.status === 'update') {
+          updateLine.textContent = `${r.version} available — tap to download`;
+          btn.onclick = () => window.open(r.apk || r.url, '_blank', 'noopener');
+          toast(`Version ${r.version} is available`, 'ok', 6000);
+        } else if (r.status === 'current') {
+          updateLine.textContent = `Version ${APP_VERSION} — up to date`;
+        } else {
+          updateLine.textContent = `Version ${APP_VERSION} — could not check (${r.reason})`;
+        }
+      },
+    },
+      el('span', { class: 'setting-icon' }, svg(ICONS.download, 22)),
+      el('span', { class: 'setting-body' }, el('strong', {}, 'Check for updates'), updateLine),
+      el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
+    ),
     el('div', { class: 'setting static' },
       el('span', { class: 'setting-icon' }, svg(ICONS.play, 22)),
-      el('span', { class: 'setting-body' }, el('strong', {}, 'Void Music'), el('span', {}, 'Version 1.2.1 · MIT')),
+      el('span', { class: 'setting-body' },
+        el('strong', {}, 'Void Music'),
+        el('span', {}, 'Open-licensed music · MIT. Artwork from the Cover Art Archive, '
+          + 'lyrics from LRCLIB, audio from the Internet Archive.')),
     ),
   ));
 

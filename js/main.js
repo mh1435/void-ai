@@ -5,8 +5,10 @@ import * as V from './views.js';
 import * as A from './archive.js';
 import { likes, loadSettings, getSetting, setSetting, persist } from './store.js';
 import { health, bus, diag } from './net.js';
-import { $, el, fmtTime, toast, artNode, tintFor } from './ui.js';
+import { $, el, svg, ICONS, fmtTime, toast, artNode, tintFor } from './ui.js';
 import { initNative, isNativeApp } from './native.js';
+import { getLyrics, lineAt } from './lyrics.js';
+import { applyTheme } from './theme.js';
 import './demo.js'; // registers the generated-audio provider
 
 /* ── Routing ───────────────────────────────────────────────────────── */
@@ -230,6 +232,123 @@ function swapArt(selector, track, className) {
   old.replaceWith(next);
 }
 
+/* ── Lyrics ────────────────────────────────────────────────────────── */
+
+let lyrics = null;          // { synced: [{time,text}], plain }
+let lyricsToken = 0;
+let activeLine = -1;
+
+function wireLyrics() {
+  const preview = $('#np-lyric');
+  const sheet = $('#lyrics-sheet');
+  const body = $('#lyrics-body');
+
+  const open = () => { if (lyrics) { sheet.hidden = false; renderActive(true); } };
+  preview.addEventListener('click', open);
+  $('#lyrics-close').addEventListener('click', () => { sheet.hidden = true; });
+
+  P.player.addEventListener('track', async (e) => {
+    const token = ++lyricsToken;
+    lyrics = null;
+    activeLine = -1;
+    preview.hidden = true;
+    preview.textContent = '';
+    body.replaceChildren();
+    sheet.hidden = true;
+
+    const found = await getLyrics(e.detail.track).catch(() => null);
+    if (token !== lyricsToken || !found) return;
+
+    lyrics = found;
+    preview.hidden = false;
+
+    if (found.synced.length) {
+      body.replaceChildren(...found.synced.map((line, i) =>
+        el('div', { class: 'lyric-line', dataset: { i: String(i) } }, line.text || '♪')));
+    } else if (found.plain) {
+      preview.textContent = 'Lyrics available';
+      body.replaceChildren(el('div', { class: 'lyrics-plain' }, found.plain));
+    }
+  });
+
+  P.player.addEventListener('time', (e) => {
+    if (!lyrics?.synced.length) return;
+    const idx = lineAt(lyrics.synced, e.detail.time + 0.15);
+    if (idx === activeLine) return;
+    activeLine = idx;
+    preview.textContent = idx >= 0 ? lyrics.synced[idx].text : '';
+    renderActive(false);
+  });
+
+  function renderActive(jump) {
+    if (sheet.hidden || !lyrics?.synced.length) return;
+    const lines = body.children;
+    for (let i = 0; i < lines.length; i++) {
+      lines[i].classList.toggle('active', i === activeLine);
+      lines[i].classList.toggle('passed', i < activeLine);
+    }
+    const current = lines[activeLine];
+    if (current) {
+      current.scrollIntoView({ block: 'center', behavior: jump ? 'auto' : 'smooth' });
+    }
+  }
+}
+
+/* ── Sleep timer ───────────────────────────────────────────────────── */
+
+function wireSleep() {
+  const btn = $('#np-sleep');
+  const dot = $('#sleep-dot');
+
+  const paint = () => {
+    const s = P.sleepState();
+    btn.setAttribute('aria-pressed', String(s.active));
+    dot.hidden = !s.active;
+    btn.title = s.active
+      ? (s.endOfTrack ? 'Stops at end of track' : `Stops in ${Math.ceil(s.remainingMs / 60000)} min`)
+      : 'Sleep timer';
+  };
+
+  P.player.addEventListener('sleep', paint);
+  paint();
+
+  btn.addEventListener('click', () => {
+    const s = P.sleepState();
+    const scrim = el('div', { class: 'scrim' });
+    const box = el('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true' });
+    const close = () => { scrim.remove(); box.remove(); };
+    scrim.addEventListener('click', close);
+
+    const choice = (label, sub, fn) => el('button', {
+      class: 'modal-row', type: 'button',
+      onclick: () => { fn(); close(); paint(); },
+    }, el('strong', {}, label), sub ? el('span', {}, sub) : null);
+
+    box.append(
+      el('div', { class: 'modal-head' },
+        el('h2', {}, 'Sleep timer'),
+        el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: close },
+          svg(ICONS.x, 18))),
+      el('div', { class: 'modal-list' },
+        ...[5, 15, 30, 45, 60].map((m) =>
+          choice(`${m} minutes`, null, () => {
+            P.setSleepTimer({ minutes: m });
+            toast(`Music stops in ${m} minutes`, 'ok');
+          })),
+        choice('End of this track', null, () => {
+          P.setSleepTimer({ endOfTrack: true });
+          toast('Music stops when this track ends', 'ok');
+        }),
+        s.active ? choice('Turn off timer', null, () => {
+          P.clearSleepTimer();
+          toast('Sleep timer off');
+        }) : null,
+      ),
+    );
+    document.body.append(scrim, box);
+  });
+}
+
 /* ── Queue drawer ──────────────────────────────────────────────────── */
 
 function wireQueue() {
@@ -389,11 +508,14 @@ async function boot() {
     .split(',').map((s) => s.trim()).filter(Boolean);
   A.config.preferLowBitrate = Boolean(getSetting('preferLowBitrate'));
 
+  applyTheme();
   P.hydrate();
   await V.refreshMarks();
 
   initNative();
   wireTransport();
+  wireLyrics();
+  wireSleep();
   wireQueue();
   wireHealth();
   wireKeys();

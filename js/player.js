@@ -459,7 +459,17 @@ audio.addEventListener('loadedmetadata', () => {
   }
 });
 
-audio.addEventListener('ended', () => next(true));
+audio.addEventListener('ended', () => {
+  // "Sleep at end of track" means this track, so honour it before advancing.
+  if (sleepAfterTrack) {
+    clearSleepTimer();
+    state.playing = false;
+    emit('status', { ...state });
+    emit('ended', {});
+    return;
+  }
+  next(true);
+});
 
 audio.addEventListener('error', () => {
   if (!state.track) return;
@@ -499,6 +509,57 @@ function mediaErrorText(err) {
     case 4: return 'format not supported';
     default: return 'playback error';
   }
+}
+
+/* ── Sleep timer ───────────────────────────────────────────────────── */
+
+let sleepTimer = null;
+let sleepEndsAt = 0;
+let sleepAfterTrack = false;
+
+/**
+ * Stop playback later. `minutes` counts down; `endOfTrack` waits for the
+ * current song to finish instead. Fades out rather than cutting, so falling
+ * asleep to it isn't punctuated by a hard stop.
+ */
+export function setSleepTimer({ minutes = 0, endOfTrack = false } = {}) {
+  clearSleepTimer();
+  if (endOfTrack) {
+    sleepAfterTrack = true;
+  } else if (minutes > 0) {
+    sleepEndsAt = Date.now() + minutes * 60000;
+    sleepTimer = setTimeout(fadeToSleep, minutes * 60000);
+  }
+  emit('sleep', sleepState());
+  return sleepState();
+}
+
+export function clearSleepTimer() {
+  clearTimeout(sleepTimer);
+  sleepTimer = null;
+  sleepEndsAt = 0;
+  sleepAfterTrack = false;
+  emit('sleep', sleepState());
+}
+
+export function sleepState() {
+  return {
+    active: Boolean(sleepTimer || sleepAfterTrack),
+    endOfTrack: sleepAfterTrack,
+    remainingMs: sleepEndsAt ? Math.max(0, sleepEndsAt - Date.now()) : 0,
+  };
+}
+
+async function fadeToSleep() {
+  const from = audio.volume;
+  const steps = 24;
+  for (let i = steps; i >= 0; i--) {
+    audio.volume = (from * i) / steps;
+    await new Promise((r) => setTimeout(r, 125));
+  }
+  pause();
+  audio.volume = from;      // restore, so the next play is not silent
+  clearSleepTimer();
 }
 
 /** Restore persisted transport settings on boot. */
