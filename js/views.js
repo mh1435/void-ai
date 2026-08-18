@@ -5,6 +5,7 @@ import * as P from './player.js';
 import { likes, playlists, offline, local, recent, usage, getSetting, setSetting } from './store.js';
 import { demoItem, isDemoTrack, renderDemoBlob, DEMO_ITEM_ID } from './demo.js';
 import { health, diag, bus, probe } from './net.js';
+import { resolveCover } from './artwork.js';
 import {
   $, el, svg, ICONS, fmtTime, fmtBytes, fmtCount, toast, artNode, tintedArt,
   loadingRow, emptyState, errorBox,
@@ -54,6 +55,52 @@ export async function refreshMarks() {
 
 export function isLiked(id) { return likedIds.has(id); }
 
+/* ── Artwork ───────────────────────────────────────────────────────── */
+
+/**
+ * Artwork that fills itself in.
+ *
+ * Draws the generated tile immediately so nothing pops in late, then asks the
+ * Cover Art Archive for the real cover and swaps it in if one turns up. Only
+ * runs when the item carries no art of its own, and only for things actually
+ * on screen — an IntersectionObserver keeps a long list from queueing hundreds
+ * of lookups the user will never scroll to.
+ */
+const artObserver = 'IntersectionObserver' in window
+  ? new IntersectionObserver((entries, obs) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        obs.unobserve(entry.target);
+        entry.target._fillArt?.();
+      }
+    }, { rootMargin: '250px' })
+  : null;
+
+export function smartArt(track, seed, className, fallback = '♪') {
+  const node = tintedArt(track.cover, seed, className, fallback);
+  if (track.cover) return node;
+
+  node._fillArt = async () => {
+    node._fillArt = null;
+    const url = await resolveCover({
+      artist: track.artist || track.creator,
+      title: track.title,
+      album: track.album || track.albumTitle,
+    }).catch(() => null);
+    if (!url || !node.isConnected) return;
+
+    const img = el('img', { alt: '', loading: 'lazy', decoding: 'async', src: url });
+    img.addEventListener('load', () => node.querySelector('.art-glyph')?.remove(), { once: true });
+    img.addEventListener('error', () => img.remove(), { once: true });
+    node.append(img);
+  };
+
+  if (artObserver) artObserver.observe(node);
+  else node._fillArt();
+
+  return node;
+}
+
 /* ── Track rows ────────────────────────────────────────────────────── */
 
 const MORE_ICON = 'M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4m0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4m0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4';
@@ -82,7 +129,7 @@ export function trackRow(track, queue, opts = {}) {
     },
   });
 
-  row.append(tintedArt(track.cover, track.itemId || track.title, 'track-art'));
+  row.append(smartArt(track, track.itemId || track.title, 'track-art'));
 
   row.append(el('div', { class: 'track-main' },
     el('div', { class: 'track-title' }, track.title),
@@ -284,7 +331,9 @@ function itemTile(item, badge) {
     class: 'tile', type: 'button',
     onclick: () => navigate(`#/item/${encodeURIComponent(item.id)}`),
   });
-  const art = tintedArt(item.cover, item.id, 'tile-art');
+  const art = smartArt(
+    { cover: item.cover, artist: item.creator, album: item.title, title: item.title },
+    item.id, 'tile-art');
   if (badge) art.append(el('span', { class: 'tile-badge' }, badge));
   tile.append(art,
     el('div', { class: 'tile-title' }, item.title),
@@ -404,7 +453,8 @@ async function loadShelves(signal, newSlot, popularSlot, chartSlot) {
           onclick: () => navigate(`#/item/${encodeURIComponent(item.id)}`),
         },
           el('span', { class: 'chart-rank' }, String(i + 1)),
-          tintedArt(item.cover, item.id, 'chart-art'),
+          smartArt({ cover: item.cover, artist: item.creator, album: item.title, title: item.title },
+            item.id, 'chart-art'),
           el('div', { class: 'track-main' },
             el('div', { class: 'track-title' }, item.title),
             el('div', { class: 'track-sub' }, item.creator),
@@ -665,7 +715,8 @@ function paintItem(item) {
   const root = el('div', {});
 
   root.append(el('div', { class: 'item-head' },
-    tintedArt(item.cover, item.id, 'item-art'),
+    smartArt({ cover: item.cover, artist: item.creator, album: item.title, title: item.title },
+      item.id, 'item-art'),
     el('div', { class: 'item-info' },
       el('div', { class: 'item-kicker' }, item.isDemo ? 'Generated on device' : 'Archive item'),
       el('h1', {}, item.title),

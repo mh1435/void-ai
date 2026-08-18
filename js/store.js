@@ -5,7 +5,7 @@
  * nothing to sign in to — which is also why nobody can region-lock it. */
 
 const DB_NAME = 'void-music';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = {
   playlists: { keyPath: 'id' },
@@ -14,6 +14,7 @@ const STORES = {
   local:     { keyPath: 'id' },   // imported files: { id, track, blob }
   settings:  { keyPath: 'key' },
   recent:    { keyPath: 'id' },   // recently played items
+  covers:    { keyPath: 'key' },  // resolved artwork: { key, url, at }
 };
 
 let dbPromise = null;
@@ -242,6 +243,25 @@ export const recent = {
     }
   },
   clear: () => clear('recent'),
+};
+
+/* ── Resolved cover art ────────────────────────────────────────────── */
+
+/**
+ * Artwork looked up from outside the Archive. Misses are cached too — a
+ * recording with no art anywhere must not be re-queried on every scroll.
+ */
+export const covers = {
+  async get(key) {
+    const row = await get('covers', key).catch(() => null);
+    if (!row) return undefined;             // never looked up
+    return row.url || null;                 // null = looked up, nothing found
+  },
+  async set(key, url) {
+    await put('covers', { key, url: url || '', at: Date.now() }).catch(() => {});
+  },
+  count: () => count('covers').catch(() => 0),
+  clear: () => clear('covers'),
 };
 
 /** Storage pressure, for the Settings panel. */

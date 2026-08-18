@@ -41,9 +41,9 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Build debug APK
+      - name: Build APK
         working-directory: android
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon assembleRelease
 
       # The web app is copied into the APK at build time rather than committed
       # twice, so a silent failure of that step would ship an empty shell.
@@ -62,8 +62,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk \
-             "dist/void-music-${GITHUB_REF_NAME//\//-}-debug.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk \
+             "dist/void-music-${GITHUB_REF_NAME//\//-}.apk"
           ls -lh dist/
 
       - name: Upload APK
@@ -100,47 +100,38 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      # A release build is only signable when a keystore is configured. Without
-      # one we fall back to publishing the debug-signed APK, which still
-      # installs — it just cannot be upgraded in place by a later signed build.
-      - name: Decode keystore
-        id: keystore
+      - name: Build signed APK
+        working-directory: android
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
+          # An optional secret overrides the checked-in key; without it the
+          # committed key is used, so every build still signs identically.
           if [ -n "${KEYSTORE_BASE64:-}" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/void.keystore"
-            echo "present=true" >> "$GITHUB_OUTPUT"
+            ./gradlew --no-daemon assembleRelease \
+              -PVOID_KEYSTORE="$RUNNER_TEMP/void.keystore" \
+              -PVOID_KEYSTORE_PASSWORD="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+              -PVOID_KEY_ALIAS="${{ secrets.ANDROID_KEY_ALIAS }}" \
+              -PVOID_KEY_PASSWORD="${{ secrets.ANDROID_KEY_PASSWORD }}"
           else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret; publishing the debug-signed APK instead."
+            ./gradlew --no-daemon assembleRelease
           fi
 
-      - name: Build release APK
-        if: steps.keystore.outputs.present == 'true'
-        working-directory: android
+      - name: Verify the APK is signed
         run: |
-          ./gradlew --no-daemon assembleRelease \
-            -PVOID_KEYSTORE="$RUNNER_TEMP/void.keystore" \
-            -PVOID_KEYSTORE_PASSWORD="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
-            -PVOID_KEY_ALIAS="${{ secrets.ANDROID_KEY_ALIAS }}" \
-            -PVOID_KEY_PASSWORD="${{ secrets.ANDROID_KEY_PASSWORD }}"
-
-      - name: Build debug APK
-        if: steps.keystore.outputs.present != 'true'
-        working-directory: android
-        run: ./gradlew --no-daemon assembleDebug
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          SIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$SIGNER" verify --print-certs "$APK" | grep -i "SHA-256 digest" | head -2
+          echo "signed OK"
 
       - name: Collect APK
         run: |
           set -euo pipefail
           mkdir -p dist
-          if [ "${{ steps.keystore.outputs.present }}" = "true" ]; then
-            cp android/app/build/outputs/apk/release/app-release.apk "dist/void-music-${TAG}.apk"
-          else
-            cp android/app/build/outputs/apk/debug/app-debug.apk "dist/void-music-${TAG}-debug.apk"
-          fi
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/void-music-${TAG}.apk"
           ls -lh dist/
 
       - name: Publish release
@@ -159,5 +150,5 @@ jobs:
             will ask you to allow installing from that source. No Play Store and
             no account needed.
 
-            This build is debug-signed unless repository signing secrets are
-            configured, which is what makes it installable with no setup.
+            Signed with the project's stable key, so this installs straight
+            over any earlier v1.2.0-or-later build without uninstalling first.

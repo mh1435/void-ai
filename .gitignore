@@ -19,6 +19,9 @@ android/captures/
 *.aab
 *.keystore
 *.jks
+# ...except the shared signing key, which must be identical for every build
+# or Android will not install one release over another.
+!android/keystore/void-signing.jks
 
 # Python bytecode from the icon generators
 __pycache__/

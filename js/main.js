@@ -224,10 +224,9 @@ function qualityLine(track) {
 function swapArt(selector, track, className) {
   const old = $(selector);
   if (!old) return;
-  const next = artNode(track.cover, '♪', className);
+  // smartArt looks up real artwork when the track carries none.
+  const next = V.smartArt(track, track.itemId || track.title, className);
   next.id = old.id;
-  const { c1, c2 } = tintFor(track.itemId || track.title);
-  next.style.background = `linear-gradient(140deg, ${c1}, ${c2})`;
   old.replaceWith(next);
 }
 
