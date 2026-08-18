@@ -61,16 +61,35 @@ files you already own — see below.
 
 ## Features
 
-**Playback** — queue with shuffle and repeat, seek, volume, pre-buffering, Media Session
-integration so lock-screen and headset buttons work on Android.
+**Playback** — queue with shuffle and repeat, seek, volume, Media Session integration so
+lock-screen and headset buttons work on Android, and an adjustable **crossfade** (0–12s under
+Settings → Playback). The player runs two audio decks: one is audible while the other holds
+what plays next, which is what makes the fade possible and makes plain "next" near-gapless
+even with crossfade off.
+
+**Queue** — open it from the now-playing screen to reorder tracks, drop ones you don't want,
+or jump straight to anything further down.
 
 **Library** — playlists, liked songs, and offline saves, all stored locally in IndexedDB.
 
 **Offline** — save any track to the device and it plays with the network switched off entirely.
 The app shell itself is cached by the service worker, so it launches offline too.
 
-**Import your own files** — add audio from your phone or computer under **Library → Import**.
-Files never leave the device; there is no server to upload them to.
+**Import your own files** — under **Library → Imported**, point the app at a whole folder (or
+drag one in) and everything inside comes at once. Titles, artists, albums, track numbers and
+embedded cover art are read out of the files themselves: ID3v2 for MP3, Vorbis comments for
+FLAC and Ogg/Opus, iTunes atoms for MP4, and the filename for anything untagged. Files never
+leave the device; there is no server to upload them to.
+
+**Lyrics** — synced, line by line, from LRCLIB where they exist.
+
+**Sleep timer** — 5 to 60 minutes or "end of this track", with a fade rather than a hard stop.
+
+**Listening history** — optional scrobbling to [ListenBrainz](https://listenbrainz.org): paste
+a user token under Settings. Listens that can't be sent are kept and submitted when the
+connection returns.
+
+**Appearance** — dark, light or follow-the-system, plus a true-black AMOLED mode.
 
 **Demo mode** — the *Offline Sessions* album is six short instrumentals **synthesised in your
 browser with Web Audio** the moment you press play. Nothing is downloaded, so it works with no
@@ -140,7 +159,11 @@ exactly as they do in a browser — with no server involved at all.
   app is backgrounded or the screen is off, with the notification Android requires in exchange.
   The audio still belongs to the WebView — there is no second player — the web app just tells
   the service when something is playing via `window.VoidNative`.
-- **File import.** The system file picker is wired to the web app's import control.
+- **File and folder import.** The system file picker is wired to the web app's import control.
+  A WebView has no equivalent of `<input webkitdirectory>`, so picking a *folder* goes through
+  the Storage Access Framework instead: the user grants one directory, the app walks it, and
+  the page reads each file back over its own origin (`/localfile/<id>`) rather than having the
+  bytes shovelled across the JavaScript bridge.
 - **Back button** maps to the app's own history.
 - **External links** (an item's "Source" button) open in the browser rather than inside the app.
 
@@ -172,8 +195,15 @@ sw.js                   service worker: shell caching + metadata SWR
 css/app.css             all styles
 js/net.js               timeouts, backoff, mirror racing, health tracking
 js/archive.js           Internet Archive client: search, metadata, stream URLs
-js/store.js             IndexedDB: playlists, likes, offline blobs, imports
-js/player.js            audio engine: queue, failover, Media Session
+js/store.js             IndexedDB: playlists, likes, offline blobs, imports, pending listens
+js/player.js            audio engine: two decks, crossfade, queue, failover, Media Session
+js/tags.js              ID3 / Vorbis / MP4 tag and cover-art reader
+js/import.js            folder import pipeline
+js/artwork.js           cover art: iTunes, then MusicBrainz + Cover Art Archive
+js/lyrics.js            synced lyrics from LRCLIB
+js/scrobble.js          ListenBrainz submission, with an offline queue
+js/theme.js             dark / light / system, AMOLED
+js/update.js            in-app check for a newer release
 js/demo.js              Web Audio synthesis for the offline demo album
 js/native.js            optional bridge to the Android wrapper (no-op in a browser)
 js/views.js             route views
@@ -189,8 +219,10 @@ tools/make_android_icons.py  regenerates the APK launcher icons
 - Saving a track for offline use needs a CORS-readable response from the mirror. Playback
   itself does not, so a host with strict CORS can still stream — the save will just report a
   failure it can't work around.
-- Cover art comes from `archive.org/services/img/`. If it's blocked, covers fall back to a
-  glyph and nothing else breaks.
+- Cover art is looked up from the item itself, then iTunes, then MusicBrainz and the Cover Art
+  Archive. Art that was never published anywhere cannot be fetched, and those tracks keep a
+  generated tile. Lookups are queued and cached — including misses — so a long scroll doesn't
+  become hundreds of requests.
 - Storage is per-browser. Clearing site data removes playlists, likes and offline audio; the
   app asks for persistent storage to reduce the chance of eviction under pressure.
 
