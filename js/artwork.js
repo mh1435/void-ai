@@ -45,6 +45,31 @@ function normalise(s) {
     .trim();
 }
 
+/**
+ * Archive titles are frequently video rips: "VIDEOCLUB Amour Plastique (Clip
+ * Officiel)". MusicBrainz will not match that, so strip the production noise
+ * and any artist name duplicated into the title before searching.
+ */
+function cleanTitle(title, artist) {
+  let t = String(title || '');
+
+  t = t.replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' ');
+  t = t.replace(
+    /\b(clip\s+officiel|official\s+(music\s+)?(video|audio)|lyrics?\s*video|lyric|visualizer|audio\s+officiel|mv|hd|4k|full\s+album|topic)\b/gi,
+    ' ',
+  );
+  t = t.replace(/\b(feat|ft|featuring|with)\b.*$/i, ' ');
+
+  // "VIDEOCLUB Amour Plastique" → "Amour Plastique"
+  const a = normalise(artist);
+  if (a) {
+    const n = normalise(t);
+    if (n.startsWith(`${a} `)) t = t.slice(t.toLowerCase().indexOf(a) + a.length);
+  }
+
+  return t.replace(/[\s\-–—_|]+/g, ' ').trim();
+}
+
 /** Values that carry no identifying information and cannot be looked up. */
 function isUseless(s) {
   const n = normalise(s);
@@ -144,25 +169,33 @@ export async function resolveCover({ artist, title, album }, { signal } = {}) {
   if (cached !== undefined) return cached;
   if (inFlight.has(key)) return inFlight.get(key);
 
-  const job = queued(async () => {
+  const cleanArtist = String(artist).replace(/\([^)]*\)/g, ' ').trim();
+  const cleanSubject = cleanTitle(subject, artist) || subject;
+
+  const job = (async () => {
     let url = null;
     try {
-      url = !isUseless(album)
-        ? await lookupRelease(artist, album, signal)
-        : await lookupRecording(artist, title, signal);
+      // Try the release first — one hit covers a whole record. Fall back to
+      // the recording, which catches singles and loose uploads.
+      url = await queued(() => lookupRelease(cleanArtist, cleanSubject, signal));
+      if (url && !(await imageLoads(url, signal))) url = null;
+
+      if (!url) {
+        url = await queued(() => lookupRecording(cleanArtist, cleanSubject, signal));
+        if (url && !(await imageLoads(url, signal))) url = null;
+      }
       consecutiveFailures = 0;
-    } catch (err) {
-      if (++consecutiveFailures >= 4) {
+    } catch {
+      if (++consecutiveFailures >= 5) {
         disabled = true;
         diag.log('warn', 'cover lookup unavailable — using generated artwork');
       }
       url = null;
     }
 
-    if (url && !(await imageLoads(url, signal))) url = null;
     await covers.set(key, url);
     return url;
-  }).finally(() => inFlight.delete(key));
+  })().finally(() => inFlight.delete(key));
 
   inFlight.set(key, job);
   return job;

@@ -174,7 +174,11 @@ function normaliseDoc(d) {
     creator: cleanText(firstOf(d.creator)) || 'Unknown artist',
     year: firstOf(d.year) || '',
     downloads: Number(d.downloads) || 0,
-    cover: coverUrl(d.identifier),
+    // No cover from the search index on purpose. The only artwork available
+    // for an identifier alone is __ia_thumb.jpg, which for an audio item is
+    // rendered from its waveform — so it is never the record's cover. Leaving
+    // this null hands the job to the artwork lookup, which finds the real one.
+    cover: null,
   };
 }
 
@@ -240,20 +244,30 @@ function trackNumber(t) {
   return m ? Number(m[1]) : null;
 }
 
-/**
- * Cover art for an item we only know the identifier of.
- *
- * Deliberately NOT /services/img/: that endpoint never 404s — for an item with
- * no artwork it happily returns a generic audio-waveform icon, so the app
- * cannot tell "real cover" from "no cover" and ends up showing the same grey
- * squiggle everywhere. Asking for the derived thumbnail directly fails cleanly
- * when there is none, letting the UI fall back to its own coloured tile.
- */
-export function coverUrl(identifier, base = DEFAULT_BASE) {
-  return `${base}/download/${encodeURIComponent(identifier)}/__ia_thumb.jpg`;
-}
-
 const IMAGE_RE = /\.(jpe?g|png|webp|gif)$/i;
+
+/**
+ * Is this image a picture of the sound rather than a picture of the record?
+ *
+ * The Archive renders a waveform PNG and a spectrogram for every audio upload,
+ * and derives __ia_thumb.jpg from them. They are images, they sit in the file
+ * list next to real artwork, and they look like grey static — so treating any
+ * image as a cover fills the app with identical squiggles AND suppresses the
+ * fallback lookup, because the code thinks it already found a cover.
+ */
+function isGeneratedImage(file) {
+  const name = String(file.name).toLowerCase();
+  if (/(spectrogram|waveform|__ia_thumb|_thumb\.)/.test(name)) return true;
+
+  // A derivative produced *from* an audio file is a visualisation of it.
+  if (file.original && /\.(mp3|flac|ogg|wav|m4a|aiff?|shn|ape)$/i.test(file.original)) return true;
+
+  // Real artwork is uploaded, not generated — unless it names itself a cover.
+  if (file.source === 'derivative' && !/(cover|front|folder|album|artwork|sleeve)/.test(name)) {
+    return true;
+  }
+  return false;
+}
 
 /** Rank an item's image files so the front cover wins over a disc scan. */
 function coverScore(file) {
@@ -277,8 +291,9 @@ function coverScore(file) {
  */
 function pickCover(meta) {
   const files = Array.isArray(meta.files) ? meta.files : [];
-  const images = files.filter((f) => f?.name && f.source !== 'metadata' && IMAGE_RE.test(f.name));
-  if (!images.length) return null;
+  const images = files.filter((f) =>
+    f?.name && f.source !== 'metadata' && IMAGE_RE.test(f.name) && !isGeneratedImage(f));
+  if (!images.length) return null;   // null lets the artwork lookup take over
   images.sort((a, b) => coverScore(b) - coverScore(a));
   return streamUrls(meta, images[0].name)[0] || null;
 }
@@ -501,10 +516,18 @@ const EP_MAX_TRACKS = 4;
  * each item, which is why this is capped rather than unbounded.
  */
 export async function getArtist(name, { signal, max = 14 } = {}) {
-  const { items } = await search({ creator: name, rows: max * 2, signal });
-  if (!items.length) throw new Error(`Nothing found for ${name}`);
+  const { items } = await search({ creator: name, rows: max * 3, signal });
 
-  const top = items.slice(0, max);
+  // The index matches creator by token, so asking for "Videoclub" also returns
+  // "closed videoclub" and "TOKYO-3 VIDEOCLUB" — different acts that merely
+  // share a word. An artist page must be one artist, so keep exact names only.
+  const wanted = norm(name);
+  const exact = items.filter((i) => norm(i.creator) === wanted);
+  const pool = exact.length ? exact : items;
+
+  if (!pool.length) throw new Error(`Nothing found for ${name}`);
+
+  const top = pool.slice(0, max);
   const loaded = [];
 
   await mapLimit(top, 4, async (item) => {

@@ -129,7 +129,9 @@ export function trackRow(track, queue, opts = {}) {
     },
   });
 
-  row.append(smartArt(track, track.itemId || track.title, 'track-art'));
+  // Seeded per track, so songs still lacking artwork read as distinct rows
+  // rather than a column of the same colour.
+  row.append(smartArt(track, track.id || track.title, 'track-art'));
 
   row.append(el('div', { class: 'track-main' },
     el('div', { class: 'track-title' }, track.title),
@@ -531,7 +533,11 @@ export async function renderSearch(query) {
 
     const q = query.toLowerCase().trim();
     const artists = A.artistsFrom(res.items);
-    const match = artists.find((a) => a.name.toLowerCase().includes(q));
+    // Exact name wins over one that merely contains the query, so searching
+    // "videoclub" leads with Videoclub, not "closed videoclub".
+    const match = artists.find((a) => a.name.toLowerCase() === q)
+      || artists.find((a) => a.name.toLowerCase().startsWith(q))
+      || artists.find((a) => a.name.toLowerCase().includes(q));
 
     // A confident artist match becomes the top result, the way a search for a
     // person should lead with the person rather than one of their records.
@@ -848,6 +854,7 @@ export async function renderLibrary() {
   const body = el('div', {});
 
   const tabs = [
+    ['songs', 'Songs'],
     ['liked', 'Liked'],
     ['playlists', 'Playlists'],
     ['artists', 'Artists'],
@@ -874,18 +881,22 @@ export async function renderLibrary() {
 async function paintLibraryTab(body) {
   body.replaceChildren(loadingRow());
 
-  if (libraryTab === 'liked') {
-    const tracks = await likes.all();
+  if (libraryTab === 'songs' || libraryTab === 'liked') {
+    const tracks = libraryTab === 'liked'
+      ? await likes.all()
+      : dedupeById([...await likes.all(), ...await offline.all(), ...await local.all()]);
     body.replaceChildren(tracks.length
       ? el('div', {},
-          playAllBar(tracks, 'Liked Songs'),
+          playAllBar(tracks, libraryTab === 'liked' ? 'Liked Songs' : 'Your songs'),
           el('div', { class: 'tracks' },
             ...tracks.map((t) => trackRow(t, tracks, {
-              context: 'Liked Songs',
-              onRemove: async (x) => { await likes.remove(x.id); likedIds.delete(x.id); renderLibrary(); },
+              context: libraryTab === 'liked' ? 'Liked Songs' : 'Your songs',
+              onRemove: libraryTab === 'liked'
+                ? async (x) => { await likes.remove(x.id); likedIds.delete(x.id); renderLibrary(); }
+                : null,
             }))))
       : emptyState({
-          emoji: '♡', title: 'No liked songs yet',
+          emoji: '♡', title: libraryTab === 'liked' ? 'No liked songs yet' : 'No songs yet',
           body: 'Tap the ⋮ on any track and save it here.',
           action: el('button', { class: 'btn', type: 'button', onclick: () => navigate('#/search') }, 'Find something'),
         }));
@@ -1022,6 +1033,12 @@ async function importFiles(files, input) {
   }
   toast(`Imported ${ok} file${ok === 1 ? '' : 's'}`, 'ok');
   renderLibrary();
+}
+
+/** Same recording can be liked, saved offline and imported; show it once. */
+function dedupeById(tracks) {
+  const seen = new Set();
+  return tracks.filter((t) => !seen.has(t.id) && seen.add(t.id));
 }
 
 function playAllBar(tracks, context) {
@@ -1249,7 +1266,7 @@ export async function renderSettings() {
   root.append(el('div', { class: 'group' },
     el('div', { class: 'setting static' },
       el('span', { class: 'setting-icon' }, svg(ICONS.play, 22)),
-      el('span', { class: 'setting-body' }, el('strong', {}, 'Void Music'), el('span', {}, 'Version 1.2.0 · MIT')),
+      el('span', { class: 'setting-body' }, el('strong', {}, 'Void Music'), el('span', {}, 'Version 1.2.1 · MIT')),
     ),
   ));
 
