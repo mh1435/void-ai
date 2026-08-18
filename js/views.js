@@ -97,6 +97,23 @@ export function trackRow(track, queue, opts = {}) {
   }
   row.append(right);
 
+  // Saving for offline is the action people reach for most, so it gets its own
+  // target rather than living one tap deep in the menu.
+  if (track.source !== 'local') {
+    const dl = el('button', {
+      class: 'icon-btn row-dl', type: 'button',
+      'aria-label': `Save ${track.title} for offline`,
+      'aria-pressed': String(offlineIds.has(track.id)),
+      onclick: async (e) => {
+        e.stopPropagation();
+        await downloadTrack(track, e.currentTarget);
+      },
+    }, svg(ICONS.download, 19));
+    row.append(dl);
+  } else {
+    row.append(el('span', {}));
+  }
+
   row.append(el('button', {
     class: 'icon-btn row-menu', type: 'button', 'aria-label': `Options for ${track.title}`,
     onclick: (e) => { e.stopPropagation(); openTrackMenu(track, onRemove); },
@@ -215,23 +232,29 @@ export async function openPlaylistPicker(tracks) {
 
 /* ── Offline downloads ─────────────────────────────────────────────── */
 
-async function downloadTrack(track) {
+async function downloadTrack(track, btn) {
   if (offlineIds.has(track.id)) {
     await offline.remove(track.id);
     offlineIds.delete(track.id);
+    btn?.setAttribute('aria-pressed', 'false');
     toast('Removed offline copy');
     return;
   }
+
+  btn?.classList.add('busy');
   const t = toast(`Saving “${track.title}”…`, '', 60000);
   try {
     const blob = isDemoTrack(track) ? await renderDemoBlob(track) : await A.fetchTrackBlob(track);
     await offline.save(track, blob);
     offlineIds.add(track.id);
     t?.remove();
+    btn?.setAttribute('aria-pressed', 'true');
     toast(`Saved — ${fmtBytes(blob.size)}`, 'ok');
   } catch (err) {
     t?.remove();
     toast(`Couldn't save: ${err.message}`, 'err', 5000);
+  } finally {
+    btn?.classList.remove('busy');
   }
 }
 
@@ -443,44 +466,59 @@ export async function renderSearch(query) {
     return;
   }
 
+  const topSlot = el('div', {});
   const songSection = el('section', { class: 'section' },
     sectionHead('Songs'),
     loadingRow('Finding songs…'));
+  const artistSection = el('section', { class: 'section' });
   const albumSection = el('section', { class: 'section' },
-    sectionHead('Albums & sets'), skeletonShelf(4));
-  body.replaceChildren(songSection, albumSection);
+    sectionHead('Albums'), skeletonShelf(4));
+  body.replaceChildren(topSlot, songSection, artistSection, albumSection);
 
-  // Albums resolve from a single request, so show them first.
-  A.search({ query, rows: 24, signal }).then((res) => {
+  // Albums resolve from a single request, so they land well before songs.
+  A.search({ query, rows: 30, signal }).then((res) => {
     if (signal.aborted) return;
 
-    // Searching an artist should lead with their records, laid out in full
-    // rather than hidden in a side-scroller.
     const q = query.toLowerCase().trim();
-    const byArtist = res.items.filter((i) => (i.creator || '').toLowerCase().includes(q));
-    const isArtistSearch = q.length > 2 && byArtist.length >= Math.max(2, res.items.length * 0.35);
+    const artists = A.artistsFrom(res.items);
+    const match = artists.find((a) => a.name.toLowerCase().includes(q));
 
-    if (isArtistSearch) {
-      const artistName = byArtist[0].creator;
-      const others = res.items.filter((i) => !byArtist.includes(i));
-      albumSection.replaceChildren(
-        sectionHead(`Albums by ${artistName}`),
-        el('div', { class: 'grid-shelf' }, ...byArtist.map((i) => itemTile(i))),
-        others.length ? sectionHead('Also matching') : null,
-        others.length ? el('div', { class: 'shelf' }, ...others.map((i) => itemTile(i))) : null,
-      );
-      body.prepend(albumSection);
-    } else {
-      albumSection.replaceChildren(
-        sectionHead('Albums & sets'),
-        res.items.length
-          ? el('div', { class: 'shelf' }, ...res.items.map((i) => itemTile(i)))
-          : el('p', { class: 'modal-hint' }, 'No matching albums.'),
+    // A confident artist match becomes the top result, the way a search for a
+    // person should lead with the person rather than one of their records.
+    if (match && q.length > 2) {
+      topSlot.replaceChildren(el('button', {
+        class: 'top-result', type: 'button',
+        onclick: () => navigate(`#/artist/${encodeURIComponent(match.name)}`),
+      },
+        tintedArt(match.cover, match.name, 'top-art'),
+        el('div', { class: 'top-body' },
+          el('div', { class: 'top-kicker' }, 'Artist'),
+          el('div', { class: 'top-name' }, match.name),
+          el('div', { class: 'tile-sub' },
+            `${match.releases} release${match.releases === 1 ? '' : 's'}`),
+        ),
+        el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 22)),
+      ));
+    }
+
+    const others = artists.filter((a) => a !== match).slice(0, 10);
+    if (others.length) {
+      artistSection.replaceChildren(
+        sectionHead('Artists'),
+        el('div', { class: 'shelf' }, ...others.map(artistTile)),
       );
     }
+
+    // Split the way the releases actually divide: full records vs short ones.
+    albumSection.replaceChildren(
+      sectionHead('Albums'),
+      res.items.length
+        ? el('div', { class: 'shelf' }, ...res.items.map((i) => itemTile(i)))
+        : el('p', { class: 'modal-hint' }, 'No matching albums.'),
+    );
   }).catch((err) => {
     if (signal.aborted) return;
-    albumSection.replaceChildren(sectionHead('Albums & sets'),
+    albumSection.replaceChildren(sectionHead('Albums'),
       networkError(err, () => renderSearch(query)));
   });
 
@@ -661,6 +699,92 @@ function paintItem(item) {
   mount(root, null);
 }
 
+/* ── Artist ────────────────────────────────────────────────────────── */
+
+export async function renderArtist(name) {
+  const signal = freshSignal();
+  mount(el('div', {}, loadingRow(`Loading ${name}…`)), null);
+
+  let artist;
+  try {
+    artist = await A.getArtist(name, { signal });
+  } catch (err) {
+    if (signal.aborted) return;
+    mount(el('div', {}, networkError(err, () => renderArtist(name))), name);
+    return;
+  }
+  if (signal.aborted) return;
+  await refreshMarks();
+
+  const root = el('div', {});
+
+  root.append(el('div', { class: 'artist-head' },
+    tintedArt(artist.cover, name, 'artist-photo', '♪'),
+    el('div', { class: 'artist-id' },
+      el('div', { class: 'item-kicker' }, 'Artist'),
+      el('h1', {}, name),
+      el('div', { class: 'item-meta' },
+        `${artist.releaseCount} release${artist.releaseCount === 1 ? '' : 's'}`),
+    ),
+  ));
+
+  if (artist.songs.length) {
+    root.append(el('div', { class: 'item-actions', style: 'margin-bottom:20px' },
+      el('button', { class: 'btn', type: 'button', onclick: () => P.playAll(artist.songs, 0, name) },
+        svg(ICONS.play, 18), 'Play'),
+      el('button', {
+        class: 'btn secondary', type: 'button',
+        onclick: () => {
+          if (!P.state.shuffle) P.toggleShuffle();
+          P.playAll(artist.songs, Math.floor(Math.random() * artist.songs.length), name);
+        },
+      }, 'Shuffle'),
+    ));
+
+    root.append(el('section', { class: 'section' },
+      sectionHead('Songs'),
+      el('div', { class: 'tracks' },
+        ...artist.songs.map((t) => trackRow(t, artist.songs, { context: name, showSource: false }))),
+    ));
+  }
+
+  if (artist.albums.length) {
+    root.append(el('section', { class: 'section' },
+      sectionHead('Albums'),
+      el('div', { class: 'shelf' }, ...artist.albums.map((i) => itemTile(i))),
+    ));
+  }
+
+  if (artist.singles.length) {
+    root.append(el('section', { class: 'section' },
+      sectionHead('Singles & EPs'),
+      el('div', { class: 'shelf' }, ...artist.singles.map((i) => itemTile(i))),
+    ));
+  }
+
+  if (artist.about) {
+    root.append(el('section', { class: 'section' },
+      sectionHead('About'),
+      el('div', { class: 'about-card' }, el('p', {}, artist.about)),
+    ));
+  }
+
+  mount(root, null);
+}
+
+function artistTile(artist) {
+  const tile = el('button', {
+    class: 'tile artist-tile', type: 'button',
+    onclick: () => navigate(`#/artist/${encodeURIComponent(artist.name)}`),
+  });
+  tile.append(
+    tintedArt(artist.cover, artist.name, 'tile-art round'),
+    el('div', { class: 'tile-title' }, artist.name),
+    el('div', { class: 'tile-sub' }, `${artist.releases} release${artist.releases === 1 ? '' : 's'}`),
+  );
+  return tile;
+}
+
 /* ── Library ───────────────────────────────────────────────────────── */
 
 let libraryTab = 'liked';
@@ -675,6 +799,8 @@ export async function renderLibrary() {
   const tabs = [
     ['liked', 'Liked'],
     ['playlists', 'Playlists'],
+    ['artists', 'Artists'],
+    ['albums', 'Albums'],
     ['imported', 'Imported'],
   ];
 
@@ -711,6 +837,49 @@ async function paintLibraryTab(body) {
           emoji: '♡', title: 'No liked songs yet',
           body: 'Tap the ⋮ on any track and save it here.',
           action: el('button', { class: 'btn', type: 'button', onclick: () => navigate('#/search') }, 'Find something'),
+        }));
+    return;
+  }
+
+  // Artists and Albums are derived from what you have actually kept, so the
+  // library reflects your collection without needing a second index.
+  if (libraryTab === 'artists' || libraryTab === 'albums') {
+    const mine = [...await likes.all(), ...await offline.all()];
+    const groups = new Map();
+
+    for (const track of mine) {
+      const key = libraryTab === 'artists'
+        ? (track.artist || 'Unknown artist')
+        : (track.album || track.albumTitle || 'Unknown album');
+      const entry = groups.get(key) || { key, tracks: [], cover: null, itemId: track.itemId };
+      entry.tracks.push(track);
+      if (!entry.cover && track.cover) entry.cover = track.cover;
+      groups.set(key, entry);
+    }
+
+    const list = [...groups.values()].sort((a, b) => b.tracks.length - a.tracks.length);
+    body.replaceChildren(list.length
+      ? el('div', { class: 'grid-shelf' }, ...list.map((g) => {
+          const tile = el('button', {
+            class: 'tile', type: 'button',
+            onclick: () => {
+              if (libraryTab === 'artists') navigate(`#/artist/${encodeURIComponent(g.key)}`);
+              else if (g.itemId && g.itemId !== 'local') navigate(`#/item/${encodeURIComponent(g.itemId)}`);
+              else P.playAll(g.tracks, 0, g.key);
+            },
+          });
+          const art = tintedArt(g.cover, g.key, 'tile-art');
+          if (libraryTab === 'artists') art.classList.add('round');
+          tile.append(art,
+            el('div', { class: 'tile-title' }, g.key),
+            el('div', { class: 'tile-sub' }, `${g.tracks.length} track${g.tracks.length === 1 ? '' : 's'}`));
+          return tile;
+        }))
+      : emptyState({
+          emoji: libraryTab === 'artists' ? '☺' : '◎',
+          title: `No ${libraryTab} yet`,
+          body: 'Like a song or save it offline and it shows up here, grouped automatically.',
+          action: el('button', { class: 'btn', type: 'button', onclick: () => navigate('#/search') }, 'Find music'),
         }));
     return;
   }
@@ -1029,7 +1198,7 @@ export async function renderSettings() {
   root.append(el('div', { class: 'group' },
     el('div', { class: 'setting static' },
       el('span', { class: 'setting-icon' }, svg(ICONS.play, 22)),
-      el('span', { class: 'setting-body' }, el('strong', {}, 'Void Music'), el('span', {}, 'Version 1.1.1 · MIT')),
+      el('span', { class: 'setting-body' }, el('strong', {}, 'Void Music'), el('span', {}, 'Version 1.2.0 · MIT')),
     ),
   ));
 

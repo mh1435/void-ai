@@ -17,6 +17,7 @@ const ROUTES = [
   [/^#\/search\/(.+)$/,     (m) => V.renderSearch(decodeURIComponent(m[1]))],
   [/^#\/collection\/(.+)$/, (m) => V.renderCollection(decodeURIComponent(m[1]))],
   [/^#\/item\/(.+)$/,       (m) => V.renderItem(decodeURIComponent(m[1]))],
+  [/^#\/artist\/(.+)$/,     (m) => V.renderArtist(decodeURIComponent(m[1]))],
   [/^#\/library$/,          () => V.renderLibrary()],
   [/^#\/offline$/,          () => V.renderOffline()],
   [/^#\/playlist\/(.+)$/,   (m) => V.renderPlaylist(decodeURIComponent(m[1]))],
@@ -28,7 +29,7 @@ function navKeyFor(hash) {
   if (hash.startsWith('#/settings')) return 'settings';
   if (hash.startsWith('#/offline')) return 'offline';
   if (/^#\/(library|playlist)/.test(hash)) return 'library';
-  if (/^#\/(collection|item)/.test(hash)) return '';
+  if (/^#\/(collection|item|artist)/.test(hash)) return '';
   return 'home';
 }
 

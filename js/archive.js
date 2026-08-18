@@ -93,9 +93,13 @@ const NON_MUSIC_COLLECTIONS = [
   'samples_only', 'audio_tech', 'gratefuldead_covers_only', 'gdlivetapes',
 ];
 
-function buildQuery({ query, collection, musicOnly = true }) {
+function buildQuery({ query, collection, creator, musicOnly = true }) {
   const parts = ['mediatype:(audio)'];
   if (collection) parts.push(`collection:(${escapeLucene(collection)})`);
+
+  // An artist page wants only that artist's records, not everything mentioning
+  // them, so creator is matched on its own rather than OR'd with the title.
+  if (creator) parts.push(`creator:("${escapeLucene(creator)}")`);
 
   if (query) {
     const q = escapeLucene(query);
@@ -116,9 +120,9 @@ function buildQuery({ query, collection, musicOnly = true }) {
 /**
  * Search the Archive. Returns { total, items:[{id,title,creator,year,downloads}] }.
  */
-export async function search({ query = '', collection = '', page = 1, rows = 48, signal } = {}) {
+export async function search({ query = '', collection = '', creator = '', page = 1, rows = 48, signal } = {}) {
   const params = new URLSearchParams();
-  params.set('q', buildQuery({ query, collection }));
+  params.set('q', buildQuery({ query, collection, creator }));
   for (const f of ['identifier', 'title', 'creator', 'year', 'downloads', 'item_size']) {
     params.append('fl[]', f);
   }
@@ -481,6 +485,90 @@ export async function searchSongs({ query, signal, itemLimit = 12, limit = 40, o
   });
 
   return found.slice(0, limit);
+}
+
+/* ── Artists ───────────────────────────────────────────────────────── */
+
+/** Items with only a handful of tracks read as a single or EP, not an album. */
+const EP_MAX_TRACKS = 4;
+
+/**
+ * Everything an artist page needs: their records split into albums and
+ * singles/EPs, their most-played songs, and a blurb.
+ *
+ * The Archive has no artist entity — only items with a `creator` field — so an
+ * "artist" here is assembled from their items. Track counts require reading
+ * each item, which is why this is capped rather than unbounded.
+ */
+export async function getArtist(name, { signal, max = 14 } = {}) {
+  const { items } = await search({ creator: name, rows: max * 2, signal });
+  if (!items.length) throw new Error(`Nothing found for ${name}`);
+
+  const top = items.slice(0, max);
+  const loaded = [];
+
+  await mapLimit(top, 4, async (item) => {
+    if (signal?.aborted) return;
+    try {
+      loaded.push(await getItem(item.id, { signal }));
+    } catch { /* skip unreadable items */ }
+  });
+
+  // Preserve the relevance order the search gave us.
+  const rank = new Map(top.map((i, idx) => [i.id, idx]));
+  loaded.sort((a, b) => (rank.get(a.id) ?? 99) - (rank.get(b.id) ?? 99));
+
+  const albums = loaded.filter((i) => i.tracks.length > EP_MAX_TRACKS);
+  const singles = loaded.filter((i) => i.tracks.length <= EP_MAX_TRACKS);
+
+  // "Top songs" = the first tracks of their most prominent releases, so the
+  // list opens with recognisable material rather than track 9 of a B-sides set.
+  const songs = [];
+  const seen = new Set();
+  for (const item of loaded) {
+    for (const track of item.tracks.slice(0, 3)) {
+      const key = `${track.title.toLowerCase()}|${track.artist.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      songs.push(track);
+    }
+  }
+
+  const withArt = loaded.find((i) => i.cover);
+  const withText = loaded.find((i) => i.description && i.description.length > 60);
+
+  return {
+    name,
+    cover: withArt?.cover || null,
+    about: withText?.description || '',
+    releaseCount: loaded.length,
+    songs: songs.slice(0, 12),
+    albums,
+    singles,
+  };
+}
+
+/**
+ * Distinct artists among a set of search results, most prominent first.
+ * Used for the "Artists" row and the top-result card.
+ */
+export function artistsFrom(items) {
+  const byName = new Map();
+  for (const item of items) {
+    const name = (item.creator || '').trim();
+    if (!name || /^(various|unknown)/i.test(name)) continue;
+    const entry = byName.get(name.toLowerCase());
+    if (entry) {
+      entry.releases++;
+      entry.downloads += item.downloads || 0;
+      if (!entry.cover) entry.cover = item.cover;
+    } else {
+      byName.set(name.toLowerCase(), {
+        name, releases: 1, downloads: item.downloads || 0, cover: item.cover,
+      });
+    }
+  }
+  return [...byName.values()].sort((a, b) => b.releases - a.releases || b.downloads - a.downloads);
 }
 
 function stripHtml(html) {

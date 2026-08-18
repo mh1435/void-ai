@@ -300,13 +300,53 @@ svg { width: 22px; height: 22px; fill: currentColor; display: block; }
 }
 .chart-art img { width: 100%; height: 100%; object-fit: cover; }
 
+/* ── Top result & artists ──────────────────────────────────────────── */
+
+.top-result {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  background: var(--panel); border-radius: var(--r-md);
+  padding: 12px 14px; margin-bottom: 24px; cursor: pointer; text-align: left;
+  transition: background .15s var(--ease);
+}
+.top-result:hover { background: var(--panel-2); }
+.top-art {
+  width: 72px; height: 72px; border-radius: var(--r-sm); flex: none;
+  overflow: hidden; display: grid; place-items: center;
+}
+.top-art img { width: 100%; height: 100%; object-fit: cover; }
+.top-body { flex: 1; min-width: 0; }
+.top-kicker { font-size: 11.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--accent-2); }
+.top-name {
+  font-size: 21px; font-weight: 800; letter-spacing: -.3px; margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Round art reads as "person" rather than "record". */
+.tile-art.round, .artist-photo { border-radius: 50%; }
+.artist-tile { text-align: center; }
+
+.artist-head { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; margin-bottom: 20px; }
+.artist-photo {
+  width: 150px; height: 150px; overflow: hidden; flex: none;
+  display: grid; place-items: center; box-shadow: var(--shadow);
+}
+.artist-photo img { width: 100%; height: 100%; object-fit: cover; }
+.artist-photo .art-glyph { font-size: 46px; }
+.artist-head h1 { font-size: 27px; font-weight: 800; letter-spacing: -.5px; }
+
+.about-card {
+  background: var(--panel); border-radius: var(--r-md); padding: 16px 18px;
+}
+.about-card p { margin: 0; font-size: 14px; line-height: 1.65; color: var(--muted); }
+
 /* ── Track rows ────────────────────────────────────────────────────── */
 
 .tracks { display: flex; flex-direction: column; gap: 2px; }
 
 .track {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto auto;
+  /* art · main · meta · download · menu */
+  grid-template-columns: 46px minmax(0, 1fr) auto auto auto;
   align-items: center; gap: 12px;
   padding: 7px 4px; border-radius: var(--r-sm);
   cursor: pointer;
@@ -348,8 +388,16 @@ svg { width: 22px; height: 22px; fill: currentColor; display: block; }
 .src-dot[data-src="offline"]::before { background: var(--cyan); }
 .src-dot[data-src="local"]::before  { background: var(--ok); }
 
-.row-menu { width: 34px; height: 34px; }
-.row-menu svg { width: 18px; height: 18px; }
+.row-menu, .row-dl { width: 34px; height: 34px; }
+.row-menu svg, .row-dl svg { width: 18px; height: 18px; }
+.row-dl[aria-pressed="true"] { color: var(--cyan); }
+.row-dl.busy { animation: pulse-dl 1s ease-in-out infinite; }
+@keyframes pulse-dl { 50% { opacity: .35; } }
+
+/* On narrow phones the source label is the first thing to go. */
+@media (max-width: 400px) {
+  .src-dot { display: none; }
+}
 
 /* ── Buttons ───────────────────────────────────────────────────────── */
 
