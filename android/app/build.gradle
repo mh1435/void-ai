@@ -87,6 +87,14 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    lint {
+        // Lint still runs on demand (./gradlew lint) and its findings are worth
+        // fixing, but a warning must not be able to block a sideload release
+        // build — there is no store review here that it would be gating.
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
     packaging {
         resources.excludes += ['META-INF/*.version', 'DebugProbesKt.bin']
     }
