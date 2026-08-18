@@ -236,8 +236,47 @@ function trackNumber(t) {
   return m ? Number(m[1]) : null;
 }
 
+/**
+ * Cover art for an item we only know the identifier of.
+ *
+ * Deliberately NOT /services/img/: that endpoint never 404s — for an item with
+ * no artwork it happily returns a generic audio-waveform icon, so the app
+ * cannot tell "real cover" from "no cover" and ends up showing the same grey
+ * squiggle everywhere. Asking for the derived thumbnail directly fails cleanly
+ * when there is none, letting the UI fall back to its own coloured tile.
+ */
 export function coverUrl(identifier, base = DEFAULT_BASE) {
-  return `${base}/services/img/${encodeURIComponent(identifier)}`;
+  return `${base}/download/${encodeURIComponent(identifier)}/__ia_thumb.jpg`;
+}
+
+const IMAGE_RE = /\.(jpe?g|png|webp|gif)$/i;
+
+/** Rank an item's image files so the front cover wins over a disc scan. */
+function coverScore(file) {
+  const name = String(file.name).toLowerCase();
+  let score = 0;
+  if (/(cover|front|folder|album|artwork|sleeve)/.test(name)) score += 40;
+  if (/(back|disc|cd\d|label|inside|tray|booklet|liner|spine)/.test(name)) score -= 25;
+  if (file.format === 'Item Tile') score += 30;
+  if (name.includes('__ia_thumb')) score += 5;
+  // Thumbnails are tiny; prefer something worth looking at full-screen.
+  const size = Number(file.size) || 0;
+  if (size > 40000) score += 8;
+  else if (size < 6000) score -= 8;
+  return score;
+}
+
+/**
+ * Real artwork embedded in the item, if any. Many Archive audio items — live
+ * concert tapes especially — genuinely have none, and saying so is better than
+ * showing a placeholder that looks like a broken image.
+ */
+function pickCover(meta) {
+  const files = Array.isArray(meta.files) ? meta.files : [];
+  const images = files.filter((f) => f?.name && f.source !== 'metadata' && IMAGE_RE.test(f.name));
+  if (!images.length) return null;
+  images.sort((a, b) => coverScore(b) - coverScore(a));
+  return streamUrls(meta, images[0].name)[0] || null;
 }
 
 /**
@@ -291,6 +330,9 @@ export async function getItem(identifier, { signal } = {}) {
 
   const albumArtist = cleanText(firstOf(md.creator)) || 'Unknown artist';
   const albumTitle = cleanText(firstOf(md.title)) || identifier;
+  // null when the item genuinely ships no artwork, so the UI can draw its own
+  // tile instead of the Archive's generic waveform placeholder.
+  const cover = pickCover(meta);
 
   const tracks = [...groups.values()].map(({ file, info }, i) => {
     const num = trackNumber(file.track);
@@ -306,7 +348,7 @@ export async function getItem(identifier, { signal } = {}) {
       mime: info.mime,
       ext: info.ext,
       trackNo: num ?? i + 1,
-      cover: coverUrl(meta.identifier),
+      cover,
       urls: streamUrls(meta, file.name),
       source: 'archive',
     };
@@ -326,7 +368,8 @@ export async function getItem(identifier, { signal } = {}) {
     year: cleanText(firstOf(md.year || md.date)) || '',
     description: stripHtml(firstOf(md.description) || ''),
     licence: cleanText(firstOf(md.licenseurl) || ''),
-    cover: coverUrl(meta.identifier),
+    collections: [].concat(md.collection || []).filter(Boolean),
+    cover,
     pageUrl: `${DEFAULT_BASE}/details/${encodeURIComponent(meta.identifier)}`,
     tracks,
   };
@@ -353,6 +396,11 @@ function scoreTrack(track, qNorm, qTerms) {
   if (title === qNorm) score += 100;
   else if (title.startsWith(qNorm)) score += 70;
   else if (title.includes(qNorm)) score += 55;
+
+  // Searching an artist must surface that artist's songs, so a full name match
+  // on its own has to clear the relevance floor by itself.
+  if (artist === qNorm) score += 60;
+  else if (artist.includes(qNorm)) score += 40;
 
   const inTitle = qTerms.filter((w) => title.includes(w)).length;
   const inArtist = qTerms.filter((w) => artist.includes(w)).length;
@@ -410,8 +458,12 @@ export async function searchSongs({ query, signal, itemLimit = 12, limit = 40, o
       return; // one unreadable item must not sink the whole search
     }
 
+    // Live concert tapes dominate the Archive and rarely carry artwork, so
+    // nudge them below studio releases. They still show up, just not first.
+    const isLiveTape = full.collections?.some((c) => /^(etree|gdlive|stream_only)/.test(c));
+
     const best = full.tracks
-      .map((track) => ({ track, score: scoreTrack(track, qNorm, qTerms) }))
+      .map((track) => ({ track, score: scoreTrack(track, qNorm, qTerms) - (isLiveTape ? 12 : 0) }))
       .filter((x) => x.score >= 25)
       .sort((a, b) => b.score - a.score)
       .slice(0, 4); // don't let one album flood the results

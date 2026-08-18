@@ -453,39 +453,70 @@ export async function renderSearch(query) {
   // Albums resolve from a single request, so show them first.
   A.search({ query, rows: 24, signal }).then((res) => {
     if (signal.aborted) return;
-    albumSection.replaceChildren(
-      sectionHead('Albums & sets'),
-      res.items.length
-        ? el('div', { class: 'shelf' }, ...res.items.map((i) => itemTile(i)))
-        : el('p', { class: 'modal-hint' }, 'No matching albums.'),
-    );
+
+    // Searching an artist should lead with their records, laid out in full
+    // rather than hidden in a side-scroller.
+    const q = query.toLowerCase().trim();
+    const byArtist = res.items.filter((i) => (i.creator || '').toLowerCase().includes(q));
+    const isArtistSearch = q.length > 2 && byArtist.length >= Math.max(2, res.items.length * 0.35);
+
+    if (isArtistSearch) {
+      const artistName = byArtist[0].creator;
+      const others = res.items.filter((i) => !byArtist.includes(i));
+      albumSection.replaceChildren(
+        sectionHead(`Albums by ${artistName}`),
+        el('div', { class: 'grid-shelf' }, ...byArtist.map((i) => itemTile(i))),
+        others.length ? sectionHead('Also matching') : null,
+        others.length ? el('div', { class: 'shelf' }, ...others.map((i) => itemTile(i))) : null,
+      );
+      body.prepend(albumSection);
+    } else {
+      albumSection.replaceChildren(
+        sectionHead('Albums & sets'),
+        res.items.length
+          ? el('div', { class: 'shelf' }, ...res.items.map((i) => itemTile(i)))
+          : el('p', { class: 'modal-hint' }, 'No matching albums.'),
+      );
+    }
   }).catch((err) => {
     if (signal.aborted) return;
     albumSection.replaceChildren(sectionHead('Albums & sets'),
       networkError(err, () => renderSearch(query)));
   });
 
-  // Songs need per-item metadata, so they stream in as they resolve.
+  // Songs need per-item metadata, so they stream in as items resolve.
+  //
+  // Rows are appended, never reordered: re-sorting a list someone is already
+  // looking at moves the row out from under their finger, and they tap the
+  // wrong song. `queue` is the same array throughout, so it stays current.
   try {
-    const paint = (list) => {
-      if (signal.aborted || !list.length) return;
-      songSection.replaceChildren(
-        sectionHead('Songs'),
-        el('div', { class: 'tracks' },
-          ...list.map((t) => trackRow(t, list, { context: `Search: ${query}` }))),
-      );
+    const queue = [];
+    const shown = new Set();
+    let list = null;
+
+    const paint = (partial) => {
+      if (signal.aborted || !partial.length) return;
+      if (!list) {
+        list = el('div', { class: 'tracks' });
+        songSection.replaceChildren(sectionHead('Songs'), list);
+      }
+      for (const track of partial) {
+        if (shown.has(track.id)) continue;
+        shown.add(track.id);
+        queue.push(track);
+        list.append(trackRow(track, queue, { context: `Search: ${query}` }));
+      }
     };
 
     const songs = await A.searchSongs({ query, signal, onPartial: paint });
     if (signal.aborted) return;
+    paint(songs);
 
-    if (!songs.length) {
+    if (!queue.length) {
       songSection.replaceChildren(
         sectionHead('Songs'),
         el('p', { class: 'modal-hint' }, 'No individual songs matched — try the albums below.'),
       );
-    } else {
-      paint(songs);
     }
   } catch (err) {
     if (signal.aborted) return;
@@ -998,7 +1029,7 @@ export async function renderSettings() {
   root.append(el('div', { class: 'group' },
     el('div', { class: 'setting static' },
       el('span', { class: 'setting-icon' }, svg(ICONS.play, 22)),
-      el('span', { class: 'setting-body' }, el('strong', {}, 'Void Music'), el('span', {}, 'Version 1.1.0 · MIT')),
+      el('span', { class: 'setting-body' }, el('strong', {}, 'Void Music'), el('span', {}, 'Version 1.1.1 · MIT')),
     ),
   ));
 

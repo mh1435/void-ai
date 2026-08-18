@@ -8,7 +8,7 @@
  * IndexedDB via the app's offline store, which gives us eviction control and
  * a real "saved" list rather than opaque cache entries. */
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const SHELL_CACHE = `void-shell-${VERSION}`;
 const API_CACHE = `void-api-${VERSION}`;
 
@@ -60,7 +60,10 @@ function isApiRequest(url) {
 }
 
 function isCoverRequest(url) {
-  return /(^|\.)archive\.org$/.test(url.hostname) && url.pathname.startsWith('/services/img/');
+  // Artwork now comes from real image files inside an item (served from the
+  // datanodes too), not only the /services/img/ endpoint.
+  return /(^|\.)archive\.org$/.test(url.hostname)
+    && (url.pathname.startsWith('/services/img/') || /\.(jpe?g|png|webp|gif)$/i.test(url.pathname));
 }
 
 function isAudioRequest(url) {

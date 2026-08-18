@@ -243,6 +243,15 @@ svg { width: 22px; height: 22px; fill: currentColor; display: block; }
 }
 .shelf::-webkit-scrollbar { display: none; }
 
+/* Wrapping variant: shows a whole discography at once instead of scrolling. */
+.grid-shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
+  gap: 16px 12px;
+}
+.grid-shelf .tile, .grid-shelf .tile-art { width: 100%; }
+.grid-shelf .tile-art { height: auto; aspect-ratio: 1; }
+
 .tile {
   flex: none; width: 155px; cursor: pointer;
   scroll-snap-align: start; text-align: left;
