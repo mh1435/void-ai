@@ -1,6 +1,11 @@
 package dev.voidmusic.app;
 
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.util.Base64;
 import android.webkit.JavascriptInterface;
+
+import org.json.JSONObject;
 
 /**
  * The {@code window.VoidNative} object the web app talks to.
@@ -39,6 +44,53 @@ public class NativeBridge {
     @JavascriptInterface
     public void playbackStopped() {
         activity.runOnUiThread(() -> PlaybackService.stop(activity));
+    }
+
+    /**
+     * Everything the system needs to show this track: what it is, how long it
+     * is, where we are in it, and the cover. Handed to the media session, which
+     * is what the lock screen and HyperOS's island read.
+     *
+     * <p>The artwork arrives as a data URL because the page's covers may be
+     * blobs it holds in memory — there is no URL the native side could fetch.
+     */
+    @JavascriptInterface
+    public void nowPlaying(String json) {
+        final PlaybackService.NowPlaying now = new PlaybackService.NowPlaying();
+        try {
+            JSONObject o = new JSONObject(json);
+            now.title = o.optString("title", "Void Music");
+            now.artist = o.optString("artist", "");
+            now.album = o.optString("album", "");
+            now.durationMs = Math.round(o.optDouble("duration", 0) * 1000);
+            now.positionMs = Math.round(o.optDouble("position", 0) * 1000);
+            now.playing = o.optBoolean("playing", false);
+            now.artwork = decodeArtwork(o.optString("artwork", ""));
+        } catch (Exception e) {
+            return;
+        }
+        activity.runOnUiThread(() -> PlaybackService.update(activity, now));
+    }
+
+    /** Cheap position/state ticks, without re-sending metadata or artwork. */
+    @JavascriptInterface
+    public void playbackState(boolean playing, double positionSeconds) {
+        final PlaybackService.NowPlaying now = PlaybackService.currentState();
+        now.playing = playing;
+        now.positionMs = Math.round(positionSeconds * 1000);
+        activity.runOnUiThread(() -> PlaybackService.update(activity, now));
+    }
+
+    private static Bitmap decodeArtwork(String dataUrl) {
+        if (dataUrl == null || dataUrl.isEmpty()) return null;
+        int comma = dataUrl.indexOf(',');
+        if (comma < 0) return null;
+        try {
+            byte[] bytes = Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT);
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        } catch (Exception e) {
+            return null;   // a cover we cannot decode is not worth failing over
+        }
     }
 
     /**

@@ -291,6 +291,7 @@ export const recent = {
       await Promise.all(stale.map((r) => del('recent', r.id)));
     }
   },
+  remove: (id) => del('recent', id),
   clear: () => clear('recent'),
 };
 

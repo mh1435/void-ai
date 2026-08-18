@@ -7,6 +7,7 @@
  * Every call is optional. In a plain browser `window.VoidNative` is undefined
  * and all of this quietly does nothing. */
 
+import * as P from './player.js';
 import { player, state } from './player.js';
 
 const bridge = typeof window !== 'undefined' ? window.VoidNative : undefined;
@@ -100,11 +101,111 @@ function report() {
   }
 }
 
+/* ── Media session metadata ────────────────────────────────────────── */
+
+/**
+ * Re-encode a cover into something the native side can decode.
+ *
+ * The page's artwork can be a blob it holds in memory, so there is no URL for
+ * Android to fetch — the bytes have to go across. 512px JPEG keeps that
+ * transfer small while still looking right on a lock screen.
+ */
+async function artworkDataUrl(url) {
+  if (!url) return '';
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return '';
+    const blob = await res.blob();
+    const bitmap = await createImageBitmap(blob);
+
+    const size = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    // Cover-fit, so a non-square image is cropped rather than squashed.
+    const scale = Math.max(size / bitmap.width, size / bitmap.height);
+    const w = bitmap.width * scale;
+    const h = bitmap.height * scale;
+    ctx.drawImage(bitmap, (size - w) / 2, (size - h) / 2, w, h);
+    bitmap.close?.();
+
+    return canvas.toDataURL('image/jpeg', 0.85);
+  } catch {
+    // Cross-origin artwork we are not allowed to read: the notification simply
+    // shows the app icon instead.
+    return '';
+  }
+}
+
+let metadataToken = 0;
+
+async function pushMetadata(track) {
+  if (!bridge?.nowPlaying) return;
+  const token = ++metadataToken;
+  const artwork = await artworkDataUrl(track.cover);
+  if (token !== metadataToken) return;
+
+  try {
+    bridge.nowPlaying(JSON.stringify({
+      title: track.title || 'Void Music',
+      artist: track.artist || '',
+      album: track.album || '',
+      duration: state.duration || track.duration || 0,
+      position: state.time || 0,
+      playing: state.playing,
+      artwork,
+    }));
+  } catch { /* older wrapper */ }
+}
+
+let lastTick = 0;
+
+function pushState() {
+  if (!bridge?.playbackState) return;
+  const now = Date.now();
+  // One update a second is enough for a progress bar nobody is staring at.
+  if (now - lastTick < 1000) return;
+  lastTick = now;
+  try {
+    bridge.playbackState(state.playing, state.time || 0);
+  } catch { /* older wrapper */ }
+}
+
+/**
+ * Commands coming the other way: lock screen, notification buttons, headset,
+ * Bluetooth, or the island. The page stays the single source of truth.
+ */
+function installCommandHandler() {
+  window.__voidCommand = (command, value) => {
+    switch (command) {
+      case 'play': if (!state.playing) P.toggle(); break;
+      case 'pause': if (state.playing) P.pause(); break;
+      case 'toggle': P.toggle(); break;
+      case 'next': P.next(false); break;
+      case 'prev': P.prev(); break;
+      case 'seek': P.seek(Number(value) || 0); break;
+      default: break;
+    }
+  };
+}
+
 export function initNative() {
   if (!bridge) return;
+  installCommandHandler();
+
   player.addEventListener('status', report);
   player.addEventListener('track', report);
   player.addEventListener('ended', report);
+
+  // Metadata on every track change, position on the clock.
+  player.addEventListener('track', (e) => pushMetadata(e.detail.track));
+  player.addEventListener('status', () => {
+    lastTick = 0;                       // a play/pause flip should show at once
+    pushState();
+  });
+  player.addEventListener('time', pushState);
   addEventListener('pagehide', () => {
     try { bridge.playbackStopped?.(); } catch { /* going away anyway */ }
   });

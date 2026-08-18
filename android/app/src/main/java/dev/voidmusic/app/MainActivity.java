@@ -11,13 +11,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.KeyEvent;
-import android.view.ViewGroup;
 import android.webkit.ConsoleMessage;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
-import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
@@ -69,25 +67,11 @@ public class MainActivity extends Activity {
 
         folderPicker = new FolderPicker(this);
 
-        webView = new WebView(this);
-        webView.setLayoutParams(new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        webView.setBackgroundColor(getResources().getColor(R.color.void_bg));
-
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        // Audio must be able to start from the app's own UI without a second
-        // gesture; the user already tapped a track.
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        // Nothing is loaded from disk or content providers, so keep both shut.
-        settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(false);
-        settings.setSupportZoom(false);
-        settings.setBuiltInZoomControls(false);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        // The WebView belongs to the process, not to this Activity: that is
+        // what lets audio survive the app being closed. Borrow it and hand it
+        // back in onDestroy rather than creating a new one.
+        webView = WebAppHolder.get(this);
+        WebAppHolder.detach(webView);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -166,11 +150,9 @@ public class MainActivity extends Activity {
 
         setContentView(webView);
 
-        if (savedInstanceState != null) {
-            webView.restoreState(savedInstanceState);
-        } else {
-            webView.loadUrl(START_URL);
-        }
+        // Only the first Activity of the process loads the page; a later one is
+        // re-attaching a WebView that has been playing all along.
+        if (WebAppHolder.needsLoad()) webView.loadUrl(START_URL);
 
         requestNotificationPermissionIfNeeded();
     }
@@ -278,7 +260,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        webView.saveState(outState);
     }
 
     @Override
@@ -293,10 +274,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        // Playback is tied to this WebView, so it cannot outlive the activity.
-        PlaybackService.stop(this);
+        // Hand the WebView back rather than destroying it: it keeps playing,
+        // and the next Activity re-attaches it with all of its state intact.
+        // The foreground service is what keeps the process around.
         if (webView != null) {
-            webView.destroy();
+            webView.setWebChromeClient(null);
+            WebAppHolder.detach(webView);
             webView = null;
         }
         super.onDestroy();

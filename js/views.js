@@ -5,7 +5,7 @@ import * as P from './player.js';
 import { likes, playlists, offline, local, recent, usage, getSetting, setSetting } from './store.js';
 import { demoItem, isDemoTrack, renderDemoBlob, DEMO_ITEM_ID } from './demo.js';
 import { health, diag, bus, probe } from './net.js';
-import { resolveCover } from './artwork.js';
+import { resolveCover, coverCache } from './artwork.js';
 import { currentTheme, amoledOn, setTheme, setAmoled } from './theme.js';
 import { checkForUpdate, APP_VERSION } from './update.js';
 import { canPickFolder, pickFolder } from './native.js';
@@ -27,25 +27,57 @@ function freshSignal() {
   return viewAbort.signal;
 }
 
-function mount(node, title) {
-  setPageTitle(title);
+/** Routes that are a destination rather than a drill-down. */
+const TOP_LEVEL = /^#\/(home|library|offline|settings)$|^#\/search/;
+
+/**
+ * Put a view on screen.
+ *
+ * Titles live inside the scrolling area, not in a fixed bar: a large heading
+ * that scrolls away with the content, and a back chevron beside it on any page
+ * you drilled into.
+ */
+function mount(node, title, actions = []) {
   const view = $('#view');
-  view.replaceChildren(node);
+  const parts = [];
+  const drilled = !TOP_LEVEL.test(location.hash || '#/home');
+
+  // Pages that carry their own artwork header (an album, an artist) still
+  // need a way back, so they get the chevron on its own.
+  if (!title && drilled) {
+    parts.push(el('div', { class: 'view-head bare' },
+      el('button', {
+        class: 'icon-btn', type: 'button', 'aria-label': 'Go back',
+        onclick: () => history.back(),
+      }, svg(ICONS.back, 24))));
+  }
+
+  if (title) {
+    const head = el('div', { class: 'view-head' });
+    if (drilled) {
+      head.append(el('button', {
+        class: 'icon-btn', type: 'button', 'aria-label': 'Go back',
+        onclick: () => history.back(),
+      }, svg(ICONS.back, 24)));
+    }
+    head.append(el('h1', { class: 'view-title' }, title));
+    for (const action of actions) if (action) head.append(action);
+    parts.push(head);
+  }
+
+  parts.push(node);
+  view.replaceChildren(...parts);
   view.scrollTop = 0;
+  document.title = title ? `${title} · Void Music` : 'Void Music';
   return node;
 }
 
-function setPageTitle(title) {
-  const word = $('#wordmark');
-  const heading = $('#page-title');
-  if (title) {
-    word.hidden = true;
-    heading.hidden = false;
-    heading.textContent = title;
-  } else {
-    word.hidden = false;
-    heading.hidden = true;
-  }
+/** A round icon button for a page header. */
+function headAction(icon, label, onclick, accent = false) {
+  return el('button', {
+    class: `icon-btn${accent ? ' accent' : ''}`, type: 'button',
+    'aria-label': label, title: label, onclick,
+  }, svg(icon, 24));
 }
 
 /* ── Marks (liked / offline) ───────────────────────────────────────── */
@@ -501,15 +533,23 @@ export async function renderSearch(query) {
   const signal = freshSignal();
   const root = el('div', {});
 
+  const clear = el('button', {
+    class: 'icon-btn clear', type: 'button', 'aria-label': 'Clear search',
+    hidden: !query,
+    onclick: () => { searchInput.value = ''; navigate('#/search'); },
+  }, svg(ICONS.x, 20));
+
   const box = el('div', { class: 'searchbox' },
-    svg(ICONS.search, 20),
+    svg(ICONS.search, 22),
     el('input', {
       type: 'search', placeholder: 'Songs, artists, albums…',
       value: query || '', autocomplete: 'off', autocorrect: 'off',
       spellcheck: false, 'aria-label': 'Search music', enterkeyhint: 'search',
     }),
+    clear,
   );
   searchInput = box.querySelector('input');
+  searchInput.addEventListener('input', () => { clear.hidden = !searchInput.value; });
   root.append(box);
 
   const body = el('div', {});
@@ -653,27 +693,36 @@ async function paintRecent(body) {
     return;
   }
   body.replaceChildren(
-    el('div', { class: 'section-head' },
-      el('h2', { style: 'font-size:15px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)' }, 'Recent'),
+    el('div', { class: 'recent-head' },
+      el('span', {}, 'Recent'),
       el('button', {
-        class: 'more', type: 'button',
+        type: 'button',
         onclick: async () => { await recent.clear(); renderSearch(''); },
       }, 'Clear'),
     ),
-    ...rows.map((r) => el('div', {
-      class: 'recent-row', tabindex: '0', role: 'button',
-      onclick: () => navigate(`#/item/${encodeURIComponent(r.id)}`),
-    },
-      tintedArt(r.cover, r.id, 'recent-art'),
-      el('div', { class: 'track-main' },
-        el('div', { class: 'track-title' }, r.title),
-        el('div', { class: 'track-sub' }, r.creator),
-      ),
-    )),
+    ...rows.map((r) => {
+      const row = el('div', { class: 'recent-row' });
+      row.append(
+        el('button', {
+          class: 'queue-main', type: 'button', style: 'padding:0;gap:14px',
+          onclick: () => navigate(`#/item/${encodeURIComponent(r.id)}`),
+        },
+          tintedArt(r.cover, r.id, 'track-art'),
+          el('span', { class: 'queue-meta' },
+            el('span', { class: 'track-title' }, r.title),
+            r.creator ? el('span', { class: 'track-sub' }, r.creator) : null,
+          ),
+        ),
+        el('span', {}),
+        el('button', {
+          class: 'icon-btn', type: 'button', 'aria-label': `Remove ${r.title} from recent`,
+          onclick: async () => { await recent.remove(r.id); paintRecent(body); },
+        }, svg(ICONS.x, 20)),
+      );
+      return row;
+    }),
   );
 }
-
-/* ── Collection ────────────────────────────────────────────────────── */
 
 export async function renderCollection(id) {
   const signal = freshSignal();
@@ -879,7 +928,19 @@ export async function renderLibrary() {
   );
 
   root.append(chips, body);
-  mount(root, 'Library');
+  mount(root, 'Library', [
+    headAction(ICONS.shuffle, 'Shuffle everything', async () => {
+      const all = dedupeById([...await likes.all(), ...await offline.all(), ...await local.all()]);
+      if (!all.length) { toast('Nothing in your library yet'); return; }
+      if (!P.state.shuffle) P.toggleShuffle();
+      P.playAll(all, Math.floor(Math.random() * all.length), 'Your library');
+    }, true),
+    headAction(ICONS.plus, 'New playlist', async () => {
+      const pl = await playlists.create('New playlist');
+      navigate(`#/playlist/${pl.id}`);
+    }),
+    headAction(ICONS.search, 'Search', () => navigate('#/search')),
+  ]);
   paintLibraryTab(body);
 }
 
@@ -1197,8 +1258,27 @@ export async function renderPlaylist(id) {
 
 /* ── Settings ──────────────────────────────────────────────────────── */
 
-export async function renderSettings() {
-  const signal = freshSignal();
+/* ── Settings ──────────────────────────────────────────────────────── */
+
+/**
+ * Settings is a hub with sub-pages rather than one long scroll: each row says
+ * what it currently holds, so the state you care about is visible without
+ * opening anything.
+ */
+export async function renderSettings(section = '') {
+  switch (section) {
+    case 'playback':   return settingsPlayback();
+    case 'connection': return settingsConnection();
+    case 'accounts':   return settingsAccounts();
+    case 'storage':    return settingsStorage();
+    case 'appearance': return settingsAppearance();
+    case 'about':      return settingsAbout();
+    default:           return settingsHub();
+  }
+}
+
+async function settingsHub() {
+  freshSignal();
   const root = el('div', {});
 
   root.append(el('div', { class: 'support-card' },
@@ -1208,65 +1288,49 @@ export async function renderSettings() {
     el('div', { class: 'support-actions' },
       el('a', { class: 'btn', href: 'https://archive.org/donate', target: '_blank', rel: 'noopener noreferrer' },
         svg(ICONS.heart, 18), 'Support the Archive'),
+      el('a', {
+        class: 'btn outline', href: 'https://github.com/mh1435/void-music',
+        target: '_blank', rel: 'noopener noreferrer',
+      }, 'Source'),
     ),
   ));
 
-  /* Connection */
-  const statusLine = el('span', {}, describeHealth());
-  const mirrorInput = el('input', {
-    type: 'text', value: getSetting('mirrors') || '', placeholder: 'https://my-mirror.example',
-    'aria-label': 'Mirror base URLs, comma separated',
-  });
+  const [savedCount, savedBytes, localCount] = await Promise.all([
+    offline.count(), offline.bytes(), local.count(),
+  ]);
 
-  root.append(el('p', { class: 'group-label' }, 'Connection'));
+  const crossfade = Number(getSetting('crossfade') || 0);
+  const scrobbling = getSetting('scrobbleEnabled') && getSetting('scrobbleToken');
+  const themeName = { dark: 'Dark', light: 'Light', system: 'Follow system' }[currentTheme()];
+
+  const row = (icon, title, sub, target) => el('button', {
+    class: 'setting', type: 'button', onclick: () => navigate(`#/settings/${target}`),
+  },
+    el('span', { class: 'setting-icon' }, svg(icon, 22)),
+    el('span', { class: 'setting-body' }, el('strong', {}, title), el('span', {}, sub)),
+    el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
+  );
+
   root.append(el('div', { class: 'group' },
-    el('button', {
-      class: 'setting', type: 'button',
-      onclick: async (e) => {
-        const btn = e.currentTarget;
-        btn.disabled = true;
-        statusLine.textContent = 'Testing…';
-        const r = await probe('https://archive.org/metadata/nasa');
-        statusLine.textContent = r.ok
-          ? `archive.org reachable in ${r.ms} ms`
-          : `archive.org unreachable — ${r.error}`;
-        btn.disabled = false;
-      },
-    },
-      el('span', { class: 'setting-icon' }, svg(ICONS.wifi, 22)),
-      el('span', { class: 'setting-body' }, el('strong', {}, 'Connection status'), statusLine),
-      el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
-    ),
-    el('div', { class: 'setting static' },
-      el('span', { class: 'setting-icon' }, svg(ICONS.external, 22)),
-      el('span', { class: 'setting-body' },
-        el('strong', {}, 'Mirror or proxy'),
-        el('span', {}, 'If archive.org is blocked on your network, point the app at your own https mirror. '
-          + 'Tried in parallel with the official host; the fastest answer wins.'),
-        el('span', { style: 'margin-top:10px;display:flex;gap:8px' }, mirrorInput,
-          el('button', {
-            class: 'btn secondary', type: 'button', style: 'flex:none',
-            onclick: async () => {
-              const raw = mirrorInput.value.trim();
-              const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
-              for (const u of list) {
-                try { new URL(u); } catch { toast(`Not a valid URL: ${u}`, 'err'); return; }
-              }
-              await setSetting('mirrors', raw);
-              A.config.mirrors = list;
-              toast(list.length ? `Using ${list.length} mirror(s)` : 'Mirrors cleared', 'ok');
-            },
-          }, 'Save')),
-      ),
-    ),
-    toggleRow('Data saver', 'Pick the smallest encoding of each track. Helps a lot on a slow or metered link.',
-      ICONS.download, Boolean(getSetting('preferLowBitrate')), async (on) => {
-        await setSetting('preferLowBitrate', on);
-        A.config.preferLowBitrate = on;
-      }),
+    row(ICONS.play, 'Playback',
+      `${crossfade ? `Crossfade ${crossfade}s` : 'Crossfade off'} · ${getSetting('preferLowBitrate') ? 'Data saver on' : 'Best quality'}`,
+      'playback'),
+    row(ICONS.wifi, 'Connection', describeHealth(), 'connection'),
+    row(ICONS.person, 'Accounts & Sync', scrobbling ? 'ListenBrainz connected' : 'Not connected', 'accounts'),
+    row(ICONS.folder, 'Library & Storage',
+      `${savedCount + localCount} track${savedCount + localCount === 1 ? '' : 's'} · ${fmtBytes(savedBytes)}`,
+      'storage'),
+    row(ICONS.palette, 'Appearance', `${themeName}${amoledOn() ? ' · AMOLED' : ''}`, 'appearance'),
+    row(ICONS.info, 'About & Help', `v${APP_VERSION}`, 'about'),
   ));
 
-  /* Playback */
+  mount(root, 'Settings');
+}
+
+function settingsPlayback() {
+  freshSignal();
+  const root = el('div', {});
+
   const xfValue = el('span', { class: 'range-value' });
   const xfInput = el('input', {
     type: 'range', min: '0', max: '12', step: '1',
@@ -1283,123 +1347,89 @@ export async function renderSettings() {
     toast(v ? `Crossfade ${v} seconds` : 'Crossfade off');
   });
 
-  root.append(el('p', { class: 'group-label' }, 'Playback'));
-  root.append(el('div', { class: 'group' },
-    el('div', { class: 'setting static' },
-      el('span', { class: 'setting-icon' }, svg(ICONS.play, 22)),
-      el('span', { class: 'setting-body' },
-        el('strong', {}, 'Crossfade'),
-        el('span', {}, 'Overlap the end of one track with the start of the next. '
-          + 'At zero the next song still begins the instant this one ends — it is '
-          + 'already buffered before it is needed.'),
-        el('span', { class: 'range-row' }, xfInput, xfValue),
+  root.append(
+    el('p', { class: 'group-label' }, 'Crossfade'),
+    el('div', { class: 'group' },
+      el('div', { class: 'setting static' },
+        el('span', { class: 'setting-body' },
+          el('strong', {}, 'Crossfade'),
+          el('span', {}, 'Overlap the end of one track with the start of the next. At zero the '
+            + 'next song still begins the instant this one ends — it is already buffered before '
+            + 'it is needed.'),
+          el('span', { class: 'range-row' }, xfInput, xfValue),
+        ),
       ),
     ),
-  ));
+    el('p', { class: 'group-label' }, 'Streaming'),
+    el('div', { class: 'group' },
+      toggleRow('Data saver', 'Pick the smallest encoding of each track. Helps a lot on a slow or metered link.',
+        null, Boolean(getSetting('preferLowBitrate')), async (on) => {
+          await setSetting('preferLowBitrate', on);
+          A.config.preferLowBitrate = on;
+        }),
+    ),
+  );
 
-  /* Listening history */
-  const lbToken = el('input', {
-    type: 'password', value: getSetting('scrobbleToken') || '',
-    placeholder: 'ListenBrainz user token', 'aria-label': 'ListenBrainz user token',
-    autocomplete: 'off', spellcheck: false,
+  mount(root, 'Playback');
+}
+
+function settingsConnection() {
+  const signal = freshSignal();
+  const root = el('div', {});
+
+  const statusLine = el('span', {}, describeHealth());
+  const mirrorInput = el('input', {
+    type: 'text', value: getSetting('mirrors') || '', placeholder: 'https://my-mirror.example',
+    'aria-label': 'Mirror base URLs, comma separated',
   });
-  const lbStatus = el('span', {}, getSetting('scrobbleToken') ? 'Token saved' : 'Not connected');
-  const pendingCount = await scrobbler.pending();
 
-  root.append(el('p', { class: 'group-label' }, 'Listening history'));
-  root.append(el('div', { class: 'group' },
-    el('div', { class: 'setting static' },
-      el('span', { class: 'setting-icon' }, svg(ICONS.external, 22)),
-      el('span', { class: 'setting-body' },
-        el('strong', {}, 'ListenBrainz'),
-        el('span', {}, 'Keep a history of what you play, on an open service with no ads and '
-          + 'nothing to sign away. Paste the user token from your ListenBrainz profile.'),
-        el('span', { style: 'margin-top:10px;display:flex;gap:8px' }, lbToken,
-          el('button', {
-            class: 'btn secondary', type: 'button', style: 'flex:none',
-            onclick: async (e) => {
-              const btn = e.currentTarget;
-              btn.disabled = true;
-              lbStatus.textContent = 'Checking…';
-              const r = await scrobbler.validate(lbToken.value);
-              btn.disabled = false;
-              if (r.ok) {
-                await scrobbler.setToken(lbToken.value);
-                lbStatus.textContent = `Connected as ${r.user}`;
-                toast(`Connected to ListenBrainz as ${r.user}`, 'ok');
-              } else {
-                lbStatus.textContent = `Token rejected — ${r.error}`;
-                toast('That token did not work', 'err');
-              }
-            },
-          }, 'Connect')),
-        lbStatus,
+  root.append(
+    el('p', { class: 'group-label' }, 'Status'),
+    el('div', { class: 'group' },
+      el('button', {
+        class: 'setting', type: 'button',
+        onclick: async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          statusLine.textContent = 'Testing…';
+          const r = await probe('https://archive.org/metadata/nasa');
+          statusLine.textContent = r.ok
+            ? `archive.org reachable in ${r.ms} ms`
+            : `archive.org unreachable — ${r.error}`;
+          btn.disabled = false;
+        },
+      },
+        el('span', { class: 'setting-icon' }, svg(ICONS.wifi, 22)),
+        el('span', { class: 'setting-body' }, el('strong', {}, 'Connection status'), statusLine),
+        el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
       ),
     ),
-    toggleRow('Scrobble what I play', 'Sends a listen once a track has played for half its length, '
-      + 'or four minutes. Anything that fails to send is kept and retried.',
-      ICONS.check, Boolean(getSetting('scrobbleEnabled')), async (on) => {
-        await scrobbler.setEnabled(on);
-        toast(on ? 'Scrobbling on' : 'Scrobbling off');
-      }),
-    pendingCount ? el('button', {
-      class: 'setting', type: 'button',
-      onclick: async (e) => {
-        const btn = e.currentTarget;
-        btn.disabled = true;
-        const sent = await scrobbler.flush();
-        toast(sent ? `Sent ${sent} listen${sent === 1 ? '' : 's'}` : 'Still cannot reach ListenBrainz',
-          sent ? 'ok' : 'warn');
-        renderSettings();
-      },
-    },
-      el('span', { class: 'setting-icon' }, svg(ICONS.download, 22)),
-      el('span', { class: 'setting-body' },
-        el('strong', {}, `${pendingCount} listen${pendingCount === 1 ? '' : 's'} waiting`),
-        el('span', {}, 'Saved while offline. Tap to send them now.')),
-      el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
-    ) : null,
-  ));
-
-  /* Storage */
-  const [savedCount, savedBytes, likeCount, localCount, est] = await Promise.all([
-    offline.count(), offline.bytes(), likes.count(), local.count(), usage(),
-  ]);
-  if (signal.aborted) return;
-
-  root.append(el('p', { class: 'group-label' }, 'Library & storage'));
-  root.append(el('div', { class: 'group' },
-    el('div', { class: 'stat-grid' },
-      el('div', { class: 'stat' }, el('b', {}, String(savedCount)), el('span', {}, 'offline')),
-      el('div', { class: 'stat' }, el('b', {}, String(likeCount)), el('span', {}, 'liked')),
-      el('div', { class: 'stat' }, el('b', {}, String(localCount)), el('span', {}, 'imported')),
-      el('div', { class: 'stat' }, el('b', {}, fmtBytes(savedBytes)), el('span', {}, 'stored')),
+    el('p', { class: 'group-label' }, 'Mirror'),
+    el('div', { class: 'group' },
+      el('div', { class: 'setting static' },
+        el('span', { class: 'setting-body' },
+          el('strong', {}, 'Mirror or proxy'),
+          el('span', {}, 'If archive.org is blocked on your network, point the app at your own https '
+            + 'mirror. Tried in parallel with the official host; the fastest answer wins.'),
+          el('span', { style: 'margin-top:12px;display:flex;gap:8px' }, mirrorInput,
+            el('button', {
+              class: 'btn secondary', type: 'button', style: 'flex:none',
+              onclick: async () => {
+                const raw = mirrorInput.value.trim();
+                const list = raw.split(',').map((x) => x.trim()).filter(Boolean);
+                for (const u of list) {
+                  try { new URL(u); } catch { toast(`Not a valid URL: ${u}`, 'err'); return; }
+                }
+                await setSetting('mirrors', raw);
+                A.config.mirrors = list;
+                toast(list.length ? `Using ${list.length} mirror(s)` : 'Mirrors cleared', 'ok');
+              },
+            }, 'Save')),
+        ),
+      ),
     ),
-    est ? el('div', { class: 'setting static' },
-      el('span', { class: 'setting-icon' }, svg(ICONS.download, 22)),
-      el('span', { class: 'setting-body' },
-        el('strong', {}, 'Space available'),
-        el('span', {}, `${fmtBytes(est.quota - est.used)} free of ${fmtBytes(est.quota)} this browser allows.`)),
-    ) : null,
-    el('button', {
-      class: 'setting', type: 'button',
-      onclick: async () => {
-        if (!confirm('Delete all offline audio? Playlists and likes are kept.')) return;
-        await offline.clear();
-        offlineIds.clear();
-        toast('Offline audio cleared', 'ok');
-        renderSettings();
-      },
-    },
-      el('span', { class: 'setting-icon' }, svg(ICONS.trash, 22)),
-      el('span', { class: 'setting-body' },
-        el('strong', {}, 'Clear offline audio'),
-        el('span', {}, 'Removes downloaded files, keeps playlists and likes.')),
-      el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
-    ),
-  ));
+  );
 
-  /* Diagnostics */
   const log = el('div', { class: 'diag-log' });
   const paintLog = () => {
     log.replaceChildren(...diag.entries.slice(-50).reverse().map((e) =>
@@ -1409,85 +1439,251 @@ export async function renderSettings() {
   paintLog();
   bus.addEventListener('diag', paintLog, { signal });
 
-  root.append(el('p', { class: 'group-label' }, 'Diagnostics'));
-  root.append(el('div', { class: 'group' },
-    el('div', { class: 'setting static' },
-      el('span', { class: 'setting-icon' }, svg(ICONS.wifi, 22)),
-      el('span', { class: 'setting-body' },
-        el('strong', {}, 'Network log'),
-        el('span', {}, 'Every retry and failure, so you can tell the app apart from your connection.')),
+  root.append(
+    el('p', { class: 'group-label' }, 'Network log'),
+    el('div', { class: 'group' },
+      el('div', { class: 'setting static' },
+        el('span', { class: 'setting-body' },
+          el('strong', {}, 'Every retry and failure'),
+          el('span', {}, 'So you can tell the app apart from your connection.')),
+      ),
+      log,
     ),
-    log,
-  ));
+  );
 
-  /* Appearance */
-  const themeGroup = el('div', { class: 'group' });
-  const paintTheme = () => {
-    const active = currentTheme();
-    themeGroup.replaceChildren(
-      ...[['dark', 'Dark'], ['light', 'Light'], ['system', 'Follow system']].map(([key, label]) =>
-        el('button', {
-          class: 'radio-row', type: 'button', role: 'radio',
-          'aria-checked': String(active === key),
-          onclick: async () => { await setTheme(key); paintTheme(); },
-        },
-          el('span', { class: 'radio-dot' }),
-          el('span', { class: 'radio-body' },
-            el('strong', {}, label),
-            key === 'system' ? el('span', {}, 'Matches your device’s day/night setting') : null),
-        )),
-      toggleRow('Pure black (AMOLED)', 'True-black backgrounds in dark mode — OLED pixels switch off, saving battery.',
-        ICONS.check, amoledOn(), async (on) => { await setAmoled(on); }),
-    );
-  };
-  paintTheme();
-  root.append(el('p', { class: 'group-label' }, 'Appearance'), themeGroup);
-
-  /* About & updates */
-  const updateLine = el('span', {}, `Version ${APP_VERSION}`);
-  root.append(el('p', { class: 'group-label' }, 'About'));
-  root.append(el('div', { class: 'group' },
-    el('button', {
-      class: 'setting', type: 'button',
-      onclick: async (e) => {
-        const btn = e.currentTarget;
-        btn.disabled = true;
-        updateLine.textContent = 'Checking…';
-        const r = await checkForUpdate();
-        btn.disabled = false;
-
-        if (r.status === 'update') {
-          updateLine.textContent = `${r.version} available — tap to download`;
-          btn.onclick = () => window.open(r.apk || r.url, '_blank', 'noopener');
-          toast(`Version ${r.version} is available`, 'ok', 6000);
-        } else if (r.status === 'current') {
-          updateLine.textContent = `Version ${APP_VERSION} — up to date`;
-        } else {
-          updateLine.textContent = `Version ${APP_VERSION} — could not check (${r.reason})`;
-        }
-      },
-    },
-      el('span', { class: 'setting-icon' }, svg(ICONS.download, 22)),
-      el('span', { class: 'setting-body' }, el('strong', {}, 'Check for updates'), updateLine),
-      el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
-    ),
-    el('div', { class: 'setting static' },
-      el('span', { class: 'setting-icon' }, svg(ICONS.play, 22)),
-      el('span', { class: 'setting-body' },
-        el('strong', {}, 'Void Music'),
-        el('span', {}, 'Open-licensed music · MIT. Artwork from the Cover Art Archive, '
-          + 'lyrics from LRCLIB, audio from the Internet Archive.')),
-    ),
-  ));
-
-  mount(root, 'Settings');
+  mount(root, 'Connection');
 }
 
+async function settingsAccounts() {
+  freshSignal();
+  const root = el('div', {});
+
+  const lbToken = el('input', {
+    type: 'password', value: getSetting('scrobbleToken') || '',
+    placeholder: 'User token', 'aria-label': 'ListenBrainz user token',
+    autocomplete: 'off', spellcheck: false,
+  });
+  const lbStatus = el('span', {}, getSetting('scrobbleToken') ? 'Token saved' : 'Not connected');
+  const pendingCount = await scrobbler.pending();
+
+  root.append(
+    el('p', { class: 'group-label' }, 'Connections'),
+    el('div', { class: 'group' },
+      el('div', { class: 'setting static' },
+        el('span', { class: 'setting-body' },
+          el('strong', {}, 'ListenBrainz'),
+          el('span', {}, 'Open scrobbling from MetaBrainz. Your listening data stays yours and '
+            + 'exportable. Paste your user token from listenbrainz.org/profile.'),
+          el('span', { style: 'margin-top:12px;display:flex;gap:8px' }, lbToken,
+            el('button', {
+              class: 'btn secondary', type: 'button', style: 'flex:none',
+              onclick: async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                lbStatus.textContent = 'Checking…';
+                const r = await scrobbler.validate(lbToken.value);
+                btn.disabled = false;
+                if (r.ok) {
+                  await scrobbler.setToken(lbToken.value);
+                  lbStatus.textContent = `Connected as ${r.user}`;
+                  toast(`Connected to ListenBrainz as ${r.user}`, 'ok');
+                } else {
+                  lbStatus.textContent = `Token rejected — ${r.error}`;
+                  toast('That token did not work', 'err');
+                }
+              },
+            }, 'Connect')),
+          lbStatus,
+        ),
+      ),
+      toggleRow('Scrobble what I play',
+        'Sends a listen once a track has played for half its length, or four minutes. '
+        + 'Anything that fails to send is kept and retried.',
+        null, Boolean(getSetting('scrobbleEnabled')), async (on) => {
+          await scrobbler.setEnabled(on);
+          toast(on ? 'Scrobbling on' : 'Scrobbling off');
+        }),
+      pendingCount ? el('button', {
+        class: 'setting', type: 'button',
+        onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          const sent = await scrobbler.flush();
+          toast(sent ? `Sent ${sent} listen${sent === 1 ? '' : 's'}` : 'Still cannot reach ListenBrainz',
+            sent ? 'ok' : 'warn');
+          renderSettings('accounts');
+        },
+      },
+        el('span', { class: 'setting-icon' }, svg(ICONS.download, 22)),
+        el('span', { class: 'setting-body' },
+          el('strong', {}, `${pendingCount} listen${pendingCount === 1 ? '' : 's'} waiting`),
+          el('span', {}, 'Saved while offline. Tap to send them now.')),
+        el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
+      ) : null,
+    ),
+  );
+
+  mount(root, 'Accounts & Sync');
+}
+
+async function settingsStorage() {
+  const signal = freshSignal();
+  const root = el('div', {});
+
+  const [savedCount, savedBytes, likeCount, localCount, est] = await Promise.all([
+    offline.count(), offline.bytes(), likes.count(), local.count(), usage(),
+  ]);
+  if (signal.aborted) return;
+
+  root.append(
+    el('p', { class: 'group-label' }, 'Library'),
+    el('div', { class: 'group' },
+      el('div', { class: 'stat-grid' },
+        el('div', { class: 'stat' }, el('b', {}, String(savedCount)), el('span', {}, 'offline')),
+        el('div', { class: 'stat' }, el('b', {}, String(likeCount)), el('span', {}, 'liked')),
+        el('div', { class: 'stat' }, el('b', {}, String(localCount)), el('span', {}, 'imported')),
+        el('div', { class: 'stat' }, el('b', {}, fmtBytes(savedBytes)), el('span', {}, 'stored')),
+      ),
+      est ? el('div', { class: 'setting static' },
+        el('span', { class: 'setting-icon' }, svg(ICONS.download, 22)),
+        el('span', { class: 'setting-body' },
+          el('strong', {}, 'Space available'),
+          el('span', {}, `${fmtBytes(est.quota - est.used)} free of ${fmtBytes(est.quota)} this browser allows.`)),
+      ) : null,
+    ),
+    el('p', { class: 'group-label' }, 'Clean up'),
+    el('div', { class: 'group' },
+      el('button', {
+        class: 'setting', type: 'button',
+        onclick: async () => {
+          if (!confirm('Delete all offline audio? Playlists and likes are kept.')) return;
+          await offline.clear();
+          offlineIds.clear();
+          toast('Offline audio cleared', 'ok');
+          renderSettings('storage');
+        },
+      },
+        el('span', { class: 'setting-icon' }, svg(ICONS.trash, 22)),
+        el('span', { class: 'setting-body' },
+          el('strong', {}, 'Clear offline audio'),
+          el('span', {}, 'Removes downloaded files, keeps playlists and likes.')),
+        el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
+      ),
+      el('button', {
+        class: 'setting', type: 'button',
+        onclick: async () => {
+          await coverCache.clear();
+          toast('Artwork cache cleared — covers will be looked up again', 'ok');
+        },
+      },
+        el('span', { class: 'setting-icon' }, svg(ICONS.external, 22)),
+        el('span', { class: 'setting-body' },
+          el('strong', {}, 'Clear artwork cache'),
+          el('span', {}, 'Forget which covers were found, and look them all up again.')),
+        el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
+      ),
+    ),
+  );
+
+  mount(root, 'Library & Storage');
+}
+
+function settingsAppearance() {
+  freshSignal();
+  const root = el('div', {});
+  const picker = el('div', { class: 'theme-picker' });
+
+  const paint = () => {
+    const active = currentTheme();
+    picker.replaceChildren(...[
+      ['dark', 'Dark', ['dark']],
+      ['light', 'Light', ['light']],
+      ['system', 'Follow system', ['dark', 'light']],
+    ].map(([key, label, halves]) => el('button', {
+      class: 'theme-choice', type: 'button', role: 'radio',
+      'aria-checked': String(active === key),
+      onclick: async () => { await setTheme(key); paint(); },
+    },
+      el('span', { class: 'theme-card' },
+        ...halves.map((tone) => el('span', { class: `theme-half ${tone}` },
+          el('span', { class: 'theme-bar', style: 'width:55%' }),
+          el('span', { class: 'theme-bar dim', style: 'width:85%' }),
+          el('span', { class: 'theme-bar dim', style: 'width:70%' }),
+          el('span', { class: 'theme-foot' }),
+        )),
+        active === key ? el('span', { class: 'theme-check' }, '✓') : null,
+      ),
+      el('span', { class: 'theme-name' }, label),
+    )));
+  };
+  paint();
+
+  root.append(
+    el('p', { class: 'group-label' }, 'Theme'),
+    picker,
+    el('p', { class: 'theme-note' }, 'Follow system matches your device’s day/night setting.'),
+    el('p', { class: 'group-label' }, 'Dark theme'),
+    el('div', { class: 'group' },
+      toggleRow('Pure black (AMOLED)',
+        'True-black backgrounds whenever dark theme is active — OLED pixels switch off',
+        null, amoledOn(), async (on) => { await setAmoled(on); }),
+    ),
+  );
+
+  mount(root, 'Appearance');
+}
+
+function settingsAbout() {
+  freshSignal();
+  const root = el('div', {});
+  const updateLine = el('span', {}, `Version ${APP_VERSION}`);
+
+  root.append(
+    el('p', { class: 'group-label' }, 'About'),
+    el('div', { class: 'group' },
+      el('button', {
+        class: 'setting', type: 'button',
+        onclick: async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          updateLine.textContent = 'Checking…';
+          const r = await checkForUpdate();
+          btn.disabled = false;
+
+          if (r.status === 'update') {
+            updateLine.textContent = `${r.version} available — tap to download`;
+            btn.onclick = () => window.open(r.apk || r.url, '_blank', 'noopener');
+            toast(`Version ${r.version} is available`, 'ok', 6000);
+          } else if (r.status === 'current') {
+            updateLine.textContent = `Version ${APP_VERSION} — up to date`;
+          } else {
+            updateLine.textContent = `Version ${APP_VERSION} — could not check (${r.reason})`;
+          }
+        },
+      },
+        el('span', { class: 'setting-icon' }, svg(ICONS.download, 22)),
+        el('span', { class: 'setting-body' }, el('strong', {}, 'Check for updates'), updateLine),
+        el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
+      ),
+      el('div', { class: 'setting static' },
+        el('span', { class: 'setting-icon' }, svg(ICONS.info, 22)),
+        el('span', { class: 'setting-body' },
+          el('strong', {}, 'Void Music'),
+          el('span', {}, 'Open-licensed music · MIT. Audio from the Internet Archive, artwork from '
+            + 'iTunes and the Cover Art Archive, lyrics from LRCLIB, listening history to '
+            + 'ListenBrainz.')),
+      ),
+    ),
+  );
+
+  mount(root, 'About & Help');
+}
+
+/** A switch row. Pass `icon: null` for the plain form the reference uses. */
 function toggleRow(title, sub, icon, checked, onChange) {
   const input = el('input', { type: 'checkbox', checked });
   input.addEventListener('change', () => onChange(input.checked));
   return el('label', { class: 'setting' },
-    el('span', { class: 'setting-icon' }, svg(icon, 22)),
+    icon ? el('span', { class: 'setting-icon' }, svg(icon, 22)) : null,
     el('span', { class: 'setting-body' }, el('strong', {}, title), el('span', {}, sub)),
     el('span', { class: 'switch' }, input, el('span', { class: 'slider' })),
   );

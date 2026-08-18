@@ -5,7 +5,7 @@ import * as V from './views.js';
 import * as A from './archive.js';
 import { likes, loadSettings, getSetting, setSetting, persist } from './store.js';
 import { health, bus, diag } from './net.js';
-import { $, el, svg, ICONS, fmtTime, toast, artNode, tintFor } from './ui.js';
+import { $, el, svg, ICONS, fmtTime, toast, tintFor, dominantColor } from './ui.js';
 import { initNative, isNativeApp } from './native.js';
 import { getLyrics, lineAt } from './lyrics.js';
 import { applyTheme } from './theme.js';
@@ -25,6 +25,7 @@ const ROUTES = [
   [/^#\/offline$/,          () => V.renderOffline()],
   [/^#\/playlist\/(.+)$/,   (m) => V.renderPlaylist(decodeURIComponent(m[1]))],
   [/^#\/settings$/,         () => V.renderSettings()],
+  [/^#\/settings\/(.+)$/,   (m) => V.renderSettings(m[1])],
 ];
 
 function navKeyFor(hash) {
@@ -58,7 +59,9 @@ function route() {
     a.classList.toggle('active', a.dataset.nav === key);
   });
 
-  $('#back-btn').hidden = TOP_LEVEL.test(hash);
+  // Home keeps the wordmark bar; every other page carries its own big title
+  // inside the scrolling area, the way the reference does.
+  $('#topbar').hidden = hash !== '#/home';
   $('#ticker').hidden = hash !== '#/home';
   setSetting('lastRoute', hash);
 
@@ -172,11 +175,7 @@ function wireTransport() {
     $('#np-quality').textContent = qualityLine(t);
 
     swapArt('#mini-art', t, 'mini-art');
-    swapArt('#np-art', t, 'np-art');
-
-    // Tint the backdrop from the track identity so each song feels distinct
-    // even when the item has no cover art to sample.
-    $('#np-glow').style.setProperty('--np-tint', tintFor(t.itemId || t.title).solid);
+    applyTint(t, swapArt('#np-art', t, 'np-art'));
 
     $('#np-like').setAttribute('aria-pressed', String(await likes.has(t.id)));
     document.title = `${t.title} — ${t.artist} · Void Music`;
@@ -226,11 +225,50 @@ function qualityLine(track) {
 
 function swapArt(selector, track, className) {
   const old = $(selector);
-  if (!old) return;
+  if (!old) return null;
   // smartArt looks up real artwork when the track carries none.
   const next = V.smartArt(track, track.itemId || track.title, className);
   next.id = old.id;
   old.replaceWith(next);
+  return next;
+}
+
+/**
+ * Colour the now-playing screen from the cover itself: the wash behind the
+ * art, the play button and the lyric line all take the same tint.
+ *
+ * The generated tint goes on immediately so nothing flashes grey, then the
+ * real colour replaces it once the artwork is on screen — which may be a
+ * moment later, because covers are looked up lazily.
+ */
+function applyTint(track, artNode) {
+  const sheet = $('#nowplaying');
+  sheet.style.setProperty('--np-tint', tintFor(track.itemId || track.title).solid);
+
+  const use = (src) => {
+    if (!src) return;
+    dominantColor(src).then((colour) => {
+      // Ignore a colour that arrives after the user moved on.
+      if (colour && P.state.track?.id === track.id) sheet.style.setProperty('--np-tint', colour);
+    });
+  };
+
+  if (track.cover) use(track.cover);
+  if (!artNode) return;
+
+  const fromNode = () => {
+    const img = artNode.querySelector('img');
+    if (!img) return false;
+    if (img.complete) use(img.currentSrc || img.src);
+    else img.addEventListener('load', () => use(img.currentSrc || img.src), { once: true });
+    return true;
+  };
+
+  if (fromNode()) return;
+  // smartArt fills the cover in later; watch for it exactly once.
+  const observer = new MutationObserver(() => { if (fromNode()) observer.disconnect(); });
+  observer.observe(artNode, { childList: true });
+  setTimeout(() => observer.disconnect(), 20000);
 }
 
 /* ── Lyrics ────────────────────────────────────────────────────────── */
@@ -557,10 +595,6 @@ async function boot() {
   wireInstall();
   wireServiceWorker();
   initScrobbler();
-
-  $('#back-btn').addEventListener('click', () => {
-    if (depth > 0) { depth--; history.back(); } else navigate('#/home');
-  });
 
   if (!location.hash) location.hash = '#/home';
   route();

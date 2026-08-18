@@ -48,6 +48,16 @@ export const ICONS = {
   search:  'M10.5 3a7.5 7.5 0 1 0 4.55 13.46l4.24 4.25 1.42-1.42-4.25-4.24A7.5 7.5 0 0 0 10.5 3m0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11',
   wifi:    'M12 18.5a1.75 1.75 0 1 0 0 3.5 1.75 1.75 0 0 0 0-3.5m0-4.5a5.5 5.5 0 0 0-3.9 1.6l1.5 1.5a3.4 3.4 0 0 1 4.8 0l1.5-1.5A5.5 5.5 0 0 0 12 14m0-4.6a10 10 0 0 0-7.1 2.9l1.5 1.5a7.9 7.9 0 0 1 11.2 0l1.5-1.5A10 10 0 0 0 12 9.4m0-4.6A14.5 14.5 0 0 0 1.7 9l1.5 1.5a12.4 12.4 0 0 1 17.6 0L22.3 9A14.5 14.5 0 0 0 12 4.8',
   chevron: 'M9.3 6.7 14.6 12l-5.3 5.3 1.4 1.4L17.4 12l-6.7-6.7z',
+  back:    'M15.4 4.6 14 3.2 5.2 12l8.8 8.8 1.4-1.4L8 12z',
+  shuffle: 'M17 3l4 4-4 4V8h-2.2l-2.3 3-1.2-1.6L13.7 6H21V6zM3 6h4.3l7.5 10H21v2h-6.9L6.6 8H3zM17 13l4 4-4 4v-3h-3.3l-1.7-2.3 1.2-1.6L14.8 16H17z',
+  sliders: 'M4 6h9v2H4zm11 0h5v2h-5zM4 11h4v2H4zm6 0h10v2H10zM4 16h12v2H4zm14 0h2v2h-2zM12 4h2v6h-2zM7 9h2v6H7zM15 14h2v6h-2z',
+  moon:    'M12.3 2a9 9 0 1 0 9.7 12.3A7.5 7.5 0 0 1 12.3 2',
+  wave:    'M4 10h2v4H4zm4-4h2v12H8zm4 2h2v8h-2zm4-4h2v16h-2zm4 6h2v4h-2z',
+  person:  'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8m0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5',
+  folder:  'M3 5h6l2 2h10v12H3z',
+  palette: 'M12 3a9 9 0 0 0 0 18c1.7 0 2-1.2 1.4-2-.7-.9-.2-2 1-2H16a5 5 0 0 0 5-5c0-5-4-9-9-9m-4.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3',
+  info:    'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m1 15h-2v-6h2zm0-8h-2V7h2z',
+  clock:   'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m1 10.6V6h-2v7.4l5 3 1-1.7z',
 };
 
 /* ── Formatting ────────────────────────────────────────────────────── */
@@ -113,6 +123,68 @@ export function artNode(src, fallback = '♪', className = 'art') {
   img.addEventListener('error', () => img.remove(), { once: true });
   box.append(img);
   return box;
+}
+
+/**
+ * The dominant colour of a cover, for the wash behind the now-playing art.
+ *
+ * Averaging a downscaled copy is enough — the point is a colour that clearly
+ * belongs to the artwork, not a precise palette. Artwork the canvas is not
+ * allowed to read (a cross-origin host with no CORS header) simply falls back
+ * to the generated tint, so this never throws and never blocks.
+ */
+const colorCache = new Map();
+
+export async function dominantColor(url) {
+  if (!url) return null;
+  if (colorCache.has(url)) return colorCache.get(url);
+
+  const result = await (async () => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const bitmap = await createImageBitmap(await res.blob());
+
+      const n = 24;
+      const canvas = document.createElement('canvas');
+      canvas.width = n;
+      canvas.height = n;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(bitmap, 0, 0, n, n);
+      bitmap.close?.();
+
+      const { data } = ctx.getImageData(0, 0, n, n);
+      let r = 0, g = 0, b = 0, count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] < 128) continue;
+        const max = Math.max(data[i], data[i + 1], data[i + 2]);
+        const min = Math.min(data[i], data[i + 1], data[i + 2]);
+        // Skip near-greys: they drag every cover towards the same slate.
+        if (max - min < 18 && max < 235) continue;
+        r += data[i]; g += data[i + 1]; b += data[i + 2]; count++;
+      }
+      if (!count) return null;
+
+      return liftenough(Math.round(r / count), Math.round(g / count), Math.round(b / count));
+    } catch {
+      return null;
+    }
+  })();
+
+  colorCache.set(url, result);
+  return result;
+}
+
+/** Keep the wash visible on black without letting it glare. */
+function liftenough(r, g, b) {
+  const max = Math.max(r, g, b);
+  if (max < 90) {
+    const k = 90 / Math.max(max, 1);
+    r = Math.min(255, Math.round(r * k));
+    g = Math.min(255, Math.round(g * k));
+    b = Math.min(255, Math.round(b * k));
+  }
+  return `rgb(${r} ${g} ${b})`;
 }
 
 /**

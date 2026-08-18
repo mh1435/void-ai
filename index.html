@@ -21,12 +21,7 @@
 
   <!-- ── Top bar ─────────────────────────────────────────────────────── -->
   <header class="topbar" id="topbar">
-    <button class="back-btn" id="back-btn" type="button" aria-label="Go back" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.4 4.6 14 3.2 5.2 12l8.8 8.8 1.4-1.4L8 12z"/></svg>
-    </button>
-
     <div class="wordmark" id="wordmark">VOID</div>
-    <h1 class="page-title" id="page-title" hidden></h1>
 
     <div class="topbar-end">
       <button class="status-pill" id="net-chip" type="button">
@@ -79,7 +74,7 @@
       <span>Home</span>
     </a>
     <a href="#/library" data-nav="library" class="tab">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h3v18H4zm5.5 0h3v18h-3zM15 4.2l2.9-.78 4.66 17.38-2.9.78z"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2m0 2v14h14V5zm9 2v6.1a2.6 2.6 0 1 0 1.6 2.4V9h1.6V7z"/></svg>
       <span>Library</span>
     </a>
     <a href="#/search" data-nav="search" class="tab">
@@ -105,10 +100,6 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.4 5.6 9l1.4-1.4 5 5 5-5L18.4 9z"/></svg>
         </button>
         <span class="np-source" id="np-source"></span>
-        <button class="icon-btn" id="np-sleep" type="button" aria-label="Sleep timer">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.3 2a9 9 0 1 0 9.7 12.3A7.5 7.5 0 0 1 12.3 2"/></svg>
-          <span class="sleep-dot" id="sleep-dot" hidden></span>
-        </button>
         <button class="icon-btn" id="np-queue" type="button" aria-label="Queue">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h12v2H3zm0 5h12v2H3zm0 5h8v2H3zm14-8.5 5 3.5-5 3.5z"/></svg>
         </button>
@@ -117,6 +108,10 @@
       <div class="np-art" id="np-art"><i class="art-glyph">♪</i></div>
 
       <div class="np-info">
+        <button class="icon-btn" id="np-sleep" type="button" aria-label="Sleep timer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.3 2a9 9 0 1 0 9.7 12.3A7.5 7.5 0 0 1 12.3 2"/></svg>
+          <span class="sleep-dot" id="sleep-dot" hidden></span>
+        </button>
         <div class="np-titles">
           <div class="np-title" id="np-title">Nothing playing</div>
           <div class="np-artist" id="np-artist"></div>
