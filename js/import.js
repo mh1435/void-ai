@@ -22,21 +22,57 @@ const CONCURRENCY = 4;
 const MAX_BYTES = 512 * 1024 * 1024;
 
 export function isAudioFile(file) {
-  return AUDIO_MIME.test(file.type || '') || AUDIO_EXT.test(file.name || '');
+  return AUDIO_MIME.test(file.type || file.mime || '') || AUDIO_EXT.test(file.name || '');
+}
+
+/**
+ * Both sources of files look the same from here on: a browser File, or a
+ * descriptor from the Android folder picker whose bytes are fetched on demand.
+ */
+function describe(entry) {
+  if (entry instanceof Blob) {
+    return {
+      name: entry.name,
+      path: entry.webkitRelativePath || entry.name,
+      size: entry.size,
+      mime: entry.type,
+      file: entry,
+    };
+  }
+  return {
+    name: entry.name,
+    path: entry.path || entry.name,
+    size: Number(entry.size) || 0,
+    mime: entry.mime || '',
+    url: entry.url,
+  };
+}
+
+/** Fetch the bytes only when the file's turn comes, so memory stays bounded. */
+async function materialise(entry) {
+  if (entry.file) return entry.file;
+
+  const res = await fetch(entry.url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const file = new File([blob], entry.name, { type: entry.mime || blob.type || 'audio/mpeg' });
+  try {
+    Object.defineProperty(file, 'webkitRelativePath', { value: entry.path, configurable: true });
+  } catch { /* the path is only used for naming */ }
+  return file;
 }
 
 /** Stable id, so re-importing the same folder updates rather than duplicates. */
-function idFor(file) {
-  const path = file.webkitRelativePath || file.name;
-  return `local::${path}::${file.size}`;
+function idFor(entry) {
+  return `local::${entry.path || entry.name}::${entry.size}`;
 }
 
-function trackFrom(file, tags, duration) {
-  const path = file.webkitRelativePath || file.name;
+function trackFrom(entry, file, tags, duration) {
+  const path = entry.path;
   return {
-    id: idFor(file),
+    id: idFor(entry),
     itemId: 'local',
-    file: file.name,
+    file: entry.name,
     path,
     title: tags.title,
     artist: tags.artist || 'Unknown artist',
@@ -45,9 +81,9 @@ function trackFrom(file, tags, duration) {
     year: tags.year || '',
     genre: tags.genre || '',
     duration,
-    size: file.size,
-    mime: file.type || 'audio/mpeg',
-    ext: (file.name.split('.').pop() || '').toLowerCase(),
+    size: entry.size || file.size,
+    mime: file.type || entry.mime || 'audio/mpeg',
+    ext: (entry.name.split('.').pop() || '').toLowerCase(),
     trackNo: tags.trackNo || null,
     cover: null,               // filled in from the stored blob when listed
     urls: [],
@@ -69,7 +105,9 @@ function folderOf(path) {
  * Resolves with the totals. Individual failures never stop the run.
  */
 export async function importFiles(files, { onProgress = () => {}, signal } = {}) {
-  const list = [...files].filter((f) => isAudioFile(f) && f.size > 0 && f.size <= MAX_BYTES);
+  const list = [...files]
+    .filter((f) => isAudioFile(f) && f.size > 0 && f.size <= MAX_BYTES)
+    .map(describe);
   const total = list.length;
   const result = { total, added: 0, skipped: 0, failed: 0, done: 0 };
   if (!total) return result;
@@ -80,15 +118,16 @@ export async function importFiles(files, { onProgress = () => {}, signal } = {})
   async function worker() {
     while (cursor < list.length) {
       if (signal?.aborted) return;
-      const file = list[cursor++];
+      const entry = list[cursor++];
 
       try {
-        if (existing.has(idFor(file))) {
+        if (existing.has(idFor(entry))) {
           result.skipped++;
         } else {
+          const file = await materialise(entry);
           const tags = await readTags(file);
           const duration = await readDuration(file);
-          const track = trackFrom(file, tags, duration);
+          const track = trackFrom(entry, file, tags, duration);
           await local.add(track, file, tags.picture);
           existing.add(track.id);
           result.added++;
@@ -99,7 +138,7 @@ export async function importFiles(files, { onProgress = () => {}, signal } = {})
       }
 
       result.done++;
-      onProgress({ ...result, current: file.name });
+      onProgress({ ...result, current: entry.name });
     }
   }
 

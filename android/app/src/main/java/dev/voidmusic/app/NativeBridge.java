@@ -1,6 +1,5 @@
 package dev.voidmusic.app;
 
-import android.app.Activity;
 import android.webkit.JavascriptInterface;
 
 /**
@@ -17,9 +16,9 @@ import android.webkit.JavascriptInterface;
  */
 public class NativeBridge {
 
-    private final Activity activity;
+    private final MainActivity activity;
 
-    NativeBridge(Activity activity) {
+    NativeBridge(MainActivity activity) {
         this.activity = activity;
     }
 
@@ -40,5 +39,25 @@ public class NativeBridge {
     @JavascriptInterface
     public void playbackStopped() {
         activity.runOnUiThread(() -> PlaybackService.stop(activity));
+    }
+
+    /**
+     * True when this build can pick a whole folder. A WebView cannot do it
+     * through {@code <input webkitdirectory>}, so the web app asks first and
+     * falls back to choosing files when the answer is no.
+     */
+    @JavascriptInterface
+    public boolean canPickFolder() {
+        return true;
+    }
+
+    /**
+     * Open the system folder picker. The list of audio files inside whatever
+     * the user grants is delivered back to the page through
+     * {@code window.__voidFolderPicked}; an empty list means they cancelled.
+     */
+    @JavascriptInterface
+    public void pickFolder() {
+        activity.runOnUiThread(activity::pickFolder);
     }
 }

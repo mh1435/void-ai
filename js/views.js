@@ -8,7 +8,8 @@ import { health, diag, bus, probe } from './net.js';
 import { resolveCover } from './artwork.js';
 import { currentTheme, amoledOn, setTheme, setAmoled } from './theme.js';
 import { checkForUpdate, APP_VERSION } from './update.js';
-import { importFiles, filesFromDrop } from './import.js';
+import { canPickFolder, pickFolder } from './native.js';
+import { importFiles, filesFromDrop, isAudioFile } from './import.js';
 import { scrobbler } from './scrobble.js';
 import {
   $, el, svg, ICONS, fmtTime, fmtBytes, fmtCount, toast, artNode, tintedArt,
@@ -971,8 +972,15 @@ async function paintLibraryTab(body) {
       el('span', {}, 'Pick a folder and everything in it comes in at once — titles, artists, '
         + 'albums and covers are read from the files themselves.'),
       el('div', { class: 'dropzone-actions' },
-        el('button', { class: 'btn', type: 'button', onclick: () => folderInput.click() },
-          svg(ICONS.plus, 18), 'Add a folder'),
+        el('button', {
+          class: 'btn', type: 'button',
+          // Inside the Android app the folder comes from the system picker:
+          // a WebView's file input cannot select a directory at all.
+          onclick: async () => {
+            if (canPickFolder) runImport(await pickFolder());
+            else folderInput.click();
+          },
+        }, svg(ICONS.plus, 18), 'Add a folder'),
         el('button', { class: 'btn secondary', type: 'button', onclick: () => fileInput.click() },
           'Choose files'),
       ),
@@ -1043,9 +1051,10 @@ async function paintLibraryTab(body) {
  * to make someone force-quit halfway through.
  */
 async function runImport(files) {
-  const audio = files.filter((f) => /^audio\//i.test(f.type || '')
-    || /\.(mp3|m4a|m4b|aac|mp4|flac|ogg|oga|opus|wav|aiff?|wma)$/i.test(f.name || ''));
+  // An empty list means the picker was dismissed; that needs no comment.
+  if (!files.length) return;
 
+  const audio = files.filter(isAudioFile);
   if (!audio.length) {
     toast('No audio files in that selection', 'warn');
     return;

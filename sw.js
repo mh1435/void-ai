@@ -8,7 +8,7 @@
  * IndexedDB via the app's offline store, which gives us eviction control and
  * a real "saved" list rather than opaque cache entries. */
 
-const VERSION = 'v9';
+const VERSION = 'v10';
 const SHELL_CACHE = `void-shell-${VERSION}`;
 const API_CACHE = `void-api-${VERSION}`;
 
@@ -95,6 +95,11 @@ self.addEventListener('fetch', (event) => {
   // Never intercept media: range requests and streaming are the browser's job,
   // and buffering a whole album through the SW would waste memory.
   if (isAudioRequest(url) || request.destination === 'audio') return;
+
+  // Files being imported from a folder the user granted on Android are served
+  // by the app itself and are read exactly once. Caching them would duplicate
+  // an entire music library into the cache storage.
+  if (url.pathname.startsWith('/localfile/')) return;
 
   if (isApiRequest(url)) {
     event.respondWith(staleWhileRevalidate(request, API_CACHE));

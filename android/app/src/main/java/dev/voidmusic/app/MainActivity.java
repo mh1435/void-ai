@@ -22,6 +22,9 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import java.io.InputStream;
+import java.util.Collections;
+
 import androidx.webkit.ServiceWorkerClientCompat;
 import androidx.webkit.ServiceWorkerControllerCompat;
 import androidx.webkit.WebViewAssetLoader;
@@ -45,9 +48,14 @@ public class MainActivity extends Activity {
     private static final String START_URL = ORIGIN + "/assets/www/index.html";
     private static final int REQ_FILE_CHOOSER = 1001;
     private static final int REQ_NOTIFICATIONS = 1002;
+    private static final int REQ_FOLDER = 1003;
+
+    /** Path the page fetches a picked file's bytes from, on our own origin. */
+    private static final String LOCAL_FILE_PATH = "/localfile/";
 
     private WebView webView;
     private ValueCallback<Uri[]> pendingFileCallback;
+    private FolderPicker folderPicker;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -58,6 +66,8 @@ public class MainActivity extends Activity {
                 .setDomain("appassets.androidplatform.net")
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .build();
+
+        folderPicker = new FolderPicker(this);
 
         webView = new WebView(this);
         webView.setLayoutParams(new ViewGroup.LayoutParams(
@@ -82,6 +92,8 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                WebResourceResponse local = serveLocalFile(request.getUrl());
+                if (local != null) return local;
                 return assetLoader.shouldInterceptRequest(request.getUrl());
             }
 
@@ -163,6 +175,69 @@ public class MainActivity extends Activity {
         requestNotificationPermissionIfNeeded();
     }
 
+    /**
+     * Hand back the bytes of a file from the folder the user granted.
+     *
+     * <p>Only ids handed out by {@link FolderPicker} resolve, so the page can
+     * read exactly the files it was told about and nothing else on the device.
+     */
+    private WebResourceResponse serveLocalFile(Uri url) {
+        if (url == null || !"appassets.androidplatform.net".equals(url.getHost())) return null;
+        String path = url.getPath();
+        if (path == null || !path.startsWith(LOCAL_FILE_PATH)) return null;
+
+        Uri file = folderPicker.uriFor(path.substring(LOCAL_FILE_PATH.length()));
+        if (file == null) return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
+                Collections.emptyMap(), null);
+
+        try {
+            InputStream in = getContentResolver().openInputStream(file);
+            if (in == null) throw new java.io.IOException("no stream");
+            String type = getContentResolver().getType(file);
+            return new WebResourceResponse(
+                    type != null ? type : "application/octet-stream", null,
+                    200, "OK", Collections.emptyMap(), in);
+        } catch (Exception e) {
+            Log.w(TAG, "could not open picked file: " + e.getMessage());
+            return new WebResourceResponse("text/plain", "utf-8", 500, "Error",
+                    Collections.emptyMap(), null);
+        }
+    }
+
+    /** Ask for a folder. The web app is told what is in it once one is granted. */
+    void pickFolder() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(intent, REQ_FOLDER);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, R.string.no_folder_picker, Toast.LENGTH_LONG).show();
+            deliverFolder("[]");
+        }
+    }
+
+    private void onFolderGranted(Uri tree) {
+        try {
+            getContentResolver().takePersistableUriPermission(tree,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (SecurityException e) {
+            // Not every provider offers a persistable grant; this session's is enough.
+        }
+        // Walking the tree is one content-provider query per folder, so keep it
+        // off the UI thread even for a modest library.
+        new Thread(() -> {
+            final String json = folderPicker.scan(tree);
+            runOnUiThread(() -> deliverFolder(json));
+        }, "void-folder-scan").start();
+    }
+
+    private void deliverFolder(String json) {
+        if (webView == null) return;
+        webView.evaluateJavascript(
+                "window.__voidFolderPicked && window.__voidFolderPicked(" + json + ")", null);
+    }
+
     private void openExternally(Uri uri) {
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, uri));
@@ -183,6 +258,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQ_FOLDER) {
+            Uri tree = resultCode == RESULT_OK && data != null ? data.getData() : null;
+            if (tree != null) onFolderGranted(tree);
+            else deliverFolder("[]");
+            return;
+        }
         if (requestCode == REQ_FILE_CHOOSER) {
             if (pendingFileCallback != null) {
                 pendingFileCallback.onReceiveValue(

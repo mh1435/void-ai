@@ -31,6 +31,53 @@ export const isStandalone = (() => {
   }
 })();
 
+/* ── Folder import ─────────────────────────────────────────────────── */
+
+/**
+ * A WebView has no equivalent of <input webkitdirectory>, so on Android the
+ * folder is picked natively instead. True means "ask me, not the file input".
+ */
+export const canPickFolder = (() => {
+  try {
+    return Boolean(bridge?.canPickFolder?.());
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * Open the system folder picker and resolve with what is inside it:
+ * `[{ id, name, path, size, mime, url }]`, empty if the user backed out.
+ *
+ * The bytes are not in that list. Each entry carries a URL on the app's own
+ * origin that streams the file when fetched, so a folder of several hundred
+ * songs costs nothing until each one is actually read.
+ */
+export function pickFolder() {
+  if (!canPickFolder) return Promise.resolve([]);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (list) => {
+      if (settled) return;
+      settled = true;
+      delete window.__voidFolderPicked;
+      resolve(Array.isArray(list) ? list.map(withUrl) : []);
+    };
+
+    window.__voidFolderPicked = done;
+    try {
+      bridge.pickFolder();
+    } catch {
+      done([]);
+    }
+  });
+}
+
+function withUrl(entry) {
+  return { ...entry, url: `${location.origin}/localfile/${encodeURIComponent(entry.id)}` };
+}
+
 let lastSignature = null;
 
 function report() {
