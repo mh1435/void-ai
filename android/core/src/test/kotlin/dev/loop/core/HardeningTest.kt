@@ -24,6 +24,27 @@ class HardeningTest {
     }
 
     @Test
+    fun `a bind address is rejected with an explanation, not a network error`() {
+        // These get copied out of the server's own startup line.
+        for (bad in listOf("0.0.0.0:3000", "http://0.0.0.0:8080", "0.0.0.0", "[::]:8080")) {
+            try {
+                LoopApi.normaliseBase(bad)
+                fail("expected '$bad' to be rejected")
+            } catch (e: LoopError) {
+                assertTrue(
+                    "message should explain the problem, was: ${e.message}",
+                    e.message!!.contains("listen on everything"),
+                )
+            }
+        }
+        // A real address that merely looks similar must still work.
+        assertEquals(
+            "https://10.0.0.5:3000/",
+            LoopApi.normaliseBase("https://10.0.0.5:3000").toString(),
+        )
+    }
+
+    @Test
     fun `an unusable address is rejected with a readable message`() {
         for (bad in listOf("", "   ", "https://")) {
             try {

@@ -219,6 +219,8 @@ class LoopApi(
     companion object {
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
+        private val BIND_ONLY_HOSTS = setOf("0.0.0.0", "::", "[::]")
+
         /** Accepts "example.com", "https://example.com", trailing slashes and so on. */
         fun normaliseBase(input: String): HttpUrl {
             val trimmed = input.trim()
@@ -237,6 +239,17 @@ class LoopApi(
                 ?: throw LoopError.Server("That does not look like a server address.")
             if (url.host.isBlank()) {
                 throw LoopError.Server("That address has no server name in it.")
+            }
+            // 0.0.0.0 and :: are bind addresses — what a server listens on, not
+            // somewhere a phone can connect to. People copy them out of the
+            // server's own startup log, so say what is wrong rather than letting
+            // it fail later as a generic "cannot reach your server".
+            if (url.host in BIND_ONLY_HOSTS) {
+                throw LoopError.Server(
+                    "${url.host} is a \"listen on everything\" address that a server " +
+                        "uses, not one you can connect to. Enter the address your " +
+                        "server is reachable at, like https://your-app.onrender.com",
+                )
             }
             return url.newBuilder().encodedPath("/").query(null).fragment(null).build()
         }
