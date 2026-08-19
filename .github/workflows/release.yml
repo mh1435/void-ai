@@ -72,7 +72,9 @@ jobs:
           tag_name: ${{ steps.apk.outputs.tag }}
           name: Loop ${{ steps.apk.outputs.tag }}
           files: ${{ steps.apk.outputs.path }}
-          generate_release_notes: true
+          # Off deliberately: auto-generated notes scrape the repo's whole PR
+          # history, which for this repo means the game that used to live here.
+          generate_release_notes: false
           body: |
             A self-hosted Instagram client. Your phone talks to your server;
             your server talks to Instagram.
