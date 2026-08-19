@@ -884,6 +884,29 @@ img { display: block; }
 .diag-log .lvl-warn { color: var(--warn); }
 .diag-log .lvl-ok { color: var(--ok); }
 
+/* ── Mixes ─────────────────────────────────────────────────────────── */
+
+.mix-code {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-2);
+  color: var(--text);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+  outline: none;
+  word-break: break-all;
+}
+.mix-code:focus { border-color: var(--accent); }
+.mix-code::placeholder { color: var(--muted-2); font-family: var(--font); word-break: normal; }
+
+/* A line of the mix we could not find anything for. */
+.track.missing { opacity: .55; }
+.track.missing .track-title { text-decoration: line-through; text-decoration-color: var(--muted-2); }
+.track.pending .track-title { text-decoration: none; }
+.src-dot[data-src="missing"]::before { background: var(--muted-2); }
+
 /* ── Import ────────────────────────────────────────────────────────── */
 
 .dropzone {

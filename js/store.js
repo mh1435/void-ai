@@ -16,7 +16,7 @@
  * nothing to sign in to — which is also why nobody can region-lock it. */
 
 const DB_NAME = 'void-music';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORES = {
   playlists: { keyPath: 'id' },
@@ -27,6 +27,7 @@ const STORES = {
   recent:    { keyPath: 'id' },   // recently played items
   covers:    { keyPath: 'key' },  // resolved artwork: { key, url, at }
   listens:   { keyPath: 'id' },   // scrobbles waiting to be submitted
+  matches:   { keyPath: 'key' },  // mix entry → the track we found for it
 };
 
 let dbPromise = null;
@@ -343,6 +344,27 @@ export const listens = {
   remove: (id) => del('listens', id).catch(() => {}),
   count: () => count('listens').catch(() => 0),
   clear: () => clear('listens'),
+};
+
+/* ── Mix matches ───────────────────────────────────────────────────── */
+
+/**
+ * What a shared mix's "Artist — Title" resolved to last time.
+ *
+ * Misses are remembered too: a song the open catalogue does not have should be
+ * looked for once, not every time the mix is opened.
+ */
+export const matches = {
+  async get(key) {
+    const row = await get('matches', key).catch(() => null);
+    if (!row) return undefined;                 // never looked up
+    return row.track || null;                   // null = looked up, nothing found
+  },
+  async set(key, track) {
+    await put('matches', { key, track: track || null, at: Date.now() }).catch(() => {});
+  },
+  count: () => count('matches').catch(() => 0),
+  clear: () => clear('matches'),
 };
 
 /** Storage pressure, for the Settings panel. */

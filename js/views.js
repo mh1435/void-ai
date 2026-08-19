@@ -20,6 +20,7 @@ import { resolveCover, coverCache } from './artwork.js';
 import { currentTheme, amoledOn, setTheme, setAmoled } from './theme.js';
 import { checkForUpdate, APP_VERSION } from './update.js';
 import { canPickFolder, pickFolder, openExternal } from './native.js';
+import { encodeMix, decodeMix, parseText, resolveMix, playable, forgetLibrary } from './mix.js';
 import { importFiles, filesFromDrop, isAudioFile } from './import.js';
 import { scrobbler } from './scrobble.js';
 import {
@@ -1119,6 +1120,10 @@ async function paintLibraryTab(body) {
   const pls = await playlists.all();
   body.replaceChildren(
     el('button', {
+      class: 'btn secondary block', type: 'button', style: 'margin-bottom:10px',
+      onclick: openMixImporter,
+    }, svg(ICONS.download, 18), 'Import a mix'),
+    el('button', {
       class: 'btn block', type: 'button', style: 'margin-bottom:18px',
       onclick: () => openSheet((box, close) => {
         const input = el('input', { type: 'text', placeholder: 'Playlist name' });
@@ -1224,6 +1229,212 @@ function playAllBar(tracks, context) {
   );
 }
 
+/* ── Mixes ─────────────────────────────────────────────────────────── */
+
+/**
+ * Hand a playlist to someone else.
+ *
+ * What travels is the running order, not the music: titles, artists and the
+ * sequence you chose. Their copy finds each song in their own files or in the
+ * open catalogue. No account, no server, nothing to be refused a key for.
+ */
+async function shareMix(playlist) {
+  if (!playlist.tracks?.length) {
+    toast('Add some tracks first', 'warn');
+    return;
+  }
+
+  const code = await encodeMix(playlist);
+  const field = el('textarea', {
+    class: 'mix-code', readonly: true, rows: '4', spellcheck: false, value: code,
+  });
+
+  openSheet((box, close) => {
+    box.append(
+      sheetHead(`Share “${playlist.name}”`, close),
+      el('div', { class: 'import-body' },
+        el('p', { class: 'modal-hint', style: 'text-align:left;padding:0' },
+          `${playlist.tracks.length} track${playlist.tracks.length === 1 ? '' : 's'} — the list and its `
+          + 'order, not the audio. Whoever opens it plays it from their own files or the Archive.'),
+        field,
+        el('div', { class: 'item-actions' },
+          el('button', {
+            class: 'btn', type: 'button', style: 'flex:1',
+            onclick: async () => {
+              const ok = await copyText(code);
+              toast(ok ? 'Mix code copied' : 'Select the text and copy it', ok ? 'ok' : 'warn');
+            },
+          }, 'Copy code'),
+          el('button', {
+            class: 'btn secondary', type: 'button', style: 'flex:1',
+            onclick: () => saveTextFile(`${playlist.name.replace(/[^\w\s-]/g, '').trim() || 'mix'}.voidmix`, code),
+          }, 'Save as file'),
+        ),
+      ),
+    );
+    setTimeout(() => field.select(), 60);
+  });
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function saveTextFile(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  const link = el('a', { href: url, download: name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/** Paste a code, paste a track list, or open a file someone sent. */
+export function openMixImporter() {
+  openSheet((box, close) => {
+    const field = el('textarea', {
+      class: 'mix-code', rows: '6', spellcheck: false,
+      placeholder: 'Paste a VOIDMIX code, or a list like:\n\nVideoclub - Amour Plastique\nMassive Attack - Teardrop',
+    });
+
+    const file = el('input', {
+      type: 'file', accept: '.voidmix,.txt,.csv,.m3u,.m3u8,text/*', style: 'display:none',
+      onchange: async (e) => {
+        const chosen = e.target.files?.[0];
+        e.target.value = '';
+        if (!chosen) return;
+        field.value = await chosen.text();
+        take(chosen.name.replace(/\.[^.]+$/, ''));
+      },
+    });
+
+    const take = async (fallbackName = 'Imported mix') => {
+      const text = field.value.trim();
+      if (!text) { toast('Nothing to import', 'warn'); return; }
+
+      const mix = (await decodeMix(text)) || parseText(text, fallbackName);
+      if (!mix || !mix.entries.length) {
+        toast('That does not look like a mix or a track list', 'err', 4500);
+        return;
+      }
+      close();
+      pendingMix = mix;
+      navigate('#/mix');
+    };
+
+    box.append(
+      sheetHead('Import a mix', close),
+      el('div', { class: 'import-body' },
+        el('p', { class: 'modal-hint', style: 'text-align:left;padding:0' },
+          'A mix is a list of songs and their order. Void Music finds each one in your own '
+          + 'files or the Archive. A plain “Artist - Title” list, an .m3u or a playlist CSV works too.'),
+        field,
+        file,
+        el('div', { class: 'item-actions' },
+          el('button', { class: 'btn', type: 'button', style: 'flex:1', onclick: () => take() }, 'Import'),
+          el('button', {
+            class: 'btn secondary', type: 'button', style: 'flex:1', onclick: () => file.click(),
+          }, 'Open a file'),
+        ),
+      ),
+    );
+    setTimeout(() => field.focus(), 60);
+  });
+}
+
+/** Set when a mix arrives by paste or file rather than through the URL. */
+let pendingMix = null;
+
+/**
+ * Show an incoming mix and find something to play for every line of it.
+ *
+ * Rows appear straight away and fill in as they resolve, because a long mix
+ * takes a while over a slow link and a blank screen looks broken.
+ */
+export async function renderMix(code) {
+  const signal = freshSignal();
+
+  const mix = code ? await decodeMix(decodeURIComponent(code)) : pendingMix;
+  pendingMix = null;
+
+  if (!mix) {
+    mount(el('div', {}, emptyState({
+      emoji: '≡',
+      title: 'That mix could not be read',
+      body: 'The code may have been cut short in the message it arrived in. Ask for it again, '
+        + 'or import it as a file.',
+      action: el('button', { class: 'btn', type: 'button', onclick: openMixImporter }, 'Import a mix'),
+    })), 'Mix');
+    return;
+  }
+
+  const summary = el('p', { class: 'item-meta', style: 'margin-bottom:14px' },
+    `${mix.entries.length} track${mix.entries.length === 1 ? '' : 's'} · finding them…`);
+  const list = el('div', { class: 'tracks' });
+  const actions = el('div', { class: 'item-actions', style: 'margin-bottom:16px' });
+
+  mount(el('div', {}, summary, actions, list), mix.name);
+
+  const paint = ({ rows, done, total }) => {
+    if (signal.aborted) return;
+    const found = rows.filter((r) => r.track).length;
+    summary.textContent = done < total
+      ? `${done} of ${total} looked up · ${found} playable here`
+      : `${found} of ${total} playable here`;
+
+    list.replaceChildren(...rows.map(({ entry, track, pending }) => {
+      if (track) {
+        return trackRow(track, rows.filter((r) => r.track).map((r) => r.track), { context: mix.name });
+      }
+      return el('div', { class: `track missing${pending ? ' pending' : ''}` },
+        tintedArt(null, entry.title, 'track-art', pending ? '⋯' : '∅'),
+        el('div', { class: 'track-main' },
+          el('div', { class: 'track-title' }, entry.title),
+          el('div', { class: 'track-sub' }, entry.artist || 'Unknown artist'),
+        ),
+        el('span', { class: 'track-right' },
+          el('span', { class: 'src-dot', dataset: { src: 'missing' } },
+            pending ? 'looking…' : 'not here')),
+        el('span', {}),
+        el('span', {}),
+      );
+    }));
+  };
+
+  const rows = await resolveMix(mix, { onProgress: paint, signal });
+  if (signal.aborted) return;
+
+  const tracks = playable(rows);
+  actions.replaceChildren(
+    el('button', {
+      class: 'btn', type: 'button',
+      disabled: !tracks.length,
+      onclick: () => P.playAll(tracks, 0, mix.name),
+    }, svg(ICONS.play, 18), 'Play'),
+    el('button', {
+      class: 'btn secondary', type: 'button',
+      disabled: !tracks.length,
+      onclick: async () => {
+        const pl = await playlists.create(mix.name);
+        await playlists.addTracks(pl.id, tracks);
+        toast(`Saved ${tracks.length} track${tracks.length === 1 ? '' : 's'} to your playlists`, 'ok');
+        navigate(`#/playlist/${pl.id}`);
+      },
+    }, 'Save to my playlists'),
+  );
+
+  if (!tracks.length) {
+    list.append(el('p', { class: 'modal-hint' },
+      'None of these are in your files or the open catalogue yet. Import the songs you own '
+      + 'under Library → Imported and open the mix again — it will match them.'));
+  }
+}
+
 /* ── Offline / playlist routes ─────────────────────────────────────── */
 
 export async function renderOffline() {
@@ -1281,6 +1492,10 @@ export async function renderPlaylist(id) {
               }, 'Save')));
         }),
       }, 'Rename'),
+      el('button', {
+        class: 'btn-ghost', type: 'button',
+        onclick: () => shareMix(pl),
+      }, 'Share'),
       el('button', {
         class: 'btn-ghost', type: 'button',
         onclick: async () => {

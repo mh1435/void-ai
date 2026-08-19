@@ -81,6 +81,13 @@ embedded cover art are read out of the files themselves: ID3v2 for MP3, Vorbis c
 FLAC and Ogg/Opus, iTunes atoms for MP4, and the filename for anything untagged. Files never
 leave the device; there is no server to upload them to.
 
+**Mixes** — share a playlist as a short code or a small file. What travels is the running
+order, not the audio: titles, artists, the sequence you chose. Whoever opens it resolves each
+song against *their* files and the open catalogue, so two people with different libraries hear
+the same running order from different sources. Nothing is uploaded, there is no server, and
+there is no account to be refused. A plain `Artist - Title` list, an `.m3u`, or a playlist CSV
+imports just as well.
+
 **Lyrics** — synced, line by line, from LRCLIB where they exist.
 
 **Sleep timer** — 5 to 60 minutes or "end of this track", with a fade rather than a hard stop.
@@ -199,6 +206,7 @@ js/store.js             IndexedDB: playlists, likes, offline blobs, imports, pen
 js/player.js            audio engine: two decks, crossfade, queue, failover, Media Session
 js/tags.js              ID3 / Vorbis / MP4 tag and cover-art reader
 js/import.js            folder import pipeline
+js/mix.js               shareable playlists: encode, parse, resolve
 js/artwork.js           cover art: iTunes, then MusicBrainz + Cover Art Archive
 js/lyrics.js            synced lyrics from LRCLIB
 js/scrobble.js          ListenBrainz submission, with an offline queue
