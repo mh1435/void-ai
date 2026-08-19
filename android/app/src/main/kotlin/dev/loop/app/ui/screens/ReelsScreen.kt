@@ -36,7 +36,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.navigation.NavHostController
 import dev.loop.app.ui.LocalContainer
 import dev.loop.app.ui.LocalSnackbar
@@ -107,7 +106,6 @@ private fun Reel(post: Post, playing: Boolean, nav: NavHostController) {
                 modifier = Modifier.fillMaxSize(),
                 play = playing,
                 muted = Playback.muted,
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT,
                 poster = post.thumb.ifBlank { null },
             )
         }

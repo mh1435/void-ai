@@ -43,15 +43,32 @@ jobs:
 
       - name: Core unit tests (contract with the server)
         working-directory: android
-        run: ./gradlew :core:test --stacktrace
+        run: ./gradlew :core:test --console=plain
 
+      # Gradle's stack traces are hundreds of lines and push the actual
+      # "e: file:...: error:" lines out of view. Capture the log and re-print
+      # just the compiler diagnostics at the end, where they are findable.
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleDebug --console=plain 2>&1 | tee build-debug.log || {
+            echo "::group::Compiler diagnostics"
+            grep -E "^e: |^w: |: error:" build-debug.log | head -120 || true
+            echo "::endgroup::"
+            exit 1
+          }
 
       - name: Build release APK
         working-directory: android
-        run: ./gradlew :app:assembleRelease --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleRelease --console=plain 2>&1 | tee build-release.log || {
+            echo "::group::Compiler diagnostics"
+            grep -E "^e: |^w: |: error:" build-release.log | head -120 || true
+            echo "::endgroup::"
+            exit 1
+          }
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

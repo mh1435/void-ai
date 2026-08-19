@@ -31,18 +31,18 @@ fun rememberPostActions(nav: NavHostController): PostActions {
             onComments = { nav.toPost(it.id) },
             onShare = { post ->
                 // Share the Instagram link: whoever receives it may not be
-                // behind the same block, and a link to a private server would
-                // be useless to them anyway.
-                val url = if (post.shortcode.isNotBlank()) {
-                    "https://www.instagram.com/p/${post.shortcode}/"
-                } else {
-                    return@PostActions
+                // behind the same block, and a link to your private server
+                // would be useless to them anyway.
+                if (post.shortcode.isNotBlank()) {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(
+                            Intent.EXTRA_TEXT,
+                            "https://www.instagram.com/p/${post.shortcode}/",
+                        )
+                    }
+                    context.startActivity(Intent.createChooser(intent, null))
                 }
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, url)
-                }
-                context.startActivity(Intent.createChooser(intent, null))
             },
             onLike = { post, on ->
                 scope.launch {

@@ -3,6 +3,8 @@ package dev.loop.app.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -123,7 +125,7 @@ fun PostScreen(nav: NavHostController, id: String) {
                     items(comments, key = { it.id }) { comment ->
                         CommentRow(comment, nav)
                     }
-                    item(key = "tail") { Modifier.padding(bottom = 24.dp) }
+                    item(key = "tail") { Spacer(Modifier.height(24.dp)) }
                 }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)

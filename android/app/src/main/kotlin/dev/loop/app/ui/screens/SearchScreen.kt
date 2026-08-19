@@ -50,13 +50,14 @@ fun SearchScreen(nav: NavHostController) {
     var results by remember { mutableStateOf<SearchResults?>(null) }
     var error by remember { mutableStateOf<Throwable?>(null) }
     var loading by remember { mutableStateOf(false) }
+    var retry by remember { mutableStateOf(0) }
     val focus = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
     // Debounce: typing is fast and Instagram's search endpoint is rate-limited.
     // Re-running on every `query` change cancels the previous wait for free.
-    LaunchedEffect(query) {
+    LaunchedEffect(query, retry) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) {
             results = null
@@ -86,7 +87,7 @@ fun SearchScreen(nav: NavHostController) {
 
         when {
             loading && results == null -> Loading()
-            error != null -> ErrorState(error!!) { query = query }
+            error != null -> ErrorState(error!!) { retry++ }
             results == null -> EmptyState(
                 "Search Instagram",
                 "Find people and hashtags by name.",

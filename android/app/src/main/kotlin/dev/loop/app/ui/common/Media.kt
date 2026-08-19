@@ -75,7 +75,6 @@ fun VideoSurface(
     modifier: Modifier = Modifier,
     play: Boolean = true,
     muted: Boolean = true,
-    resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
     poster: String? = null,
 ) {
     val context = LocalContext.current
@@ -104,7 +103,9 @@ fun VideoSurface(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     useController = false
-                    this.resizeMode = resizeMode
+                    // Letterbox rather than crop: a reel and a 4:5 photo post
+                    // should both be shown whole.
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                     this.player = player
                 }
