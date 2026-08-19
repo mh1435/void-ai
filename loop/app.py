@@ -467,12 +467,16 @@ def api_health(request):
 # static files
 # --------------------------------------------------------------------------
 
+# The app's own code must revalidate, or a deploy is invisible for up to an
+# hour while browsers serve a stale bundle. Only genuinely static art gets a
+# long cache. "no-cache" here means "check with the server before reusing",
+# not "never cache" - a 304 keeps it cheap.
 _STATIC_CACHE = {
-    ".css": "public, max-age=3600",
-    ".js": "public, max-age=3600",
+    ".css": "no-cache, must-revalidate",
+    ".js": "no-cache, must-revalidate",
     ".svg": "public, max-age=86400",
     ".png": "public, max-age=86400",
-    ".webmanifest": "public, max-age=3600",
+    ".webmanifest": "no-cache, must-revalidate",
 }
 
 
