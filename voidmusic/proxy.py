@@ -26,9 +26,13 @@ CACHEABLE_BYTES = config.CACHE_MAX_ITEM_KB * 1024
 # What we copy from upstream onto our own response. It is an allowlist rather
 # than a denylist so that hop-by-hop headers (Connection, Transfer-Encoding,
 # Content-Encoding...) can never leak through and describe our response
-# wrongly. Content-Length is set from the body we actually send.
+# wrongly. Content-Length is forwarded because a streamed body has no other
+# way to state its size — a buffered one has its own length written over this
+# by the handler, and streams ask upstream for identity encoding so the count
+# is of the bytes we actually pass on.
 _PASS_THROUGH = {
     "content-type": "Content-Type",
+    "content-length": "Content-Length",
     "content-range": "Content-Range",
     "accept-ranges": "Accept-Ranges",
     "etag": "ETag",

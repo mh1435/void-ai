@@ -96,6 +96,21 @@ def route(methods, pattern):
     return register
 
 
+def _forwarded_query(raw_query):
+    """The query to send upstream: everything except our own access code.
+
+    It arrives in the query string because an <audio src> cannot set a header,
+    which means it is sitting in the string we are about to forward. None of
+    the allowlisted APIs take a parameter by that name, so dropping it costs
+    nothing and keeps the code from being handed to a third party.
+    """
+    if not raw_query:
+        return ""
+    kept = [pair for pair in raw_query.split("&")
+            if pair and not pair.startswith("code=")]
+    return "&".join(kept)
+
+
 class Request:
     def __init__(self, method, path, query, raw_query, headers):
         self.method = method
@@ -135,7 +150,8 @@ def api_via(request, host, path):
             "kind": "gate",
         }, 401, dict(CORS))
 
-    url = proxy.target_url(host, path or "/", request.raw_query)
+    url = proxy.target_url(host, path or "/",
+                           _forwarded_query(request.raw_query))
     if not proxy.host_allowed(url):
         return json_result(
             {"error": f"This server will not fetch {host}.", "kind": "host"},

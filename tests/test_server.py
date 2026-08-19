@@ -70,6 +70,24 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(str(len(AUDIO)), res.getheader("Content-Length"))
         self.assertIsNone(res.getheader("Transfer-Encoding"))
 
+    def test_a_track_too_large_to_buffer_keeps_its_length(self):
+        """The case a real track actually takes: streamed, but measured.
+
+        Falling back to chunked here would work, but the offline downloader
+        reads Content-Length to draw its progress bar, so it would silently
+        lose it on exactly the files worth showing progress for.
+        """
+        from voidmusic import proxy
+        size = proxy.CACHEABLE_BYTES + 1
+        big = b"\xff" * size
+        with Upstream(FakeStream(200, {"content-type": "audio/flac",
+                                       "content-length": str(size)}, big)):
+            res, body = self.get("/via/archive.org/download/x/y.flac")
+        self.assertEqual(200, res.status)
+        self.assertEqual(str(size), res.getheader("Content-Length"))
+        self.assertIsNone(res.getheader("Transfer-Encoding"))
+        self.assertEqual(size, len(body))
+
     def test_an_unknown_length_falls_back_to_chunked(self):
         # Some datanodes answer a range with no Content-Length at all. Without
         # chunked framing the client would wait for bytes that never come.

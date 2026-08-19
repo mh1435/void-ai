@@ -129,6 +129,23 @@ class GateTests(unittest.TestCase):
         self.assertEqual(200, result.status)
         self.assertEqual(1, len(up.calls))
 
+    def test_the_access_code_is_not_handed_to_the_upstream_host(self):
+        # It travels in the query string because <audio src> cannot set a
+        # header — which puts it in the very string we forward.
+        with Upstream(FakeStream(200, {"content-type": "audio/mpeg"},
+                                 b"abcd")) as up:
+            call("GET", "/via/archive.org/download/x/y.mp3?code=hunter2")
+        self.assertNotIn("hunter2", up.calls[0]["url"])
+
+    def test_stripping_the_code_leaves_the_rest_of_the_query_intact(self):
+        with Upstream(FakeStream(200, {"content-type": "application/json",
+                                       "content-length": "2"}, b"{}")) as up:
+            call("GET", "/via/archive.org/advancedsearch.php"
+                        "?q=jazz&rows=24&code=hunter2&output=json")
+        self.assertEqual(
+            "https://archive.org/advancedsearch.php?q=jazz&rows=24&output=json",
+            up.calls[0]["url"])
+
     def test_the_app_itself_is_still_served_so_the_code_can_be_entered(self):
         self.assertEqual(200, call("GET", "/").status)
 
