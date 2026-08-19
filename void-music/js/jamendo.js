@@ -51,6 +51,13 @@ export async function getJamendoArtists(query, limit = 6) {
   return jamendoRequest('artists', { namesearch: query, limit });
 }
 
+// Jamendo dates come back as "YYYY-MM-DD"; pull the year out, or null if the
+// field is missing rather than guessing.
+function parseYear(dateStr) {
+  const m = /^(\d{4})/.exec(dateStr || '');
+  return m ? parseInt(m[1], 10) : null;
+}
+
 // Convert a Jamendo track into Void's internal track shape.
 export function normalizeJamendoTrack(t) {
   return {
@@ -65,6 +72,7 @@ export function normalizeJamendoTrack(t) {
     source: 'jamendo',
     license: t.license_ccurl || 'CC-BY',
     flac: false,
+    year: parseYear(t.releasedate),
   };
 }
 
@@ -75,6 +83,7 @@ export function normalizeJamendoAlbum(a) {
     title: a.name,
     artist: a.artist_name,
     artwork: a.image || '',
+    year: parseYear(a.releasedate),
   };
 }
 

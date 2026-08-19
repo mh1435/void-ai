@@ -38,18 +38,45 @@ function pickAudioFile(meta) {
     || files.find((f) => f.name && AUDIO_EXT.test(f.name));
 }
 
+// Archive.org's own catalog metadata (the year a recording is *of*), never
+// addeddate/publicdate — those are upload timestamps and would mislabel a
+// decades-old recording uploaded last week as new.
+function extractYear(meta) {
+  const md = meta.metadata || {};
+  for (const field of [md.year, md.date]) {
+    const value = Array.isArray(field) ? field[0] : field;
+    const match = /\b(19\d{2}|20\d{2})\b/.exec(value || '');
+    if (match) return parseInt(match[0], 10);
+  }
+  return null;
+}
+
+// The thumbnail endpoint responds for almost any identifier, real cover or
+// not, so a plain URL can't tell "has art" from "doesn't." A HEAD check can.
+async function hasArtwork(identifier) {
+  try {
+    const res = await fetch(`${THUMB_URL}/${identifier}`, {
+      method: 'HEAD', signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch {
+    return true; // a flaky check shouldn't sink an otherwise-good track
+  }
+}
+
 async function hydrate(doc) {
   try {
     const meta = await fetchJson(`${METADATA_URL}/${encodeURIComponent(doc.identifier)}`);
     const file = pickAudioFile(meta);
     if (!file) return null;
-    return normalizeArchiveItem(doc, meta, file);
+    const artworkOk = await hasArtwork(doc.identifier);
+    return normalizeArchiveItem(doc, meta, file, artworkOk);
   } catch {
     return null;
   }
 }
 
-function normalizeArchiveItem(doc, meta, file) {
+function normalizeArchiveItem(doc, meta, file, artworkOk) {
   const identifier = doc.identifier;
   const title = file.title || doc.title || identifier;
   const artist = doc.creator || (meta.metadata && meta.metadata.creator) || 'Unknown artist';
@@ -61,10 +88,11 @@ function normalizeArchiveItem(doc, meta, file) {
     album: (meta.metadata && meta.metadata.album) || 'Internet Archive',
     duration: file.length ? Math.round(parseFloat(file.length)) : 0,
     url: `${DOWNLOAD_URL}/${identifier}/${encodeURIComponent(file.name)}`,
-    artwork: `${THUMB_URL}/${identifier}`,
+    artwork: artworkOk ? `${THUMB_URL}/${identifier}` : '',
     source: 'archive',
     license: 'CC',
     flac: /\.flac$/i.test(file.name),
+    year: extractYear(meta),
   };
 }
 
