@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,20 +44,48 @@ fun SetupScreen(onDone: () -> Unit) {
 
     var url by remember { mutableStateOf(container.prefs.serverUrl) }
     var error by remember { mutableStateOf<String?>(null) }
+    var warning by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
+    var unreachable by remember { mutableStateOf(false) }
 
-    fun submit() {
+    /**
+     * Saves the address whether or not the server answers.
+     *
+     * The check is a convenience, not a gate. A server that is merely asleep,
+     * or not started yet, must not lock someone out of their own app — and the
+     * Settings screen can explain the problem far better than this one can.
+     */
+    fun submit(force: Boolean = false) {
         error = null
+        warning = null
         checking = true
         scope.launch {
             try {
                 container.setServer(url)
-                // Prove it answers before committing the user to it: a typo
-                // here would otherwise look like the block.
-                container.requireApi().session()
+            } catch (e: Throwable) {
+                // A malformed address is worth refusing; an unreachable one is not.
+                error = e.message ?: "That does not look like a server address."
+                checking = false
+                return@launch
+            }
+
+            val api = container.requireApi()
+            if (LoopApi.isRiskyPlaintext(api.base)) {
+                warning = "This sends your traffic unencrypted across the internet. " +
+                    "Use https:// unless the server is on your own network."
+            }
+
+            if (force) {
+                onDone()
+                checking = false
+                return@launch
+            }
+
+            try {
+                api.session()
                 onDone()
             } catch (e: Throwable) {
-                container.forgetServer()
+                unreachable = true
                 error = e.message ?: "Could not reach that address."
             } finally {
                 checking = false
@@ -104,12 +133,32 @@ fun SetupScreen(onDone: () -> Unit) {
             )
         }
 
+        if (warning != null) {
+            Text(
+                warning!!,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            )
+        }
+
         Button(
-            onClick = ::submit,
+            onClick = { submit() },
             enabled = url.isNotBlank() && !checking,
             modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
         ) {
             Text(if (checking) "Connecting…" else "Connect")
+        }
+
+        // The server may simply not be running yet. Do not make that a dead end.
+        if (unreachable && !checking) {
+            TextButton(
+                onClick = { submit(force = true) },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            ) {
+                Text("Save it anyway")
+            }
         }
 
         Text(
@@ -120,6 +169,16 @@ fun SetupScreen(onDone: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 26.dp),
+        )
+
+        Text(
+            "Running it on your own computer? Use that computer's address on " +
+                "your WiFi, like http://192.168.1.5:8080 — not 0.0.0.0. That " +
+                "machine has to be able to reach Instagram itself.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 14.dp),
         )
     }
 }

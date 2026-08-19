@@ -57,6 +57,32 @@ class HardeningTest {
     }
 
     @Test
+    fun `private and public hosts are told apart`() {
+        for (own in listOf("localhost", "127.0.0.1", "::1", "10.0.0.5", "192.168.1.4",
+                           "172.16.0.1", "172.31.255.254", "169.254.1.1", "loop.local")) {
+            assertTrue("$own is on your own network", LoopApi.isPrivateHost(own))
+        }
+        for (public in listOf("loop.example.com", "8.8.8.8", "172.15.0.1",
+                              "172.32.0.1", "1.2.3.4")) {
+            assertFalse("$public is not yours", LoopApi.isPrivateHost(public))
+        }
+    }
+
+    @Test
+    fun `plaintext is only flagged when it crosses a network you do not control`() {
+        fun risky(url: String) = LoopApi.isRiskyPlaintext(LoopApi.normaliseBase(url))
+
+        // Your own machine or your own WiFi: fine, no certificate exists there.
+        assertFalse(risky("http://192.168.1.4:8080"))
+        assertFalse(risky("http://localhost:8080"))
+        // Across the internet in the clear: the thing to warn about.
+        assertTrue(risky("http://loop.example.com"))
+        // https anywhere, and the default for a bare hostname, are fine.
+        assertFalse(risky("https://loop.example.com"))
+        assertFalse(risky("loop.example.com"))
+    }
+
+    @Test
     fun `the host guard blocks any request that is not to the configured server`() {
         val client = OkHttpClient.Builder()
             .addInterceptor(HostGuard("loop.example.com"))

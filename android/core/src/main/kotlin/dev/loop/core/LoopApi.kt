@@ -221,6 +221,29 @@ class LoopApi(
 
         private val BIND_ONLY_HOSTS = setOf("0.0.0.0", "::", "[::]")
 
+        /**
+         * True when this address is on your own machine or your own network.
+         *
+         * Plaintext to one of these never leaves equipment you control, so it
+         * is fine. Plaintext to anything else crosses networks you do not own,
+         * which in a country that inspects traffic is the thing to avoid.
+         */
+        fun isPrivateHost(host: String): Boolean {
+            val h = host.lowercase().trim('[', ']')
+            if (h == "localhost" || h.startsWith("127.") || h == "::1") return true
+            if (h.startsWith("10.") || h.startsWith("192.168.")) return true
+            if (h.startsWith("172.")) {
+                val second = h.split(".").getOrNull(1)?.toIntOrNull() ?: return false
+                return second in 16..31
+            }
+            // Link-local, and the .local names Android hands out on a LAN.
+            return h.startsWith("169.254.") || h.endsWith(".local")
+        }
+
+        /** Plaintext across a network you do not control. Worth warning about. */
+        fun isRiskyPlaintext(url: HttpUrl): Boolean =
+            url.scheme == "http" && !isPrivateHost(url.host)
+
         /** Accepts "example.com", "https://example.com", trailing slashes and so on. */
         fun normaliseBase(input: String): HttpUrl {
             val trimmed = input.trim()

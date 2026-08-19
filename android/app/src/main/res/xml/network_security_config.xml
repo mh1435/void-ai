@@ -1,21 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Cleartext is off by default: the app talks to exactly one server, over TLS.
-  On a network that is already interfering with your traffic, plaintext is the
-  last thing you want.
+  Cleartext is allowed, because this app is built to be pointed at a server you
+  run yourself — including one on your own machine over your own WiFi, which has
+  no certificate and never will.
 
-  The single exception is loopback, so the app can be pointed at a server
-  running on the same machine during development. A LAN address typed into the
-  setup screen still has to be https.
+  It is not a free-for-all. LoopApi.normaliseBase() defaults a bare hostname to
+  https, so plaintext only ever happens when someone deliberately types
+  "http://". The setup screen warns when that address is also a public one,
+  which is the case where plaintext actually costs you something.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">10.0.2.2</domain>
-    </domain-config>
 </network-security-config>

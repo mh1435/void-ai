@@ -83,6 +83,36 @@ python3 server.py           # http://localhost:8080
 python3 -m unittest discover -s tests   # 58 tests, no install needed
 ```
 
+### Run it on your own computer (no Render, nothing public)
+
+If you would rather not put anything on the internet, run the server on a
+machine at home and point the phone at it over WiFi:
+
+```bash
+python3 server.py
+```
+
+It prints the address to enter in the app:
+
+```
+  On this machine   http://localhost:8080
+  On your network   http://192.168.1.5:8080   <- enter this in the app
+```
+
+Type that second one into the app, `http://` and port included. **Not
+`0.0.0.0`** — that is what the server listens on, not somewhere a phone can
+connect to.
+
+No `ACCESS_CODE` is needed for this: the server is not reachable from outside
+your network, so there is nothing to lock. Nothing is published, and no
+account other than your Instagram one is involved.
+
+**The catch, and it is the whole catch:** that computer has to be able to
+reach Instagram. If it sits on the same blocked connection as your phone, it
+is blocked too, and the app will fail one step later instead of sooner. Run a
+VPN on that computer and this works — phone → your PC → VPN → Instagram —
+with nothing exposed publicly.
+
 ### Deploy to Render (what this repo is set up for)
 
 `render.yaml` is a blueprint for a free web service. Push the repo, connect it,

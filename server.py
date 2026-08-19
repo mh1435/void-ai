@@ -8,6 +8,7 @@ Run it anywhere Instagram is reachable; open it from anywhere it is not.
 Configuration is entirely environment variables — see loop/config.py.
 """
 
+import socket
 import sys
 import threading
 import time
@@ -95,25 +96,52 @@ def _sweeper():
             pass
 
 
-def main():
-    if not config.ACCESS_CODE:
-        print(
-            "! ACCESS_CODE is not set: anyone who finds this URL can use this\n"
-            "  server to talk to Instagram. Set ACCESS_CODE to lock it down.",
-            file=sys.stderr,
-        )
-    if config.UPSTREAM_PROXY:
-        print("→ routing Instagram traffic through the configured upstream proxy")
+def lan_address():
+    """This machine's address on the local network, for the phone to point at.
 
+    Opening a UDP socket toward a routable address makes the OS pick the
+    interface it would actually use. Nothing is sent.
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("10.255.255.255", 1))
+        return probe.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        probe.close()
+
+
+def main():
     threading.Thread(target=_sweeper, daemon=True).start()
 
     server = ThreadingHTTPServer((config.HOST, config.PORT), Handler)
     server.daemon_threads = True
-    print(f"Loop {__version__} listening on http://{config.HOST}:{config.PORT}")
+
+    # Printing the bind address alone is how people end up typing 0.0.0.0 into
+    # the app, which is not somewhere a phone can connect to. Print what to use.
+    print(f"Loop {__version__} is running.\n")
+    print(f"  On this machine   http://localhost:{config.PORT}")
+    lan = lan_address()
+    if lan:
+        print(f"  On your network   http://{lan}:{config.PORT}   <- enter this in the app")
+    print()
+
+    if config.UPSTREAM_PROXY:
+        print("  Instagram traffic goes through the configured upstream proxy.")
+    if config.ACCESS_CODE:
+        print("  An access code is required to use this server.")
+    else:
+        print(
+            "  No access code set. Fine on your own network; set ACCESS_CODE\n"
+            "  before putting this anywhere reachable from the internet."
+        )
+    print("\n  This machine must be able to reach Instagram itself.\n")
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nstopping")
+        print("stopping")
         server.shutdown()
 
 
