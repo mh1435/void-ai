@@ -38,10 +38,14 @@ SESSION_TTL = int(os.environ.get("SESSION_TTL", 60 * 60 * 24 * 30))
 SECRET = os.environ.get("LOOP_SECRET", "") or secrets.token_hex(32)
 
 # --- Identity we present to Instagram -------------------------------------
+# Must be a *desktop* browser, because IG_APP_ID below is the desktop web
+# app's id. Instagram serves mobile browsers a different app with a different
+# id, and a mobile user-agent carrying the desktop id is a combination no real
+# client produces - which is enough to get a login rejected outright.
 USER_AGENT = os.environ.get(
     "LOOP_USER_AGENT",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
-    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 )
 
 # Instagram's public web app id. Every instagram.com web request carries it.

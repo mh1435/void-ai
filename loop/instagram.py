@@ -41,9 +41,15 @@ def _headers(session, extra=None, referer=BASE + "/"):
         "X-ASBD-ID": config.IG_ASBD_ID,
         "X-IG-WWW-Claim": session.www_claim or "0",
         "X-Requested-With": "XMLHttpRequest",
+        # instagram.com sends this on every XHR; its absence is one of the
+        # cheaper ways to look like something other than the web app.
+        "X-Instagram-AJAX": "1",
         "Referer": referer,
         "Origin": BASE,
         "Accept": "*/*",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
     }
     if session.csrf:
         headers["X-CSRFToken"] = session.csrf

@@ -177,3 +177,26 @@ class ErrorShapeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RequestIdentityTests(unittest.TestCase):
+    """The headers must describe one coherent client, not two."""
+
+    def test_user_agent_matches_the_app_id_it_is_paired_with(self):
+        from loop import config
+        # IG_APP_ID is the desktop web app's. A mobile user-agent alongside it
+        # is a combination no real Instagram client sends.
+        self.assertEqual("936619743392459", config.IG_APP_ID)
+        agent = config.USER_AGENT.lower()
+        for mobile in ("iphone", "android", "mobile", "ipad"):
+            self.assertNotIn(mobile, agent,
+                             f"desktop app id paired with a {mobile} user-agent")
+
+    def test_web_app_headers_are_present(self):
+        from loop import instagram
+        from loop.sessions import Session
+        headers = instagram._headers(Session("t"))
+        for required in ("X-IG-App-ID", "X-Requested-With", "X-Instagram-AJAX",
+                         "Referer", "Origin"):
+            self.assertIn(required, headers)
+        self.assertEqual("XMLHttpRequest", headers["X-Requested-With"])
