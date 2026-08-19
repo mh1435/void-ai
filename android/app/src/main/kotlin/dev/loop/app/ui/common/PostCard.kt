@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import dev.loop.core.Post
 import dev.loop.core.Slide
 
@@ -91,35 +92,16 @@ fun PostCard(
     Column(modifier.fillMaxWidth()) {
         PostHeader(post, actions)
 
-        Box {
-            PostMedia(
-                post = post,
-                visible = visible,
-                onDoubleTap = {
-                    if (!liked) setLiked(true)
-                    burst = true
-                },
-            )
-            AnimatedVisibility(
-                visible = burst,
-                enter = scaleIn(initialScale = 0.4f) + fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.align(Alignment.Center),
-            ) {
-                Icon(
-                    Icons.Filled.Favorite,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(96.dp),
-                )
-            }
-            LaunchedEffect(burst) {
-                if (burst) {
-                    kotlinx.coroutines.delay(650)
-                    burst = false
-                }
-            }
-        }
+        MediaWithBurst(
+            post = post,
+            visible = visible,
+            burst = burst,
+            onBurstFinished = { burst = false },
+            onDoubleTap = {
+                if (!liked) setLiked(true)
+                burst = true
+            },
+        )
 
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
@@ -190,6 +172,47 @@ fun PostCard(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/**
+ * The media, with the double-tap heart layered over it.
+ *
+ * This is a separate composable rather than a Box inside PostCard's Column on
+ * purpose: inside that Column, ColumnScope is still an implicit receiver, and
+ * `AnimatedVisibility` then resolves to `ColumnScope.AnimatedVisibility`
+ * instead of the plain overload. Here only BoxScope is in scope.
+ */
+@Composable
+private fun MediaWithBurst(
+    post: Post,
+    visible: Boolean,
+    burst: Boolean,
+    onBurstFinished: () -> Unit,
+    onDoubleTap: () -> Unit,
+) {
+    Box {
+        PostMedia(post = post, visible = visible, onDoubleTap = onDoubleTap)
+        AnimatedVisibility(
+            visible = burst,
+            enter = scaleIn(initialScale = 0.4f) + fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            Icon(
+                Icons.Filled.Favorite,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(96.dp),
+            )
+        }
+    }
+
+    LaunchedEffect(burst) {
+        if (burst) {
+            delay(650)
+            onBurstFinished()
         }
     }
 }
