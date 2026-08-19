@@ -1,0 +1,94 @@
+name: Release
+
+# Publishes the APK as a GitHub Release, which is what you want for
+# installing on a phone: a direct .apk link, no login, no zip, no expiry.
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag name for the release (e.g. v1.0.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify the contract with the server still holds
+        run: |
+          python3 tools/gen_fixtures.py
+          if ! git diff --quiet -- android/core/src/test/resources; then
+            echo "::error::Fixtures are stale; run tools/gen_fixtures.py and commit."
+            exit 1
+          fi
+
+      - name: Server tests
+        run: python3 -m unittest discover -s tests
+
+      - name: Core tests
+        working-directory: android
+        run: ./gradlew :core:test --console=plain
+
+      - name: Build release APK
+        working-directory: android
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleRelease --console=plain 2>&1 | tee build.log || {
+            grep -E "^e: |: error:" build.log | head -120 || true
+            exit 1
+          }
+
+      - name: Name the APK after the tag
+        id: apk
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          SRC=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          DEST="loop-${TAG}.apk"
+          cp "$SRC" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$DEST" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.apk.outputs.tag }}
+          name: Loop ${{ steps.apk.outputs.tag }}
+          files: ${{ steps.apk.outputs.path }}
+          generate_release_notes: true
+          body: |
+            A self-hosted Instagram client. Your phone talks to your server;
+            your server talks to Instagram.
+
+            **Install:** download the `.apk` below on your phone and open it.
+            Android will ask you to allow installs from this source.
+
+            On first launch it asks for your server address — the deployment
+            running `server.py`. Nothing else to configure.
+
+            `sha256: ${{ steps.apk.outputs.sha256 }}`
+
+            ---
+
+            This is an independent client, not affiliated with Instagram or
+            Meta. It does not remove ads or unlock paid features, and it does
+            not bypass account bans or any other enforcement — it only reaches
+            what your account can already see. Third-party clients are against
+            Instagram's Terms of Use; use an account you can afford to lose.
