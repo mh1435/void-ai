@@ -20,7 +20,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      # No dependencies to install: the server is standard library only, and
-      # this job is what keeps it that way.
+      # The server runs on the standard library alone; PyNaCl and cryptography
+      # are optional extras that enable encrypted password login. Install them
+      # so the encryption round-trip is exercised, not just the fallback.
+      - name: Install optional crypto extras
+        run: pip install -r requirements.txt
+
       - name: Unit tests
         run: python3 -m unittest discover -s tests -v
+
+      - name: Unit tests without the optional extras
+        run: |
+          pip uninstall -y PyNaCl cryptography
+          python3 -m unittest discover -s tests -v

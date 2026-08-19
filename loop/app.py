@@ -10,7 +10,7 @@ import re
 import traceback
 import urllib.parse
 
-from . import config, instagram, mediaproxy, netclient
+from . import config, instagram, mediaproxy, netclient, passwords
 from .sessions import Session, store
 
 WEB_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
@@ -442,6 +442,9 @@ def api_health(request):
         "detail": detail,
         "can_sign_in": can_sign_in,
         "sign_in_detail": sign_in_detail,
+        # Whether passwords will be encrypted the way instagram.com does, or
+        # fall back to the plaintext form it increasingly refuses.
+        "password_encryption": passwords.ENCRYPTION_AVAILABLE,
         "upstream_proxy": bool(config.UPSTREAM_PROXY),
         "sessions": len(store),
     })

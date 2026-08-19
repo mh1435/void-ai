@@ -12,7 +12,7 @@ import sys
 import time
 import urllib.parse
 
-from . import config, mediaproxy, netclient
+from . import config, mediaproxy, netclient, passwords
 
 BASE = "https://www.instagram.com"
 API = BASE + "/api/v1"
@@ -213,11 +213,12 @@ def bootstrap(session, store=None):
     return bool(session.cookies.get("csrftoken"))
 
 
-def _enc_password(password):
-    # Instagram still accepts the plaintext-passthrough form of enc_password.
-    # The password is held only for the length of this call; nothing writes
-    # it to disk or to the log.
-    return f"#PWD_INSTAGRAM_BROWSER:0:{int(time.time())}:{password}"
+def _enc_password(session, password):
+    # Encrypts the password the way instagram.com does when the crypto
+    # libraries are present, and falls back to the older plaintext form when
+    # they are not. The password is held only for the length of this call;
+    # nothing writes it to disk or to the log.
+    return passwords.encode(password, session.cookies)
 
 
 def login(session, username, password, store=None):
@@ -239,7 +240,7 @@ def login(session, username, password, store=None):
         session, "POST", "/web/accounts/login/ajax/",
         data={
             "username": username,
-            "enc_password": _enc_password(password),
+            "enc_password": _enc_password(session, password),
             "queryParams": "{}",
             "optIntoOneTap": "false",
             "trustedDeviceRecords": "{}",

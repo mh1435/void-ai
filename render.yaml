@@ -3,10 +3,11 @@ services:
     name: void-ai
     runtime: python
     plan: free
-    # Nothing to install - the whole server is Python standard library.
-    # This is a no-op that doubles as a smoke test: if the app cannot be
-    # imported, the build fails here rather than crash-looping after deploy.
-    buildCommand: "python3 -c 'import server; print(\"ok, no dependencies\")'"
+    # Installs PyNaCl + cryptography so the server can encrypt passwords the
+    # way instagram.com does. Both are optional - the app runs without them -
+    # but Instagram increasingly refuses the older plaintext form, so a real
+    # deployment wants them.
+    buildCommand: "pip install -r requirements.txt"
     startCommand: "python3 server.py"
     healthCheckPath: /api/health
     envVars:
