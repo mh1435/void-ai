@@ -63,12 +63,24 @@ is called.
   it returns. Endpoint drift is the most likely thing you will hit first;
   `/api/health` and `LOOP_DEBUG=1` exist to make that diagnosable.
 
-## Run it
+## Two clients, one server
+
+| | What it is | Get it |
+|---|---|---|
+| **Android app** | Native Kotlin/Compose. No WebView, no browser, nothing that loads instagram.com. | Build the APK — see below |
+| **Web app** | A PWA served by the same server. Installs via Add to Home Screen. | Just open your server's URL |
+
+They speak the same JSON API, so the server does not care which you use. The
+web app is the fastest way to check a deployment works; the Android app is the
+one you actually live in.
+
+## Run the server
 
 No dependencies. No build step. Python 3.9+.
 
 ```bash
 python3 server.py           # http://localhost:8080
+python3 -m unittest discover -s tests   # 58 tests, no install needed
 ```
 
 ### Deploy to Render (what this repo is set up for)
@@ -83,6 +95,42 @@ as a shim that boots the same app. Either start command works.
 Any host with outbound HTTPS works just as well — Fly, a $5 VPS, a Raspberry Pi
 at a friend's place abroad. A VPS you own is the better option: its IP is yours
 alone, so Instagram is far less likely to challenge it.
+
+## Build the Android app
+
+The APK is built by CI, because it needs the Android SDK:
+
+1. Push to GitHub. The **Android** workflow builds debug and release APKs.
+2. Open the run, download the `loop-apk` artifact, unzip it.
+3. Copy the APK to your phone and install it (you will have to allow
+   installing from unknown sources — this is not on Google Play).
+4. On first launch, enter your server address. That is the only setup.
+
+Locally, with the Android SDK installed:
+
+```bash
+cd android
+./gradlew :app:assembleDebug        # app/build/outputs/apk/debug/
+./gradlew :core:test                # the data layer, no SDK required
+```
+
+`:core` is plain Kotlin/JVM — models, HTTP client, error mapping — so it
+builds and tests with nothing but a JDK. `:app` is only configured when an
+Android SDK is present, which is why `./gradlew :core:test` works anywhere.
+
+### What the app does and does not send
+
+The two things that matter here are enforced in code, not just documented:
+
+- **`HostGuard`** (`android/core/.../LoopApi.kt`) rejects any request not
+  addressed to your configured server. Image and video loading share the same
+  OkHttp client, so no code path — not even a stray CDN URL — can reach
+  Instagram directly and expose your device's IP. There is a test that tries.
+- **A fixed identity.** The app sends `User-Agent: Loop` and nothing derived
+  from your device: no model, no OS version, no advertising id, no locale.
+
+The manifest requests `INTERNET` and `ACCESS_NETWORK_STATE`, and nothing else.
+Backups are disabled so the session token cannot leave the device.
 
 ## Configuration
 
@@ -108,6 +156,45 @@ people and hashtags · hashtag pages · activity/notifications · like, save,
 comment · double-tap to like · carousels · story viewer with progress bars.
 
 It installs as a PWA (Add to Home Screen) and works in both light and dark.
+
+## What Instagram can and cannot see
+
+This comes up a lot, and the answer has a common misconception in it.
+
+**Your IP address: hidden.** Instagram sees your server's IP. Your home or
+mobile IP never touches them. This is not a feature bolted on — it falls out of
+the server making every request.
+
+**Your MAC address: was never visible anyway.** MAC addresses do not travel
+over the internet. They are layer-2 identifiers that get rewritten at every
+router hop; yours reaches your Wi-Fi router and stops there. Instagram has
+never seen it, from this client or the official app. There was nothing to
+protect.
+
+**Your identity: fully known.** You sign in with your username and password.
+Instagram knows exactly who you are. Hiding your IP hides your *location and
+network*, not your account.
+
+**Device telemetry: not sent.** This is the bigger practical win. The official
+app collects your advertising id, device model and OS, sensors, precise
+location, contacts and installed-app signals. This client sends only what the
+web API needs to answer a request.
+
+**What Instagram still gets:** your account identity, everything you view, like
+and comment, timing and session patterns, and a datacenter IP — which is itself
+a flag, and part of why checkpoints happen.
+
+### This is not a VPN
+
+Your ISP still sees your phone connecting to your server's domain, via DNS and
+SNI, plus how much data and when. They cannot see that it is Instagram content.
+But this defeats a domain or IP block; it does not hide that you are using an
+unusual server, and it is not anonymity from whoever runs the block. If
+accessing Instagram where you are carries consequences beyond the site being
+unavailable, this design does not protect you from that.
+
+Whoever runs the server sees everything. That is you — set `ACCESS_CODE` so it
+stays that way.
 
 ## Security posture
 
@@ -147,6 +234,14 @@ web/js/media.js      one observer decides which video plays anywhere
 web/js/views/*.js    feed, explore, reels, profile, post, search, story, tag,
                      activity, settings, login
 web/sw.js            offline app shell (never caches API responses or media)
+
+android/core/        plain Kotlin/JVM: models, HTTP client, error mapping.
+                     Builds and tests without the Android SDK.
+android/app/         Compose UI: feed, stories, reels, explore, profile,
+                     post, search, activity, settings, setup/login/2FA
+tools/gen_fixtures.py  generates the core module's test fixtures by running
+                     Instagram-shaped payloads through the real normalisers
+tests/               server unit tests (stdlib unittest, no install)
 ```
 
 Instagram returns posts in at least two different shapes — GraphQL `edges` on a
@@ -154,6 +249,17 @@ profile, an `items` array on a timeline. Everything funnels through
 `normalise_post` / `normalise_graphql` in `loop/instagram.py`, so every view in
 the frontend consumes one post shape. **If you add an endpoint, normalise it
 there** rather than teaching a view a second shape.
+
+That shape is also a contract with the Android app. `tools/gen_fixtures.py`
+feeds real Instagram-shaped payloads through those same normalisers and writes
+the output to `android/core/src/test/resources/`; the Kotlin tests decode it.
+CI regenerates the fixtures and fails if they differ from what is committed, so
+changing a normaliser breaks the Android build instead of quietly drifting out
+of sync. After changing one, run:
+
+```bash
+python3 tools/gen_fixtures.py && cd android && ./gradlew :core:test
+```
 
 ## When it stops working
 
