@@ -229,6 +229,19 @@ def api_login(request):
     return json_result(result)
 
 
+@route("POST", r"/api/session/cookie")
+@gated
+def api_login_cookie(request):
+    payload = request.json()
+    result = instagram.login_with_session(
+        request.session,
+        str(payload.get("sessionid", "")),
+        str(payload.get("csrftoken", "")),
+        store,
+    )
+    return json_result(result)
+
+
 @route("POST", r"/api/session/two-factor")
 @gated
 def api_two_factor(request):

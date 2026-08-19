@@ -114,6 +114,9 @@ function renderLogin(shell) {
       'Your password is sent to Instagram to create a session and is never ',
       'stored on this server. The session cookie stays server-side; your ',
       'browser only holds an opaque id.'),
+    h('button.link-btn auth-switch', {
+      type: 'button', onClick: () => renderCookieLogin(shell),
+    }, 'Refused from a datacenter IP? Use a browser session cookie instead'),
   ));
   user.input.focus();
 }
@@ -154,6 +157,57 @@ function renderTwoFactor(shell, info) {
     }, code.el, error, submit),
   ));
   code.input.focus();
+}
+
+function renderCookieLogin(shell) {
+  const sid = field('sessionid cookie', {
+    name: 'sessionid', type: 'text', autocomplete: 'off',
+    autocapitalize: 'off', spellcheck: 'false', required: true,
+  });
+  const error = errorBox();
+  const submit = h('button.btn btn-primary btn-block', { type: 'submit' }, 'Use this session');
+
+  shell.replaceChildren(h('div.auth-card', {},
+    brand(),
+    h('p.auth-note', {},
+      'Already signed in to Instagram in your browser? Paste your session ' +
+      'cookie here — no password, and the sign-in happens from your browser, ' +
+      'not this server.'),
+    h('form', {
+      onSubmit: async (event) => {
+        event.preventDefault();
+        showError(error, '');
+        submit.disabled = true;
+        submit.textContent = 'Checking…';
+        try {
+          await api.loginWithCookie(sid.input.value, '');
+          await finish();
+        } catch (err) {
+          showError(error, err.message);
+        } finally {
+          submit.disabled = false;
+          submit.textContent = 'Use this session';
+        }
+      },
+    }, sid.el, error, submit),
+    h('details.auth-help', {},
+      h('summary', {}, 'How do I get my sessionid?'),
+      h('ol', {},
+        h('li', {}, 'Open instagram.com in your browser and make sure you are logged in.'),
+        h('li', {}, 'Install a cookie viewer add-on (on Firefox: "Cookie-Editor" or "Cookie Quick Manager").'),
+        h('li', {}, 'Open it while on instagram.com, find the row named sessionid, and copy its value.'),
+        h('li', {}, 'Paste it above. It is a long string that starts with numbers.'),
+      ),
+      h('p.auth-fineprint', {},
+        'The sessionid is what proves the browser is signed in. Treat it like ' +
+        'a password — anyone who has it can act as your account until you log ' +
+        'out of that browser.'),
+    ),
+    h('button.link-btn auth-switch', {
+      type: 'button', onClick: () => renderLogin(shell),
+    }, 'Sign in with a password instead'),
+  ));
+  sid.input.focus();
 }
 
 async function finish() {

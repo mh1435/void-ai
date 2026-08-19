@@ -61,6 +61,8 @@ export const api = {
   gate: (code) => request('/api/session/gate', { method: 'POST', body: { code } }),
   login: (username, password) =>
     request('/api/session/login', { method: 'POST', body: { username, password } }),
+  loginWithCookie: (sessionid, csrftoken) =>
+    request('/api/session/cookie', { method: 'POST', body: { sessionid, csrftoken } }),
   twoFactor: (username, identifier, code) =>
     request('/api/session/two-factor', { method: 'POST', body: { username, identifier, code } }),
   logout: () => request('/api/session/logout', { method: 'POST' }),

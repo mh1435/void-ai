@@ -332,6 +332,59 @@ def two_factor(session, username, identifier, code, store=None):
     )
 
 
+def login_with_session(session, sessionid, csrftoken="", store=None):
+    """Adopt a session Instagram already issued, e.g. one from a browser.
+
+    This is the way around a login being refused not because it is wrong but
+    because of *where the server sits*: the session was created from a trusted
+    IP (your browser, on your VPN), and here it is only reused. The password
+    never touches this server at all.
+    """
+    sessionid = (sessionid or "").strip().strip('"').strip("'")
+    if not sessionid:
+        raise InstagramError("Paste your sessionid cookie.", kind="input")
+
+    # sessionid begins with the numeric user id: "<id>%3A..." or "<id>:...".
+    decoded = urllib.parse.unquote(sessionid)
+    user_id = decoded.split(":", 1)[0]
+    if not user_id.isdigit():
+        raise InstagramError(
+            "That does not look like a sessionid. It should start with digits "
+            "and be a long string copied from the 'sessionid' cookie.",
+            kind="input",
+        )
+
+    session.cookies["sessionid"] = sessionid
+    session.cookies["ds_user_id"] = user_id
+    if csrftoken:
+        session.cookies["csrftoken"] = csrftoken.strip()
+    if not session.cookies.get("csrftoken"):
+        # Write actions need a csrftoken; reading does not. Try to pick one up.
+        try:
+            bootstrap(session, store)
+        except netclient.HTTPError:
+            pass
+
+    try:
+        payload = call(session, "GET", "/accounts/current_user/",
+                       params={"edit": "true"}, store=store)
+    except LoginRequired:
+        session.cookies.pop("sessionid", None)
+        raise InstagramError(
+            "Instagram did not accept that session cookie. It may have expired, "
+            "been copied incompletely, or the account was signed out. Log in "
+            "again in your browser and copy a fresh sessionid.",
+            kind="bad_session",
+        )
+
+    user = payload.get("user") or {}
+    session.user_id = str(user.get("pk") or user_id)
+    session.username = user.get("username", "")
+    if store is not None:
+        store.save(session)
+    return {"status": "ok", "user_id": session.user_id, "username": session.username}
+
+
 def logout(session, store=None):
     try:
         call(session, "POST", "/web/accounts/logout/ajax/",

@@ -775,3 +775,9 @@ body.booting .outlet { display: none; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* --- session-cookie login --------------------------------------------- */
+.auth-switch { display: block; width: 100%; text-align: center; margin-top: 16px; }
+.auth-help { margin-top: 18px; font-size: 13px; color: var(--text-dim); }
+.auth-help summary { cursor: pointer; color: var(--accent); }
+.auth-help ol { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 6px; }

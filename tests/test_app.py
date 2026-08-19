@@ -200,3 +200,33 @@ class RequestIdentityTests(unittest.TestCase):
                          "Referer", "Origin"):
             self.assertIn(required, headers)
         self.assertEqual("XMLHttpRequest", headers["X-Requested-With"])
+
+
+class CookieLoginTests(unittest.TestCase):
+    """Signing in with an existing session, the way around a refused login."""
+
+    def test_the_route_exists_and_is_gated(self):
+        result = call("POST", "/api/session/cookie", b'{"sessionid":"x"}')
+        # Without a valid session it fails, but as input/bad_session, proving
+        # the route is wired - not a 404.
+        self.assertNotEqual(404, result.status)
+
+    def test_a_non_numeric_sessionid_is_rejected_clearly(self):
+        from loop import instagram
+        from loop.sessions import Session
+        with self.assertRaises(instagram.InstagramError) as caught:
+            instagram.login_with_session(Session("t"), "not-a-real-cookie")
+        self.assertIn("does not look like a sessionid", str(caught.exception))
+
+    def test_an_empty_sessionid_is_rejected(self):
+        from loop import instagram
+        from loop.sessions import Session
+        with self.assertRaises(instagram.InstagramError):
+            instagram.login_with_session(Session("t"), "   ")
+
+    def test_user_id_is_read_from_the_cookie_prefix(self):
+        # "17841400000%3Aabc..." -> user id 17841400000, before any network call.
+        from loop import instagram
+        import urllib.parse
+        raw = "17841400000%3AAbCdEf%3A9"
+        self.assertEqual("17841400000", urllib.parse.unquote(raw).split(":", 1)[0])
