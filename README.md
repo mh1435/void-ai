@@ -81,6 +81,13 @@ embedded cover art are read out of the files themselves: ID3v2 for MP3, Vorbis c
 FLAC and Ogg/Opus, iTunes atoms for MP4, and the filename for anything untagged. Files never
 leave the device; there is no server to upload them to.
 
+**Your YouTube playlists** — connect your account under Settings → Accounts & Sync and your own
+playlists and liked videos are listed in the app. Open one and it becomes a mix: the titles and
+the order come from YouTube's own API, and each song is then found in your imported files or the
+open catalogue. No audio is taken from YouTube — the API does not offer it and the app does not
+go around that. Authentication is an access token you paste in; no client ID is baked into the
+app, because a credential shipped inside GPL software is neither secret nor yours.
+
 **Mixes** — share a playlist as a short code or a small file. What travels is the running
 order, not the audio: titles, artists, the sequence you chose. Whoever opens it resolves each
 song against *their* files and the open catalogue, so two people with different libraries hear
@@ -207,6 +214,7 @@ js/player.js            audio engine: two decks, crossfade, queue, failover, Med
 js/tags.js              ID3 / Vorbis / MP4 tag and cover-art reader
 js/import.js            folder import pipeline
 js/mix.js               shareable playlists: encode, parse, resolve
+js/youtube.js           read your own YouTube playlists through the Data API
 js/artwork.js           cover art: iTunes, then MusicBrainz + Cover Art Archive
 js/lyrics.js            synced lyrics from LRCLIB
 js/scrobble.js          ListenBrainz submission, with an offline queue

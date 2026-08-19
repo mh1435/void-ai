@@ -21,6 +21,7 @@ import { currentTheme, amoledOn, setTheme, setAmoled } from './theme.js';
 import { checkForUpdate, APP_VERSION } from './update.js';
 import { canPickFolder, pickFolder, openExternal } from './native.js';
 import { encodeMix, decodeMix, parseText, resolveMix, playable, forgetLibrary } from './mix.js';
+import * as YT from './youtube.js';
 import { importFiles, filesFromDrop, isAudioFile } from './import.js';
 import { scrobbler } from './scrobble.js';
 import {
@@ -1347,6 +1348,92 @@ export function openMixImporter() {
   });
 }
 
+/* ── YouTube ───────────────────────────────────────────────────────── */
+
+/**
+ * Your own YouTube playlists, listed from YouTube's own API.
+ *
+ * Opening one turns it into a mix: the titles and the order come from your
+ * account, and every song is then found in your files or the open catalogue.
+ * No audio is taken from YouTube — the API does not offer it, and this app
+ * does not go around that.
+ */
+export async function renderYouTube() {
+  const signal = freshSignal();
+
+  if (!YT.connected()) {
+    mount(el('div', {}, emptyState({
+      emoji: '▶',
+      title: 'Not connected to YouTube',
+      body: 'Connect your account under Settings → Accounts & Sync, then your playlists show up here.',
+      action: el('button', {
+        class: 'btn', type: 'button', onclick: () => navigate('#/settings/accounts'),
+      }, 'Open settings'),
+    })), 'YouTube');
+    return;
+  }
+
+  const body = el('div', {}, loadingRow('Reading your playlists…'));
+  mount(body, 'YouTube');
+
+  let lists;
+  try {
+    lists = await YT.myPlaylists({ signal });
+  } catch (err) {
+    if (signal.aborted) return;
+    body.replaceChildren(errorBox({
+      title: 'Could not read your playlists',
+      body: err.message,
+      hint: 'An access token lasts about an hour. If it has expired, get a fresh one and paste it '
+        + 'again under Settings → Accounts & Sync.',
+      onRetry: renderYouTube,
+    }));
+    return;
+  }
+  if (signal.aborted) return;
+
+  if (!lists.length) {
+    body.replaceChildren(emptyState({ emoji: '∅', title: 'No playlists on that account' }));
+    return;
+  }
+
+  body.replaceChildren(
+    el('p', { class: 'item-meta', style: 'margin-bottom:14px' },
+      `${lists.length} playlist${lists.length === 1 ? '' : 's'} · tap one to find its songs here`),
+    el('div', { class: 'tracks' }, ...lists.map((list) => el('div', {
+      class: 'track', tabindex: '0', role: 'button',
+      onclick: () => openYouTubePlaylist(list),
+      onkeydown: (e) => { if (e.key === 'Enter') openYouTubePlaylist(list); },
+    },
+      tintedArt(list.cover, list.id, 'track-art', list.liked ? '♥' : '≡'),
+      el('div', { class: 'track-main' },
+        el('div', { class: 'track-title' }, list.title),
+        el('div', { class: 'track-sub' },
+          list.count == null ? 'from YouTube' : `${list.count} video${list.count === 1 ? '' : 's'}`),
+      ),
+      el('span', {}), el('span', {}),
+      el('span', { class: 'setting-chev' }, svg(ICONS.chevron, 20)),
+    ))),
+  );
+}
+
+async function openYouTubePlaylist(list) {
+  const sheet = toast(`Reading “${list.title}”…`, '', 20000);
+  try {
+    const mix = await YT.playlistAsMix(list);
+    sheet?.remove();
+    if (!mix.entries.length) {
+      toast('That playlist has nothing readable in it', 'warn');
+      return;
+    }
+    pendingMix = mix;
+    navigate('#/mix');
+  } catch (err) {
+    sheet?.remove();
+    toast(`Could not read that playlist — ${err.message}`, 'err', 5000);
+  }
+}
+
 /** Set when a mix arrives by paste or file rather than through the URL. */
 let pendingMix = null;
 
@@ -1730,9 +1817,62 @@ async function settingsAccounts() {
   const lbStatus = el('span', {}, getSetting('scrobbleToken') ? 'Token saved' : 'Not connected');
   const pendingCount = await scrobbler.pending();
 
+  const ytToken = el('input', {
+    type: 'password', value: YT.token(), placeholder: 'Access token',
+    'aria-label': 'YouTube access token', autocomplete: 'off', spellcheck: false,
+  });
+  const ytStatus = el('span', {}, YT.connected() ? 'Token saved' : 'Not connected');
+
   root.append(
     el('p', { class: 'group-label' }, 'Connections'),
     el('div', { class: 'group' },
+      el('div', { class: 'setting static' },
+        el('span', { class: 'setting-body' },
+          el('strong', {}, 'YouTube'),
+          el('span', {}, 'Read your own playlists and liked videos, and play them from your files '
+            + 'or the open catalogue. Void Music never takes audio from YouTube — only the list of '
+            + 'what you saved.'),
+          el('span', { style: 'margin-top:12px;display:flex;gap:8px' }, ytToken,
+            el('button', {
+              class: 'btn secondary', type: 'button', style: 'flex:none',
+              onclick: async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                ytStatus.textContent = 'Checking…';
+                const r = await YT.verify(ytToken.value);
+                btn.disabled = false;
+                ytStatus.textContent = r.ok ? `Connected as ${r.name}` : `Rejected — ${r.error}`;
+                toast(r.ok ? `Connected to YouTube as ${r.name}` : 'That token did not work',
+                  r.ok ? 'ok' : 'err');
+                if (r.ok) renderSettings('accounts');
+              },
+            }, 'Connect')),
+          ytStatus,
+          el('span', { style: 'margin-top:10px' },
+            'To get a token without registering anything: open Google’s OAuth 2.0 Playground, '
+            + 'pick the YouTube Data API v3 scope ending in ', el('code', {}, 'youtube.readonly'),
+            ', authorise your account, exchange it for an access token and paste it here. '
+            + 'A token lasts about an hour, which is long enough to import; paste a fresh one '
+            + 'when you want to sync again.'),
+          el('span', { style: 'margin-top:10px;display:flex;gap:8px;flex-wrap:wrap' },
+            el('button', {
+              class: 'btn outline', type: 'button',
+              onclick: () => openExternal('https://developers.google.com/oauthplayground/'),
+            }, 'Open OAuth Playground'),
+            YT.connected() ? el('button', {
+              class: 'btn', type: 'button', onclick: () => navigate('#/youtube'),
+            }, 'My playlists') : null,
+            YT.connected() ? el('button', {
+              class: 'btn secondary', type: 'button',
+              onclick: async () => {
+                await YT.setToken('');
+                toast('Disconnected from YouTube');
+                renderSettings('accounts');
+              },
+            }, 'Disconnect') : null,
+          ),
+        ),
+      ),
       el('div', { class: 'setting static' },
         el('span', { class: 'setting-body' },
           el('strong', {}, 'ListenBrainz'),

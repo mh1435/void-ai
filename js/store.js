@@ -87,6 +87,7 @@ const DEFAULTS = {
   crossfade: 0,
   scrobbleToken: '',
   scrobbleEnabled: false,
+  youtubeToken: '',
   lastRoute: '#/home',
 };
 

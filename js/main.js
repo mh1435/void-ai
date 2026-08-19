@@ -36,6 +36,7 @@ const ROUTES = [
   [/^#\/offline$/,          () => V.renderOffline()],
   [/^#\/playlist\/(.+)$/,   (m) => V.renderPlaylist(decodeURIComponent(m[1]))],
   [/^#\/mix$/,              () => V.renderMix(null)],
+  [/^#\/youtube$/,          () => V.renderYouTube()],
   [/^#\/mix\/(.+)$/,        (m) => V.renderMix(m[1])],
   [/^#\/settings$/,         () => V.renderSettings()],
   [/^#\/settings\/(.+)$/,   (m) => V.renderSettings(m[1])],

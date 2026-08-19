@@ -19,7 +19,7 @@
  * IndexedDB via the app's offline store, which gives us eviction control and
  * a real "saved" list rather than opaque cache entries. */
 
-const VERSION = 'v12';
+const VERSION = 'v13';
 const SHELL_CACHE = `void-shell-${VERSION}`;
 const API_CACHE = `void-api-${VERSION}`;
 
@@ -42,6 +42,7 @@ const SHELL = [
   './js/theme.js',
   './js/update.js',
   './js/mix.js',
+  './js/youtube.js',
   './js/tags.js',
   './js/import.js',
   './js/scrobble.js',
