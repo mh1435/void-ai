@@ -27,8 +27,9 @@
 import { player, state } from './player.js';
 import { listens, getSetting, setSetting } from './store.js';
 import { diag } from './net.js';
+import * as B from './backend.js';
 
-const API = 'https://api.listenbrainz.org/1';
+const API = () => `${B.origin('api.listenbrainz.org')}/1`;
 const MIN_TRACK_SECONDS = 30;
 const MAX_WAIT_SECONDS = 4 * 60;
 
@@ -74,7 +75,7 @@ async function post(path, body, { timeoutMs = 10000 } = {}) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    const res = await fetch(`${API}${path}`, {
+    const res = await fetch(B.sign(`${API()}${path}`), {
       method: 'POST',
       signal: ctl.signal,
       headers: {
@@ -203,7 +204,7 @@ export const scrobbler = {
     try {
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), 10000);
-      const res = await fetch(`${API}/validate-token`, {
+      const res = await fetch(B.sign(`${API()}/validate-token`), {
         signal: ctl.signal,
         headers: { Authorization: `Token ${value}` },
       }).finally(() => clearTimeout(timer));

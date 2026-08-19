@@ -29,10 +29,14 @@
 
 import { covers } from './store.js';
 import { diag } from './net.js';
+import * as B from './backend.js';
 
-const MB = 'https://musicbrainz.org/ws/2';
-const CAA = 'https://coverartarchive.org';
-const ITUNES = 'https://itunes.apple.com/search';
+// Bases, not constants: with a self-hosted server in use these become
+// <server>/via/<host>, so artwork keeps working on a network that blocks
+// them the same way it blocks the catalogue.
+const MB = () => `${B.origin('musicbrainz.org')}/ws/2`;
+const CAA = () => B.origin('coverartarchive.org');
+const ITUNES = () => `${B.origin('itunes.apple.com')}/search`;
 
 /** Roughly one request per second, as MusicBrainz asks. */
 const MIN_GAP_MS = 1100;
@@ -133,7 +137,7 @@ function queued(fn, gap = MIN_GAP_MS) {
 
 /** Does the Cover Art Archive actually hold a front image for this release? */
 function caaFront(mbid, kind = 'release') {
-  return `${CAA}/${kind}/${mbid}/front-500`;
+  return B.sign(`${CAA()}/${kind}/${mbid}/front-500`);
 }
 
 /**
@@ -146,7 +150,7 @@ function caaFront(mbid, kind = 'release') {
  */
 async function lookupItunes(artist, subject, signal) {
   const term = `${artist} ${subject}`.trim();
-  const url = `${ITUNES}?term=${encodeURIComponent(term)}&entity=song&limit=8`;
+  const url = B.sign(`${ITUNES()}?term=${encodeURIComponent(term)}&entity=song&limit=8`);
   const data = await fetchJSON(url, signal);
 
   const wanted = normalise(artist);
@@ -174,7 +178,7 @@ function related(a, b) {
 
 async function lookupRelease(artist, album, signal) {
   const q = `release:"${album}" AND artist:"${artist}"`;
-  const url = `${MB}/release/?query=${encodeURIComponent(q)}&fmt=json&limit=5`;
+  const url = B.sign(`${MB()}/release/?query=${encodeURIComponent(q)}&fmt=json&limit=5`);
   const data = await fetchJSON(url, signal);
   const releases = data?.releases || [];
   // Prefer a release the Cover Art Archive is known to have art for.
@@ -185,7 +189,7 @@ async function lookupRelease(artist, album, signal) {
 
 async function lookupRecording(artist, title, signal) {
   const q = `recording:"${title}" AND artist:"${artist}"`;
-  const url = `${MB}/recording/?query=${encodeURIComponent(q)}&fmt=json&limit=5`;
+  const url = B.sign(`${MB()}/recording/?query=${encodeURIComponent(q)}&fmt=json&limit=5`);
   const data = await fetchJSON(url, signal);
   for (const rec of data?.recordings || []) {
     for (const rel of rec.releases || []) {

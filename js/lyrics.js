@@ -21,8 +21,9 @@
 
 import { covers } from './store.js';
 import { diag } from './net.js';
+import * as B from './backend.js';
 
-const API = 'https://lrclib.net/api';
+const API = () => `${B.origin('lrclib.net')}/api`;
 const TIMEOUT_MS = 8000;
 
 const memory = new Map();
@@ -119,13 +120,13 @@ export async function getLyrics(track, { signal } = {}) {
       if (track.album) params.set('album_name', track.album);
       if (track.duration) params.set('duration', String(Math.round(track.duration)));
 
-      let data = await fetchJSON(`${API}/get?${params}`, signal);
+      let data = await fetchJSON(B.sign(`${API()}/get?${params}`), signal);
 
       // The exact-match endpoint is strict about duration and album; a search
       // still finds the song when those differ from the Archive's metadata.
       if (!data) {
         const list = await fetchJSON(
-          `${API}/search?${new URLSearchParams({ artist_name: artist, track_name: title })}`, signal);
+          B.sign(`${API()}/search?${new URLSearchParams({ artist_name: artist, track_name: title })}`), signal);
         data = Array.isArray(list) ? list.find((x) => x.syncedLyrics || x.plainLyrics) : null;
       }
 

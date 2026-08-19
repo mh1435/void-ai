@@ -21,6 +21,7 @@
  * every request follows. */
 
 import { raceHosts, requestJSON, request, diag } from './net.js';
+import * as B from './backend.js';
 
 const DEFAULT_BASE = 'https://archive.org';
 
@@ -31,12 +32,22 @@ export const config = {
   preferLowBitrate: false,
 };
 
+/**
+ * Every host this module will ask for metadata, best first.
+ *
+ * A self-hosted backend is not just another mirror: in exclusive mode it
+ * replaces the direct route entirely, so a device on a filtered network never
+ * emits a request to a host that network is filtering.
+ */
 function bases() {
-  return [...config.mirrors.filter(Boolean), DEFAULT_BASE];
+  const direct = [...config.mirrors.filter(Boolean), DEFAULT_BASE];
+  if (!B.active()) return direct;
+  const proxied = B.origin('archive.org');
+  return B.backend.only ? [proxied] : [proxied, ...direct];
 }
 
 function urlsFor(path) {
-  return bases().map((b) => b.replace(/\/+$/, '') + path);
+  return bases().map((b) => B.sign(b.replace(/\/+$/, '') + path));
 }
 
 /* ── Curated entry points ──────────────────────────────────────────── */
@@ -326,7 +337,9 @@ function streamUrls(meta, fileName) {
   for (const b of bases()) {
     urls.push(`${b.replace(/\/+$/, '')}/download/${encodeURIComponent(meta.identifier)}/${enc}`);
   }
-  return [...new Set(urls)];
+  // The datanodes above are archive.org hosts too, so they are blocked
+  // wherever it is; B.route() sends them through the server as well.
+  return [...new Set(B.route([...new Set(urls)]).map(B.sign))];
 }
 
 /**

@@ -9,6 +9,8 @@
  * General Public License in LICENSE for details.
  */
 
+import * as B from './backend.js';
+
 /* Update check.
  *
  * A sideloaded app has no store to nag it, so it has to ask. This reads the
@@ -17,9 +19,9 @@
  * Failure is entirely acceptable: a private repo, a blocked host or no network
  * all mean "cannot tell", never an error the user has to deal with. */
 
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.1.0';
 
-const REPO = 'mh1435/void-music';
+const REPO = 'mh1435/void-ai';
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;
 
 /** Compare dotted versions numerically: 1.10.0 is newer than 1.9.0. */
@@ -48,7 +50,7 @@ export async function checkForUpdate({ signal } = {}) {
   signal?.addEventListener('abort', () => ctl.abort(), { once: true });
 
   try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    const res = await fetch(B.sign(`${B.origin('api.github.com')}/repos/${REPO}/releases/latest`), {
       signal: ctl.signal,
       headers: { Accept: 'application/vnd.github+json' },
     });

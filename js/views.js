@@ -28,6 +28,7 @@ import {
 } from './native.js';
 import { importFiles, filesFromDrop, isAudioFile } from './import.js';
 import { scrobbler } from './scrobble.js';
+import * as B from './backend.js';
 import {
   $, el, svg, ICONS, fmtTime, fmtBytes, fmtCount, toast, artNode, tintedArt,
   loadingRow, emptyState, errorBox,
@@ -1889,7 +1890,7 @@ async function settingsHub() {
       el('a', { class: 'btn', href: 'https://archive.org/donate', target: '_blank', rel: 'noopener noreferrer' },
         svg(ICONS.heart, 18), 'Support the Archive'),
       el('a', {
-        class: 'btn outline', href: 'https://github.com/mh1435/void-music',
+        class: 'btn outline', href: 'https://github.com/mh1435/void-ai',
         target: '_blank', rel: 'noopener noreferrer',
       }, 'Source'),
     ),
@@ -1992,10 +1993,13 @@ function settingsConnection() {
           const btn = e.currentTarget;
           btn.disabled = true;
           statusLine.textContent = 'Testing…';
-          const r = await probe('https://archive.org/metadata/nasa');
+          const viaServer = B.active();
+          const target = B.sign(`${B.origin('archive.org')}/metadata/nasa`);
+          const label = viaServer ? 'the catalogue, through your server' : 'archive.org';
+          const r = await probe(target);
           statusLine.textContent = r.ok
-            ? `archive.org reachable in ${r.ms} ms`
-            : `archive.org unreachable — ${r.error}`;
+            ? `${label} reachable in ${r.ms} ms`
+            : `${label} unreachable — ${r.error}`;
           btn.disabled = false;
         },
       },
@@ -2027,6 +2031,93 @@ function settingsConnection() {
             }, 'Save')),
         ),
       ),
+    ),
+  );
+
+
+  /* ── Your own server ────────────────────────────────────────────────
+   * The mirror field above covers "archive.org is slow or partly filtered".
+   * This covers the case it cannot: no route to the catalogue at all. */
+
+  const serverInput = el('input', {
+    type: 'text', value: getSetting('serverUrl') || '',
+    placeholder: 'https://my-void-server.example',
+    'aria-label': 'Void Music server URL', spellcheck: false, autocapitalize: 'off',
+  });
+  const codeInput = el('input', {
+    type: 'password', value: getSetting('serverCode') || '',
+    placeholder: 'Access code (only if your server sets one)',
+    'aria-label': 'Server access code', autocomplete: 'off', spellcheck: false,
+  });
+  const serverStatus = el('span', {}, describeBackend());
+
+  const saveServer = async () => {
+    const raw = serverInput.value.trim();
+    const code = codeInput.value.trim();
+
+    if (!raw) {
+      B.disconnect();
+      await setSetting('serverUrl', '');
+      await setSetting('serverCode', '');
+      serverStatus.textContent = describeBackend();
+      toast('Server removed — using archive.org directly', 'ok');
+      return;
+    }
+
+    let base;
+    try {
+      base = B.normalise(raw);
+    } catch {
+      toast('That is not a valid URL', 'err');
+      return;
+    }
+
+    serverStatus.textContent = 'Checking…';
+    try {
+      const health = await B.connect(base, code);
+      await setSetting('serverUrl', base);
+      await setSetting('serverCode', code);
+      serverInput.value = base;
+      toast(`Connected to your server (v${health.version})`, 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+    serverStatus.textContent = describeBackend();
+  };
+
+  root.append(
+    el('p', { class: 'group-label' }, 'Your own server'),
+    el('div', { class: 'group' },
+      el('div', { class: 'setting static' },
+        el('span', { class: 'setting-body' },
+          el('strong', {}, 'Self-hosted backend'),
+          el('span', {}, 'An app on your phone cannot talk its way past a blocked host — but a '
+            + 'server you run somewhere else can fetch on its behalf. Run server.py from this '
+            + 'project anywhere the Archive is reachable and put its address here; the app then '
+            + 'loads one hostname only: yours.'),
+          serverStatus,
+          el('span', { style: 'margin-top:12px;display:flex;flex-direction:column;gap:8px' },
+            serverInput, codeInput,
+            el('span', { style: 'display:flex;gap:8px' },
+              el('button', { class: 'btn secondary', type: 'button', style: 'flex:none',
+                onclick: saveServer }, 'Connect'),
+              el('button', {
+                class: 'btn secondary', type: 'button', style: 'flex:none',
+                onclick: async () => {
+                  serverInput.value = '';
+                  codeInput.value = '';
+                  await saveServer();
+                },
+              }, 'Forget'))),
+        ),
+      ),
+      toggleRow('Route everything through it',
+        'Never contact archive.org directly. Leave this on if the point of the server is '
+        + 'that the direct route is blocked or watched.',
+        null, B.backend.only, async (on) => {
+          B.backend.only = on;
+          await setSetting('serverOnly', on);
+        }),
     ),
   );
 
@@ -2296,6 +2387,15 @@ function toggleRow(title, sub, icon, checked, onChange) {
     el('span', { class: 'setting-body' }, el('strong', {}, title), el('span', {}, sub)),
     el('span', { class: 'switch' }, input, el('span', { class: 'slider' })),
   );
+}
+
+function describeBackend() {
+  switch (B.backend.status) {
+    case 'ok': return B.backend.detail || `Using ${B.backend.base}`;
+    case 'checking': return 'Checking…';
+    case 'error': return `Not usable — ${B.backend.detail}`;
+    default: return 'Not in use — the app talks to archive.org directly.';
+  }
 }
 
 function describeHealth() {

@@ -21,6 +21,7 @@ import { initNative, isNativeApp } from './native.js';
 import { getLyrics, lineAt } from './lyrics.js';
 import { applyTheme } from './theme.js';
 import { initScrobbler } from './scrobble.js';
+import * as B from './backend.js';
 import './demo.js'; // registers the generated-audio provider
 
 /* ── Routing ───────────────────────────────────────────────────────── */
@@ -586,6 +587,36 @@ function wireInstall() {
   });
 }
 
+/* ── The optional self-hosted server ───────────────────────────────── */
+
+/**
+ * Decide, once per launch, whether there is a server to route through.
+ *
+ * A saved URL always wins. Failing that, the app asks the origin it was
+ * loaded from: someone who deploys the server and installs the PWA from it
+ * should not then have to type its address into a settings field.
+ */
+async function initBackend() {
+  B.backend.only = getSetting('serverOnly') !== false;
+  const saved = String(getSetting('serverUrl') || '');
+
+  if (!saved) {
+    await B.detect();
+    return;
+  }
+
+  try {
+    await B.connect(saved, String(getSetting('serverCode') || ''));
+  } catch (err) {
+    // Carry on directly rather than refusing to start. The player still has
+    // its mirrors, and Settings → Connection shows what went wrong.
+    diag.log('err', `backend ${saved} unavailable: ${err.message}`);
+    B.disconnect();
+    B.backend.status = 'error';
+    B.backend.detail = err.message;
+  }
+}
+
 /* ── Boot ──────────────────────────────────────────────────────────── */
 
 async function boot() {
@@ -594,6 +625,11 @@ async function boot() {
   A.config.mirrors = String(getSetting('mirrors') || '')
     .split(',').map((s) => s.trim()).filter(Boolean);
   A.config.preferLowBitrate = Boolean(getSetting('preferLowBitrate'));
+
+  // Settle the backend before anything asks the network for a track: a
+  // request that leaves for a blocked host is a slow failure at best, and on
+  // the networks this app is built for, a logged one.
+  await initBackend();
 
   applyTheme();
   P.hydrate();

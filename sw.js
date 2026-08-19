@@ -19,7 +19,7 @@
  * IndexedDB via the app's offline store, which gives us eviction control and
  * a real "saved" list rather than opaque cache entries. */
 
-const VERSION = 'v15';
+const VERSION = 'v16';
 const SHELL_CACHE = `void-shell-${VERSION}`;
 const API_CACHE = `void-api-${VERSION}`;
 
@@ -35,6 +35,7 @@ const SHELL = [
   './js/archive.js',
   './js/store.js',
   './js/net.js',
+  './js/backend.js',
   './js/demo.js',
   './js/native.js',
   './js/artwork.js',
@@ -74,6 +75,25 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
+/**
+ * The real target of a request.
+ *
+ * With a self-hosted backend in use, every upstream URL is rewritten to
+ * <server>/via/<host>/<path> — which to this worker looks like an ordinary
+ * same-origin request for an app asset. Classifying those by our own origin
+ * would cache-first a search result and range-break a track, so unwrap them
+ * and judge them by where they are really going.
+ */
+function effective(url) {
+  const match = url.pathname.match(/^\/via\/([^/]+)(\/.*)?$/);
+  if (!match) return url;
+  try {
+    return new URL(`https://${match[1]}${match[2] || '/'}${url.search}`);
+  } catch {
+    return url;
+  }
+}
+
 function isApiRequest(url) {
   return /(^|\.)archive\.org$/.test(url.hostname)
     && /^\/(metadata|advancedsearch|services\/search)/.test(url.pathname);
@@ -105,24 +125,34 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // A request bound for a self-hosted server is classified by its upstream
+  // target, not by the fact that it happens to share our origin.
+  const proxied = url.pathname.startsWith('/via/');
+  const target = proxied ? effective(url) : url;
+
   // Never intercept media: range requests and streaming are the browser's job,
   // and buffering a whole album through the SW would waste memory.
-  if (isAudioRequest(url) || request.destination === 'audio') return;
+  if (isAudioRequest(target) || request.destination === 'audio') return;
 
   // Files being imported from a folder the user granted on Android are served
   // by the app itself and are read exactly once. Caching them would duplicate
   // an entire music library into the cache storage.
   if (url.pathname.startsWith('/localfile/')) return;
 
-  if (isApiRequest(url)) {
+  if (isApiRequest(target)) {
     event.respondWith(staleWhileRevalidate(request, API_CACHE));
     return;
   }
 
-  if (isCoverRequest(url)) {
+  if (isCoverRequest(target)) {
     event.respondWith(cacheFirst(request, API_CACHE));
     return;
   }
+
+  // Anything else aimed at a server — /api/health, a host we have no rule
+  // for — goes straight to the network. shellStrategy() matches with
+  // ignoreSearch, which would hand one search's results to the next.
+  if (proxied || url.pathname.startsWith('/api/')) return;
 
   // App shell and same-origin assets.
   if (url.origin === self.location.origin) {
