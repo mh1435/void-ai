@@ -173,6 +173,10 @@ function renderCookieLogin(shell) {
       'Already signed in to Instagram in your browser? Paste your session ' +
       'cookie here — no password, and the sign-in happens from your browser, ' +
       'not this server.'),
+    h('p.auth-warn', {},
+      '⚠ Use the same browser you are logged into Instagram with. A session ' +
+      'from Firefox only works when you open Loop in Firefox too — a cookie ' +
+      'from one browser is rejected by another as a mismatch.'),
     h('form', {
       onSubmit: async (event) => {
         event.preventDefault();
