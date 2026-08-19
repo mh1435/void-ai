@@ -89,6 +89,8 @@ fun LoginScreen(
         Text("Loop", style = MaterialTheme.typography.titleLarge)
 
         when (val current = step) {
+            // Handled by the full-screen short-circuit above; nothing here.
+            Step.WebLogin -> Unit
             Step.Gate -> {
                 Hint("This server is private. Enter its access code.")
                 OutlinedTextField(
