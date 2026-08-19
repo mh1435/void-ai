@@ -1,10 +1,12 @@
 services:
   - type: web
     name: void-ai
-    runtime: python3
+    runtime: python
     plan: free
-    # No dependencies: the whole server is Python standard library.
-    buildCommand: ""
+    # Nothing to install - the whole server is Python standard library.
+    # This is a no-op that doubles as a smoke test: if the app cannot be
+    # imported, the build fails here rather than crash-looping after deploy.
+    buildCommand: "python3 -c 'import server; print(\"ok, no dependencies\")'"
     startCommand: "python3 server.py"
     healthCheckPath: /api/health
     envVars:
