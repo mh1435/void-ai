@@ -94,6 +94,16 @@ public class NativeBridge {
     }
 
     /**
+     * Open a link in the browser. The page cannot do this itself: the WebView
+     * has no second window to open one in.
+     */
+    @JavascriptInterface
+    public void openExternal(final String url) {
+        if (url == null || url.isEmpty()) return;
+        activity.runOnUiThread(() -> activity.openExternal(url));
+    }
+
+    /**
      * True when this build can pick a whole folder. A WebView cannot do it
      * through {@code <input webkitdirectory>}, so the web app asks first and
      * falls back to choosing files when the answer is no.

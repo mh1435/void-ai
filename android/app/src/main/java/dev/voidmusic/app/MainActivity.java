@@ -11,7 +11,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.app.AlertDialog;
 import android.webkit.ConsoleMessage;
+import android.webkit.JsResult;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -124,6 +126,30 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+                // The WebView is built against the application context so it can
+                // outlive this Activity, which means it has no window token of
+                // its own to hang a dialog on. Build it here instead.
+                new AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton(android.R.string.ok, (d, w) -> result.confirm())
+                        .setOnCancelListener(d -> result.cancel())
+                        .show();
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton(android.R.string.ok, (d, w) -> result.confirm())
+                        .setNegativeButton(android.R.string.cancel, (d, w) -> result.cancel())
+                        .setOnCancelListener(d -> result.cancel())
+                        .show();
+                return true;
+            }
+
+            @Override
             public boolean onConsoleMessage(ConsoleMessage message) {
                 if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
                     Log.w(TAG, "web: " + message.message() + " @" + message.lineNumber());
@@ -225,6 +251,15 @@ public class MainActivity extends Activity {
             startActivity(new Intent(Intent.ACTION_VIEW, uri));
         } catch (ActivityNotFoundException e) {
             Toast.makeText(this, "No app can open that link", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Same thing, reachable from the JavaScript bridge. */
+    void openExternal(String url) {
+        try {
+            openExternally(Uri.parse(url));
+        } catch (Exception e) {
+            Log.w(TAG, "bad external url: " + url);
         }
     }
 

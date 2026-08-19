@@ -8,7 +8,7 @@ import { health, diag, bus, probe } from './net.js';
 import { resolveCover, coverCache } from './artwork.js';
 import { currentTheme, amoledOn, setTheme, setAmoled } from './theme.js';
 import { checkForUpdate, APP_VERSION } from './update.js';
-import { canPickFolder, pickFolder } from './native.js';
+import { canPickFolder, pickFolder, openExternal } from './native.js';
 import { importFiles, filesFromDrop, isAudioFile } from './import.js';
 import { scrobbler } from './scrobble.js';
 import {
@@ -241,6 +241,40 @@ function sheetHead(title, close) {
     el('h2', {}, title),
     el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: close }, svg(ICONS.x, 18)),
   );
+}
+
+/**
+ * Ask before something destructive.
+ *
+ * Deliberately not window.confirm: inside the Android wrapper the WebView has
+ * no Activity of its own to hang a system dialog on, so the browser dialog
+ * either does nothing or takes the app down. This is also the nicer of the two.
+ */
+function confirmSheet({ title, body, confirmLabel = 'Delete', danger = true }) {
+  return new Promise((resolve) => {
+    let answered = false;
+    openSheet((box, close) => {
+      const finish = (value) => { if (!answered) { answered = true; resolve(value); } close(); };
+
+      box.append(
+        sheetHead(title, () => finish(false)),
+        el('p', { class: 'modal-hint', style: 'text-align:left;padding:16px 18px 4px' }, body),
+        el('div', { class: 'modal-foot' },
+          el('button', { class: 'btn secondary', type: 'button', style: 'flex:1', onclick: () => finish(false) },
+            'Cancel'),
+          el('button', {
+            class: 'btn', type: 'button', style: `flex:1${danger ? ';background:var(--danger)' : ''}`,
+            onclick: () => finish(true),
+          }, confirmLabel),
+        ),
+      );
+      // Dismissing by tapping outside counts as "no".
+      setTimeout(() => {
+        const scrim = document.querySelector('.scrim');
+        scrim?.addEventListener('click', () => finish(false), { once: true });
+      }, 0);
+    });
+  });
 }
 
 function openTrackMenu(track, onRemove) {
@@ -1239,7 +1273,11 @@ export async function renderPlaylist(id) {
       el('button', {
         class: 'btn-ghost', type: 'button',
         onclick: async () => {
-          if (!confirm(`Delete “${pl.name}”?`)) return;
+          const sure = await confirmSheet({
+            title: 'Delete playlist',
+            body: `“${pl.name}” and its running order are removed. The tracks themselves stay in your library.`,
+          });
+          if (!sure) return;
           await playlists.remove(id);
           toast('Playlist deleted');
           navigate('#/library');
@@ -1555,7 +1593,13 @@ async function settingsStorage() {
       el('button', {
         class: 'setting', type: 'button',
         onclick: async () => {
-          if (!confirm('Delete all offline audio? Playlists and likes are kept.')) return;
+          const sure = await confirmSheet({
+            title: 'Clear offline audio',
+            body: 'Every downloaded file is removed from this device. Playlists and likes are kept, '
+              + 'and anything still on the Archive can be saved again.',
+            confirmLabel: 'Clear',
+          });
+          if (!sure) return;
           await offline.clear();
           offlineIds.clear();
           toast('Offline audio cleared', 'ok');
@@ -1651,7 +1695,7 @@ function settingsAbout() {
 
           if (r.status === 'update') {
             updateLine.textContent = `${r.version} available — tap to download`;
-            btn.onclick = () => window.open(r.apk || r.url, '_blank', 'noopener');
+            btn.onclick = () => openExternal(r.apk || r.url);
             toast(`Version ${r.version} is available`, 'ok', 6000);
           } else if (r.status === 'current') {
             updateLine.textContent = `Version ${APP_VERSION} — up to date`;

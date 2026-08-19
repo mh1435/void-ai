@@ -32,6 +32,24 @@ export const isStandalone = (() => {
   }
 })();
 
+/**
+ * Open a link outside the app.
+ *
+ * window.open does nothing inside the wrapper — the WebView has multiple
+ * windows disabled, and there is no browser for it to open. The bridge hands
+ * the URL to Android instead.
+ */
+export function openExternal(url) {
+  if (!url) return;
+  try {
+    if (bridge?.openExternal) {
+      bridge.openExternal(String(url));
+      return;
+    }
+  } catch { /* fall through to the browser behaviour */ }
+  window.open(url, '_blank', 'noopener');
+}
+
 /* ── Folder import ─────────────────────────────────────────────────── */
 
 /**
