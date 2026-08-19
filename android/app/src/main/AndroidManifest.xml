@@ -35,6 +35,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Where Google's consent page sends the browser back to. The
+                 scheme is the package name, which is what an Android OAuth
+                 client is required to use. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dev.voidmusic.app" />
+            </intent-filter>
         </activity>
 
         <service

@@ -103,6 +103,57 @@ public class NativeBridge {
         }
     }
 
+    /* ── Signing in to Google ──────────────────────────────────────── */
+
+    /** True when this build can run the real sign-in flow. */
+    @JavascriptInterface
+    public boolean canSignIn() {
+        return true;
+    }
+
+    /**
+     * Send the user to Google's consent page. The answer comes back through
+     * {@code window.__voidOAuth(ok, message)} once the browser returns.
+     */
+    @JavascriptInterface
+    public boolean signIn(final String clientId) {
+        return activity.startSignIn(clientId);
+    }
+
+    @JavascriptInterface
+    public boolean signedIn() {
+        return OAuthClient.signedIn(activity);
+    }
+
+    @JavascriptInterface
+    public String signedInAs() {
+        return OAuthClient.account(activity);
+    }
+
+    @JavascriptInterface
+    public void setSignedInAs(String name) {
+        OAuthClient.setAccount(activity, name);
+    }
+
+    @JavascriptInterface
+    public String clientId() {
+        return OAuthClient.clientId(activity);
+    }
+
+    /**
+     * A usable access token, refreshed if it has expired. Empty when nobody is
+     * signed in. The refresh token itself never reaches the page.
+     */
+    @JavascriptInterface
+    public String accessToken() {
+        return OAuthClient.accessToken(activity);
+    }
+
+    @JavascriptInterface
+    public void signOut() {
+        OAuthClient.signOut(activity);
+    }
+
     /**
      * Open a link in the browser. The page cannot do this itself: the WebView
      * has no second window to open one in.

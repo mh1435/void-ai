@@ -61,6 +61,70 @@ export function openExternal(url) {
   window.open(url, '_blank', 'noopener');
 }
 
+/* ── Signing in to Google ──────────────────────────────────────────── */
+
+/** True when the wrapper can run the real browser sign-in flow. */
+export const canSignIn = (() => {
+  try {
+    return Boolean(bridge?.canSignIn?.());
+  } catch {
+    return false;
+  }
+})();
+
+export const googleAccount = {
+  signedIn() {
+    try { return Boolean(bridge?.signedIn?.()); } catch { return false; }
+  },
+  name() {
+    try { return String(bridge?.signedInAs?.() || ''); } catch { return ''; }
+  },
+  setName(value) {
+    try { bridge?.setSignedInAs?.(String(value || '')); } catch { /* older wrapper */ }
+  },
+  clientId() {
+    try { return String(bridge?.clientId?.() || ''); } catch { return ''; }
+  },
+  /** A live access token, refreshed by the wrapper when it has expired. */
+  token() {
+    try { return String(bridge?.accessToken?.() || ''); } catch { return ''; }
+  },
+  signOut() {
+    try { bridge?.signOut?.(); } catch { /* older wrapper */ }
+  },
+};
+
+/**
+ * Send the user to Google's consent page and wait for them to come back.
+ *
+ * The browser handles the sign-in, not us — that is both what Google requires
+ * and the reason there is no password to type: the browser already has the
+ * session. Resolves { ok, error } once the redirect lands.
+ */
+export function signInWithGoogle(clientId, { timeoutMs = 5 * 60 * 1000 } = {}) {
+  if (!canSignIn) return Promise.resolve({ ok: false, error: 'Not available here' });
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (ok, error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      delete window.__voidOAuth;
+      resolve({ ok: Boolean(ok), error: error || '' });
+    };
+
+    const timer = setTimeout(() => done(false, 'Timed out waiting for Google'), timeoutMs);
+    window.__voidOAuth = (ok, message) => done(ok, message);
+
+    try {
+      if (!bridge.signIn(String(clientId || ''))) done(false, 'No browser to sign in with');
+    } catch (err) {
+      done(false, err.message);
+    }
+  });
+}
+
 /* ── Folder import ─────────────────────────────────────────────────── */
 
 /**

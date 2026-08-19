@@ -190,6 +190,9 @@ public class MainActivity extends Activity {
         // re-attaching a WebView that has been playing all along.
         if (WebAppHolder.needsLoad()) webView.loadUrl(START_URL);
 
+        // We may have been launched *by* the sign-in redirect.
+        handleOAuthIntent(getIntent());
+
         requestNotificationPermissionIfNeeded();
     }
 
@@ -262,6 +265,25 @@ public class MainActivity extends Activity {
         } catch (ActivityNotFoundException e) {
             Toast.makeText(this, "No app can open that link", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleOAuthIntent(intent);
+    }
+
+    /** The browser returning from Google's consent page. */
+    private void handleOAuthIntent(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
+        Uri data = intent.getData();
+        if (data != null) OAuthClient.handleRedirect(this, data);
+    }
+
+    /** Begin the sign-in flow, from the JavaScript bridge. */
+    boolean startSignIn(String clientId) {
+        return OAuthClient.begin(this, clientId);
     }
 
     /** Same thing, reachable from the JavaScript bridge. */

@@ -21,12 +21,18 @@
  * imported files or in the open catalogue. So a YouTube playlist becomes a
  * running order that plays from sources the app is allowed to play.
  *
- * Authentication is a plain OAuth access token you paste in. There is no
- * client ID baked into the app: this is GPL software, a shipped credential
- * would be neither secret nor yours, and asking you to register a developer
- * project is a wall that not everyone can get over. */
+ * Signing in is the real OAuth flow, run by the wrapper: the browser handles
+ * Google's consent page and the app keeps a refresh token, so you approve once
+ * and stay signed in. In a plain browser, where nothing can catch the redirect
+ * back from Google, a pasted access token still works as a fallback.
+ *
+ * No client ID is compiled in. This is GPL software, so anything shipped
+ * inside it is public; the user registers their own once instead. For an
+ * Android client Google issues no secret at all — the app is identified by its
+ * package name and signing certificate. */
 
 import { getSetting, setSetting } from './store.js';
+import { googleAccount, canSignIn } from './native.js';
 
 const API = 'https://www.googleapis.com/youtube/v3';
 const TIMEOUT_MS = 15000;
@@ -34,12 +40,28 @@ const TIMEOUT_MS = 15000;
 /** Liked videos live in a playlist with a fixed id, same for every account. */
 export const LIKED_PLAYLIST = 'LL';
 
+/**
+ * The token to use right now.
+ *
+ * A wrapper that can sign in properly owns the tokens and refreshes them, so
+ * it always wins. The pasted token is the fallback for a plain browser, where
+ * there is no way to catch a redirect back from Google.
+ */
 export function token() {
+  if (canSignIn) {
+    const managed = googleAccount.token();
+    if (managed) return managed;
+  }
   return String(getSetting('youtubeToken') || '').trim();
 }
 
 export function connected() {
   return Boolean(token());
+}
+
+/** True when the account was signed in properly rather than pasted. */
+export function signedIn() {
+  return canSignIn && googleAccount.signedIn();
 }
 
 export async function setToken(value) {
@@ -76,17 +98,23 @@ async function call(path, params = {}, { signal } = {}) {
 
 /** Confirm a token works, and say whose it is. */
 export async function verify(candidate) {
-  const previous = token();
-  await setToken(candidate);
+  const previous = String(getSetting('youtubeToken') || '');
+  if (candidate != null) await setToken(candidate);
   try {
-    const data = await call('channels', { part: 'snippet', mine: 'true' });
-    const channel = data?.items?.[0];
-    if (!channel) return { ok: false, error: 'No channel on that account' };
-    return { ok: true, name: channel.snippet?.title || 'your account' };
+    const name = await whoAmI();
+    return { ok: true, name };
   } catch (err) {
-    await setToken(previous);
+    if (candidate != null) await setToken(previous);
     return { ok: false, error: err.message };
   }
+}
+
+/** Whose account this token belongs to. */
+export async function whoAmI({ signal } = {}) {
+  const data = await call('channels', { part: 'snippet', mine: 'true' }, { signal });
+  const channel = data?.items?.[0];
+  if (!channel) throw new Error('No YouTube channel on that account');
+  return channel.snippet?.title || 'your account';
 }
 
 /* ── Reading the library ───────────────────────────────────────────── */

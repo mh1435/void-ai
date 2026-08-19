@@ -22,6 +22,7 @@ import { checkForUpdate, APP_VERSION } from './update.js';
 import { canPickFolder, pickFolder, openExternal } from './native.js';
 import { encodeMix, decodeMix, parseText, resolveMix, playable, forgetLibrary } from './mix.js';
 import * as YT from './youtube.js';
+import { canSignIn, googleAccount, signInWithGoogle } from './native.js';
 import { importFiles, filesFromDrop, isAudioFile } from './import.js';
 import { scrobbler } from './scrobble.js';
 import {
@@ -1350,6 +1351,186 @@ export function openMixImporter() {
 
 /* ── YouTube ───────────────────────────────────────────────────────── */
 
+function youtubeStatusText() {
+  if (YT.signedIn()) {
+    const who = googleAccount.name();
+    return who ? `Signed in as ${who}` : 'Signed in';
+  }
+  return YT.connected() ? 'Token saved' : 'Not connected';
+}
+
+/**
+ * The YouTube card.
+ *
+ * Inside the app this is a real sign-in: one tap, Google's own consent page in
+ * the browser, and it stays signed in afterwards because the wrapper keeps a
+ * refresh token. The only thing it needs first is a client ID, which the user
+ * registers once — nothing can be shipped inside a GPL app and still be theirs.
+ *
+ * In a plain browser there is no way to catch the redirect back from Google, so
+ * that case keeps the pasted-token path.
+ */
+function youtubeSetting(status) {
+  const body = el('span', { class: 'setting-body' },
+    el('strong', {}, 'YouTube'),
+    el('span', {}, 'Read your own playlists and liked videos, and play them from your files or '
+      + 'the open catalogue. Void Music never takes audio from YouTube — only the list of what '
+      + 'you saved.'),
+  );
+
+  if (canSignIn) body.append(...signInControls(status));
+  else body.append(...pastedTokenControls(status));
+
+  return el('div', { class: 'setting static' }, body);
+}
+
+function signInControls(status) {
+  const clientInput = el('input', {
+    type: 'text', value: googleAccount.clientId(),
+    placeholder: 'Google OAuth client ID', 'aria-label': 'Google OAuth client ID',
+    autocomplete: 'off', spellcheck: false,
+  });
+
+  const signIn = el('button', {
+    class: 'btn', type: 'button',
+    onclick: async (e) => {
+      const id = clientInput.value.trim();
+      if (!id) { toast('Paste your client ID first', 'warn'); return; }
+
+      e.currentTarget.disabled = true;
+      status.textContent = 'Waiting for Google…';
+      const result = await signInWithGoogle(id);
+
+      if (!result.ok) {
+        status.textContent = result.error || 'Sign-in failed';
+        toast(result.error || 'Sign-in failed', 'err', 5000);
+        renderSettings('accounts');
+        return;
+      }
+
+      // The token is live now; ask YouTube whose it is so the card can say so.
+      try {
+        const name = await YT.whoAmI();
+        googleAccount.setName(name);
+        toast(`Signed in as ${name}`, 'ok');
+      } catch (err) {
+        toast(`Signed in, but YouTube said: ${err.message}`, 'warn', 5000);
+      }
+      renderSettings('accounts');
+    },
+  }, 'Sign in with Google');
+
+  const out = [];
+
+  if (YT.signedIn()) {
+    out.push(
+      status,
+      el('span', { style: 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' },
+        el('button', {
+          class: 'btn', type: 'button', onclick: () => navigate('#/youtube'),
+        }, 'My playlists'),
+        el('button', {
+          class: 'btn secondary', type: 'button',
+          onclick: async () => {
+            googleAccount.signOut();
+            await YT.setToken('');
+            toast('Signed out of YouTube');
+            renderSettings('accounts');
+          },
+        }, 'Sign out'),
+      ),
+    );
+    return out;
+  }
+
+  out.push(
+    el('span', { style: 'margin-top:12px' }, clientInput),
+    status,
+    el('span', { style: 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' }, signIn),
+    el('span', { style: 'margin-top:12px' },
+      'The client ID is a one-time setup, and after it you just tap the button. In Google Cloud '
+      + 'Console: create a project, enable the YouTube Data API v3, then under Credentials create '
+      + 'an OAuth client of type ', el('strong', {}, 'Android'),
+      ' with package name ', el('code', {}, 'dev.voidmusic.app'),
+      ' and this app’s signing fingerprint. Google issues no secret for that type — the app is '
+      + 'identified by its signature instead. Add your own address as a test user and Google will '
+      + 'warn that the app is unverified; that is expected for an app only you use.'),
+    el('span', { style: 'margin-top:10px;display:flex;gap:8px;flex-wrap:wrap' },
+      el('button', {
+        class: 'btn outline', type: 'button',
+        onclick: () => openExternal('https://console.cloud.google.com/apis/credentials'),
+      }, 'Open Google Cloud Console'),
+      el('button', {
+        class: 'btn outline', type: 'button',
+        onclick: () => openSheet((box, close) => {
+          box.append(sheetHead('Signing fingerprint', close),
+            el('div', { class: 'import-body' },
+              el('p', { class: 'modal-hint', style: 'text-align:left;padding:0' },
+                'Google asks for the SHA-1 fingerprint of the key this app is signed with. Every '
+                + 'Void Music release is signed with the same key, which lives in the repository '
+                + 'at android/keystore/void-signing.jks. Run this where you have the repo:'),
+              el('pre', { class: 'mix-code' },
+                'keytool -list -v -keystore android/keystore/void-signing.jks \\\n'
+                + '  -alias void -storepass voidmusic | grep SHA1'),
+            ));
+        }),
+      }, 'Where do I find the fingerprint?'),
+    ),
+  );
+  return out;
+}
+
+function pastedTokenControls(status) {
+  const ytToken = el('input', {
+    type: 'password', value: String(getSetting('youtubeToken') || ''), placeholder: 'Access token',
+    'aria-label': 'YouTube access token', autocomplete: 'off', spellcheck: false,
+  });
+
+  return [
+    el('span', { style: 'margin-top:12px;display:flex;gap:8px' }, ytToken,
+      el('button', {
+        class: 'btn secondary', type: 'button', style: 'flex:none',
+        onclick: async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          status.textContent = 'Checking…';
+          const r = await YT.verify(ytToken.value);
+          btn.disabled = false;
+          status.textContent = r.ok ? `Connected as ${r.name}` : `Rejected — ${r.error}`;
+          toast(r.ok ? `Connected to YouTube as ${r.name}` : 'That token did not work',
+            r.ok ? 'ok' : 'err');
+          if (r.ok) renderSettings('accounts');
+        },
+      }, 'Connect')),
+    status,
+    el('span', { style: 'margin-top:10px' },
+      'In a browser there is no way to catch the redirect back from Google, so this takes a '
+      + 'pasted token: open Google’s OAuth 2.0 Playground, pick the YouTube Data API v3 scope '
+      + 'ending in ', el('code', {}, 'youtube.readonly'),
+      ', authorise your account and exchange it for an access token. It lasts about an hour. '
+      + 'The Android app signs in properly and stays signed in.'),
+    el('span', { style: 'margin-top:10px;display:flex;gap:8px;flex-wrap:wrap' },
+      el('button', {
+        class: 'btn outline', type: 'button',
+        onclick: () => openExternal('https://developers.google.com/oauthplayground/'),
+      }, 'Open OAuth Playground'),
+      YT.connected() ? el('button', {
+        class: 'btn', type: 'button', onclick: () => navigate('#/youtube'),
+      }, 'My playlists') : null,
+      YT.connected() ? el('button', {
+        class: 'btn secondary', type: 'button',
+        onclick: async () => {
+          await YT.setToken('');
+          toast('Disconnected from YouTube');
+          renderSettings('accounts');
+        },
+      }, 'Disconnect') : null,
+    ),
+  ];
+}
+
+
+
 /**
  * Your own YouTube playlists, listed from YouTube's own API.
  *
@@ -1817,62 +1998,12 @@ async function settingsAccounts() {
   const lbStatus = el('span', {}, getSetting('scrobbleToken') ? 'Token saved' : 'Not connected');
   const pendingCount = await scrobbler.pending();
 
-  const ytToken = el('input', {
-    type: 'password', value: YT.token(), placeholder: 'Access token',
-    'aria-label': 'YouTube access token', autocomplete: 'off', spellcheck: false,
-  });
-  const ytStatus = el('span', {}, YT.connected() ? 'Token saved' : 'Not connected');
+  const ytStatus = el('span', {}, youtubeStatusText());
 
   root.append(
     el('p', { class: 'group-label' }, 'Connections'),
     el('div', { class: 'group' },
-      el('div', { class: 'setting static' },
-        el('span', { class: 'setting-body' },
-          el('strong', {}, 'YouTube'),
-          el('span', {}, 'Read your own playlists and liked videos, and play them from your files '
-            + 'or the open catalogue. Void Music never takes audio from YouTube — only the list of '
-            + 'what you saved.'),
-          el('span', { style: 'margin-top:12px;display:flex;gap:8px' }, ytToken,
-            el('button', {
-              class: 'btn secondary', type: 'button', style: 'flex:none',
-              onclick: async (e) => {
-                const btn = e.currentTarget;
-                btn.disabled = true;
-                ytStatus.textContent = 'Checking…';
-                const r = await YT.verify(ytToken.value);
-                btn.disabled = false;
-                ytStatus.textContent = r.ok ? `Connected as ${r.name}` : `Rejected — ${r.error}`;
-                toast(r.ok ? `Connected to YouTube as ${r.name}` : 'That token did not work',
-                  r.ok ? 'ok' : 'err');
-                if (r.ok) renderSettings('accounts');
-              },
-            }, 'Connect')),
-          ytStatus,
-          el('span', { style: 'margin-top:10px' },
-            'To get a token without registering anything: open Google’s OAuth 2.0 Playground, '
-            + 'pick the YouTube Data API v3 scope ending in ', el('code', {}, 'youtube.readonly'),
-            ', authorise your account, exchange it for an access token and paste it here. '
-            + 'A token lasts about an hour, which is long enough to import; paste a fresh one '
-            + 'when you want to sync again.'),
-          el('span', { style: 'margin-top:10px;display:flex;gap:8px;flex-wrap:wrap' },
-            el('button', {
-              class: 'btn outline', type: 'button',
-              onclick: () => openExternal('https://developers.google.com/oauthplayground/'),
-            }, 'Open OAuth Playground'),
-            YT.connected() ? el('button', {
-              class: 'btn', type: 'button', onclick: () => navigate('#/youtube'),
-            }, 'My playlists') : null,
-            YT.connected() ? el('button', {
-              class: 'btn secondary', type: 'button',
-              onclick: async () => {
-                await YT.setToken('');
-                toast('Disconnected from YouTube');
-                renderSettings('accounts');
-              },
-            }, 'Disconnect') : null,
-          ),
-        ),
-      ),
+      youtubeSetting(ytStatus),
       el('div', { class: 'setting static' },
         el('span', { class: 'setting-body' },
           el('strong', {}, 'ListenBrainz'),
