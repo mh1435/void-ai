@@ -367,6 +367,11 @@ def login_with_session(session, sessionid, csrftoken="", user_agent="", store=No
     session.cookies["ds_user_id"] = user_id
     if csrftoken:
         session.cookies["csrftoken"] = csrftoken.strip()
+
+    if config.DEBUG:
+        print(f"[loop] cookie login: user_id={user_id} "
+              f"ua={(session.user_agent or '(default) ' + config.USER_AGENT)[:70]!r}",
+              file=sys.stderr)
     if not session.cookies.get("csrftoken"):
         # Write actions need a csrftoken; reading does not. Try to pick one up.
         try:
@@ -385,6 +390,14 @@ def login_with_session(session, sessionid, csrftoken="", user_agent="", store=No
             "again in your browser and copy a fresh sessionid.",
             kind="bad_session",
         )
+    except InstagramError as exc:
+        # e.g. "useragent mismatch": surface Instagram's own words, and log the
+        # UA so we can see whether the browser's identity actually reached here.
+        if config.DEBUG:
+            print(f"[loop] cookie login rejected: {exc} "
+                  f"(ua sent: {session.user_agent[:70]!r})", file=sys.stderr)
+        session.cookies.pop("sessionid", None)
+        raise
 
     user = payload.get("user") or {}
     session.user_id = str(user.get("pk") or user_id)
