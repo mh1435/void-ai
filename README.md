@@ -1,101 +1,174 @@
-# ⚔ Void Arena
+# Loop
 
-A 5v5 MOBA in the style of Mobile Legends, built with plain HTML5 Canvas + JavaScript — no
-dependencies, no build step. Runs on phones (touch joystick + skill buttons) and desktop.
+A self-hosted Instagram client, built for one situation: **Instagram is blocked
+where you are, and you want to use your own account anyway.**
 
-**Current mode:** you + 4 AI teammates vs 5 AI enemies. Multiplayer is the next milestone
-(see roadmap below).
+Your phone talks to *your* server. Your server talks to Instagram. That
+indirection is the entire trick — and it is worth being precise about why it is
+the only thing that can work.
 
-## ▶ How to run
+```
+   your phone                    your server                  Instagram
+  ┌───────────┐   HTTPS to      ┌─────────────┐   HTTPS to   ┌──────────┐
+  │  Loop PWA │ ──────────────► │   Python    │ ───────────► │ /api/v1  │
+  │           │  your-app.com   │  (stdlib)   │  instagram   │   CDN    │
+  └───────────┘ ◄────────────── └─────────────┘ ◄─────────── └──────────┘
+        ▲                              ▲
+   blocked network             somewhere Instagram
+   never sees an               is reachable
+   Instagram domain
+```
 
-Just open `index.html` in a browser, or serve the folder:
+## Read this before you start
+
+**An app on your phone cannot bypass a network block by itself.** If your ISP
+blocks `instagram.com` by DNS, SNI or IP, then any app on your device that
+connects to `instagram.com` is blocked, no matter how it is written. There is no
+client-side trick that changes this.
+
+So Loop does not try. Instead the *server* — which you run somewhere Instagram
+is reachable — makes every Instagram request, including fetching photos and
+videos from `*.cdninstagram.com` and `*.fbcdn.net`. Your device only ever loads
+one hostname: your own — every request the frontend makes is same-origin, which
+you can verify:
 
 ```bash
-python3 -m http.server 8080
-# then open http://localhost:8080
+grep -rn "fetch(\|XMLHttpRequest\|src=\"http" web/js/    # only /api and /media
+grep -rn "https://www.instagram" web/js/                   # one hit: see below
 ```
 
-## 🎮 Controls
+That single hit is the **Share** button, which copies an `instagram.com/p/…`
+link to hand to someone else. It is text; nothing loads it. If you would rather
+not have the string in the bundle at all, delete `sharePost` in
+`web/js/components.js`.
 
-| Action | Mobile | Desktop |
+**What this means in practice:** if your own domain also gets blocked later,
+point a different domain at the same deployment. The app does not care what it
+is called.
+
+### The honest caveats
+
+- **This uses Instagram's private web API.** There is no public API that can
+  read your home feed. The endpoints under `/api/v1/` are the ones instagram.com
+  itself calls; they are undocumented and Instagram changes them without notice.
+  When something breaks, it will usually be an endpoint that moved.
+- **Third-party clients are against Instagram's Terms of Use.** Logging in from
+  a datacenter IP can trigger a verification checkpoint or, occasionally, a
+  suspension. Use an account you can afford to have challenged, and expect to
+  approve a login from the official app at least once.
+- **Shared free-tier IPs are heavily rate-limited by Instagram**, because
+  thousands of other people are on them. If the app is slow or keeps asking you
+  to log in, that is usually why — see `UPSTREAM_PROXY` below.
+- **I could not test this against live Instagram**, only against the API shapes
+  it returns. Endpoint drift is the most likely thing you will hit first;
+  `/api/health` and `LOOP_DEBUG=1` exist to make that diagnosable.
+
+## Run it
+
+No dependencies. No build step. Python 3.9+.
+
+```bash
+python3 server.py           # http://localhost:8080
+```
+
+### Deploy to Render (what this repo is set up for)
+
+`render.yaml` is a blueprint for a free web service. Push the repo, connect it,
+and set `ACCESS_CODE` in the dashboard. `LOOP_SECRET` is generated for you.
+
+The old service on this repo started with `python3 void_web_cloud.py`, which is
+baked into the service rather than read from `render.yaml`, so that file is kept
+as a shim that boots the same app. Either start command works.
+
+Any host with outbound HTTPS works just as well — Fly, a $5 VPS, a Raspberry Pi
+at a friend's place abroad. A VPS you own is the better option: its IP is yours
+alone, so Instagram is far less likely to challenge it.
+
+## Configuration
+
+Everything is an environment variable. Nothing is required.
+
+| Variable | Default | What it does |
 |---|---|---|
-| Move | left virtual joystick | WASD / arrows |
-| Basic attack | ⚔ button (hold) — auto-attacks when idle | Space (hold) |
-| Skills 1 / 2 / Ult | tap = smart cast, **drag = aim** | 1 / 2 / 3 (aimed at mouse) |
-| Recall to base | ⌂ button | B |
-| Quick-buy next item | gold button | F |
-| Shop / Scoreboard | 🛒 / ☰ | P / Tab |
+| `ACCESS_CODE` | *(unset)* | Locks the deployment behind a code. **Set this** — without it, anyone who learns your URL can use your server to talk to Instagram. |
+| `LOOP_SECRET` | random per boot | Signs media URLs and the access cookie. Set it explicitly so they survive a restart. |
+| `UPSTREAM_PROXY` | *(unset)* | HTTP(S) proxy for all Instagram traffic, e.g. `http://user:pass@host:8080`. Use when the host's own IP is rate-limited or challenged. |
+| `PORT` / `HOST` | `8080` / `0.0.0.0` | Where to listen. |
+| `SESSION_DIR` | `/tmp/loop-sessions` | Where login sessions are kept so a restart does not sign you out. |
+| `SESSION_TTL` | 30 days | How long an idle session lives. |
+| `UPSTREAM_TIMEOUT` / `UPSTREAM_RETRIES` | `20` / `2` | Upstream request tuning. |
+| `MEDIA_CACHE_MB` | `64` | In-memory cache for CDN bytes. `0` disables it. |
+| `LOOP_DEBUG` | off | Request logging and tracebacks. |
 
-## 🗺 The game
+## What it does
 
-- Three lanes with **2 turrets each + a Void Core** per team — turrets must fall in order,
-  and the Core only becomes vulnerable once a lane is broken.
-- **Minion waves** every 28s, jungle camps that respawn, and the **Void Behemoth** boss
-  (spawns at 2:00) that grants your whole team gold + a damage buff.
-- **Bushes** hide you from enemies, gold/XP/levels (cap 15), items (6 slots), kill streaks,
-  first blood, assists, respawn timers — the full MOBA loop.
-- Ultimate unlocks at level 4.
+Home feed with stories · post view with comments (and posting them) · Reels in a
+vertical snap feed · Explore grid · profiles with follow/unfollow · search for
+people and hashtags · hashtag pages · activity/notifications · like, save,
+comment · double-tap to like · carousels · story viewer with progress bars.
 
-## 🦸 Original roster
+It installs as a PWA (Add to Home Screen) and works in both light and dark.
 
-| Hero | Role | Signature |
+## Security posture
+
+- Your Instagram password is forwarded to Instagram to create a session and is
+  **never written to disk or logged**. Only the resulting session cookies are
+  stored, server-side.
+- The browser holds one opaque session id. Instagram cookies never reach it, so
+  a stolen device cookie is useless off your server.
+- `/media` only fetches HMAC-signed URLs on an explicit host allowlist
+  (`*.cdninstagram.com`, `*.fbcdn.net`, `instagram.com`). Both checks are
+  enforced independently, so a valid signature for an off-list host is still
+  refused — this cannot be used as an open proxy.
+- TLS verification is never disabled. On a network that already tampers with
+  your traffic, that would be exactly the wrong corner to cut.
+- Anyone with access to `SESSION_DIR` can act as your account. Run this on a
+  host you control.
+
+## Layout
+
+```
+server.py            HTTP server + entrypoint
+void_web_cloud.py    shim for the pre-existing Render start command
+loop/config.py       every environment variable, in one place
+loop/netclient.py    dependency-free HTTP client: cookies, gzip, proxy, retries
+loop/instagram.py    Instagram web API bindings + normalisation into one shape
+loop/sessions.py     server-side session store (browser holds only a token)
+loop/mediaproxy.py   signed, allowlisted CDN proxy with an LRU cache
+loop/app.py          routing: the JSON API and static files
+
+web/index.html       app shell
+web/app.css          all styling, dark-first, mobile-first
+web/js/app.js        boot, chrome, route table
+web/js/api.js        the only file that makes network calls
+web/js/router.js     History-API router
+web/js/components.js post card, grids, avatars — the shared UI
+web/js/media.js      one observer decides which video plays anywhere
+web/js/views/*.js    feed, explore, reels, profile, post, search, story, tag,
+                     activity, settings, login
+web/sw.js            offline app shell (never caches API responses or media)
+```
+
+Instagram returns posts in at least two different shapes — GraphQL `edges` on a
+profile, an `items` array on a timeline. Everything funnels through
+`normalise_post` / `normalise_graphql` in `loop/instagram.py`, so every view in
+the frontend consumes one post shape. **If you add an endpoint, normalise it
+there** rather than teaching a view a second shape.
+
+## When it stops working
+
+Open **Settings** in the app. It tells you whether *the server* can reach
+Instagram, which is the one thing you cannot tell from a blank feed.
+
+| Symptom | Cause | Fix |
 |---|---|---|
-| **Kael, the Ashblade** | Assassin | Blink execution that refunds cooldown on kill |
-| **Nyra, Storm Weaver** | Mage | Skillshot bolts + triple-wave storm ultimate |
-| **Grom, the Ironhide** | Tank | Max-HP scaling slams, leap + AoE stun ult |
-| **Lyra, Dawnstrider** | Marksman | Piercing arrows, arrow-rain ultimate |
-| **Vex, the Void Caller** | Support | Marks enemies (+12% dmg taken), heals, gravity well |
-| **Thane, Wolfheart** | Fighter | Lifesteal brawler with bleed and rage ultimate |
+| "Cannot reach your Loop server" | your device can't reach *your* domain | your domain is blocked or the host is asleep — try a different domain |
+| "This server could not reach Instagram" | the host is blocked or offline | set `UPSTREAM_PROXY`, or move the server |
+| Signed out repeatedly | Instagram is challenging the login | approve it once in the official app, then sign in again |
+| "Instagram is rate-limiting this server" | shared datacenter IP | set `UPSTREAM_PROXY`, or move to a VPS with its own IP |
+| One section blank, others fine | that endpoint moved | `LOOP_DEBUG=1`, then fix the call in `loop/instagram.py` |
 
-## 🧊 3D Mode (Beta)
+## Not affiliated with Instagram or Meta
 
-`3d.html` is a real 3D build of the same game, rendered with [Three.js](https://threejs.org)
-(MIT license) instead of the 2D canvas. It reuses the entire simulation — `js/data.js`,
-`js/entities.js`, `js/ai.js`, and `Game.update()` in `js/game.js` — completely unchanged;
-only the rendering layer (`js3d/render3d.js`) is new, so gameplay, fog of war, and the DOM
-HUD all work identically to the 2D version. The 2D game at `index.html` is untouched and
-remains the main, complete version — 3D is an added mode, not a replacement.
-
-Heroes are stylised low-poly fantasy characters from the **KayKit Adventurers** pack
-(`assets/models/kaykit/`) by Kay Lousberg — **CC0 / public domain**, free for personal and
-commercial use with no attribution required (see `assets/models/kaykit/KAYKIT_LICENSE.txt`).
-Each role gets a fitting model: Knight (tank), Mage (mage), Rogue (marksman), Hooded Rogue
-(assassin), Barbarian (fighter). Three.js, GLTFLoader and SkeletonUtils are all MIT licensed
-— see the `*_LICENSE.txt` files in `js3d/vendor/`.
-
-The KayKit models are fully rigged and ship 75 baked animation clips, so Idle/Walk/Run/Attack/
-Death are played from real animations via a `THREE.AnimationMixer` in `js3d/render3d.js`, with
-cross-fades between states and a per-hero attack clip (sword chop, cast, crossbow shot, …).
-Each hero unit is an independent `SkeletonUtils.clone()` of its model so they animate
-separately, and materials are cloned + lightly tinted toward the hero's signature colour.
-
-Towers/minions/environment are built from real 3D geometry rather than a second model pack.
-
-## 🧱 Code layout
-
-```
-index.html      2D game: HUD + screens (hero select, HUD, shop, scoreboard, end screen)
-3d.html         3D beta: same HUD/screens, real Three.js scene instead of canvas
-style.css       all styling (shared by both)
-js/data.js      constants, map layout, hero kits, items (shared)
-js/entities.js  Unit/Hero/Minion/Tower/Jungle classes, combat, ability API (shared)
-js/ai.js        bot decision-making (shared)
-js/game.js      match state, simulation loop, 2D world renderer
-js/ui.js        input (joystick, drag-aim skills, keyboard), HUD, minimap, SFX (shared)
-js/main.js      2D bootstrap + requestAnimationFrame loop
-js3d/render3d.js  3D renderer: reads the same G/UI state as js/game.js's render()
-js3d/main3d.js    3D bootstrap: loads the character model, then starts the loop
-js3d/vendor/      self-hosted Three.js + GLTFLoader + SkeletonUtils (no CDN dependency)
-```
-
-## 🛣 Roadmap → multiplayer
-
-The simulation is already isolated from input/rendering (`Game.update(dt)` vs `render()`),
-which is the shape needed for netcode. Plan:
-
-1. Fixed-timestep, deterministic sim (seeded RNG, integer positions).
-2. Authoritative Node/WebSocket server running the same `js/` sim.
-3. Client-side prediction for your own hero + interpolation for everyone else.
-4. Lobby/matchmaking, then ranked-style progression.
-
-Also on the list: more heroes, skill leveling choices, equipment tiers/recipes, fog of war.
+This is an independent client for your own account. It does not remove ads,
+bypass any paid feature, or access anything your account cannot already see.

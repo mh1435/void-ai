@@ -3,8 +3,22 @@ services:
     name: void-ai
     runtime: python3
     plan: free
+    # No dependencies: the whole server is Python standard library.
     buildCommand: ""
-    startCommand: "python3 void_web_cloud.py"
+    startCommand: "python3 server.py"
+    healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
+      # Locks the deployment so only you can use it. Set a value in the
+      # Render dashboard; leave it unset and the app is open to anyone
+      # who learns the URL.
+      - key: ACCESS_CODE
+        sync: false
+      # Keeps signed media URLs and the access cookie valid across restarts.
+      - key: LOOP_SECRET
+        generateValue: true
+      # Optional: an HTTP(S) proxy to send Instagram traffic through, for
+      # when the host's own IP is rate-limited or challenged.
+      - key: UPSTREAM_PROXY
+        sync: false

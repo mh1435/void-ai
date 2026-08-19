@@ -2,3 +2,6 @@
 # Python bytecode from running the local static server
 __pycache__/
 *.pyc
+
+# Session state written at runtime
+/tmp/loop-sessions/
