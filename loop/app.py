@@ -11,7 +11,7 @@ import traceback
 import urllib.parse
 
 from . import config, instagram, mediaproxy, netclient
-from .sessions import store
+from .sessions import Session, store
 
 WEB_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
 
@@ -406,8 +406,14 @@ def api_media(request):
 
 @route("GET", r"/api/health")
 def api_health(request):
-    """Is the *server* able to reach Instagram? The answer the user needs when
-    the app shows nothing and they cannot tell whose fault it is."""
+    """What the user needs when the app shows nothing and they cannot tell
+    whose fault it is.
+
+    Reachability alone is not enough: Instagram will happily answer a request
+    from an address it has no intention of letting anyone sign in from. So
+    this also checks whether it will issue a session token, which is the step
+    that actually gates logging in.
+    """
     reachable, detail = False, ""
     try:
         resp = netclient.request("GET", instagram.BASE + "/robots.txt",
@@ -416,10 +422,26 @@ def api_health(request):
         detail = f"HTTP {resp.status}"
     except netclient.HTTPError as exc:
         detail = str(exc)
+
+    can_sign_in, sign_in_detail = False, "not checked"
+    if reachable:
+        probe = Session("health-probe")
+        try:
+            can_sign_in = instagram.bootstrap(probe)
+            sign_in_detail = (
+                "Instagram issued a session token"
+                if can_sign_in else
+                "Instagram would not issue a session token from this address"
+            )
+        except netclient.HTTPError as exc:
+            sign_in_detail = str(exc)
+
     return json_result({
         "ok": True,
         "instagram_reachable": reachable,
         "detail": detail,
+        "can_sign_in": can_sign_in,
+        "sign_in_detail": sign_in_detail,
         "upstream_proxy": bool(config.UPSTREAM_PROXY),
         "sessions": len(store),
     })

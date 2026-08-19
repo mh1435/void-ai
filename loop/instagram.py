@@ -8,6 +8,7 @@ frontend only ever sees one post shape.
 """
 
 import json
+import sys
 import time
 import urllib.parse
 
@@ -77,35 +78,74 @@ def call(session, method, path, *, params=None, data=None, headers=None,
     if dirty and store is not None:
         store.save(session)
 
-    if resp.status in (401, 403):
-        # 403 with a JSON body is usually a real API answer (checkpoint,
-        # "login_required"), not an HTTP-level rejection.
-        payload = _try_json(resp)
-        message = (payload or {}).get("message", "")
-        if message == "checkpoint_required" or "challenge" in str(payload):
-            raise InstagramError(
-                "Instagram flagged this sign-in and wants you to confirm it in "
-                "the official app or on the web, then try again.",
-                kind="challenge", status=resp.status, payload=payload or {},
-            )
-        raise LoginRequired()
-    if resp.status == 429:
+    # Parse once, up front. Instagram explains itself in the body even on a
+    # 400, and discarding that leaves nothing to debug but a status code.
+    payload = _try_json(resp)
+
+    if config.DEBUG and not resp.ok:
+        print(f"[loop] {method} {url} -> {resp.status} {resp.body[:600]!r}",
+              file=sys.stderr)
+
+    if _is_challenge(payload):
         raise InstagramError(
-            "Instagram is rate-limiting this server. Wait a few minutes.",
-            kind="rate_limited", status=429,
-        )
-    if not resp.ok:
-        raise InstagramError(
-            f"Instagram returned HTTP {resp.status}.", status=resp.status,
+            "Instagram flagged this sign-in and wants you to confirm it in "
+            "the official app or on the web, then try again.",
+            kind="challenge", status=resp.status, payload=payload or {},
         )
 
-    payload = _try_json(resp)
+    if resp.status == 429 or (payload or {}).get("message") == "rate_limited":
+        raise InstagramError(
+            "Instagram is rate-limiting this server. Wait a few minutes, or "
+            "set UPSTREAM_PROXY if this keeps happening — shared datacenter "
+            "addresses get throttled hard.",
+            kind="rate_limited", status=429,
+        )
+
+    if resp.status in (401, 403):
+        raise LoginRequired(_instagram_message(payload) or LoginRequired().args[0])
+
+    if not resp.ok:
+        # Surface Instagram's own words. "HTTP 400" alone is not actionable
+        # by anyone, including whoever is reading the source.
+        detail = _instagram_message(payload)
+        raise InstagramError(
+            f"Instagram rejected the request ({resp.status})."
+            + (f" It said: {detail}" if detail else
+               " It sent no explanation, which usually means a required field "
+               "or header has changed."),
+            status=resp.status, payload=payload or {},
+        )
+
     if payload is None:
         raise InstagramError(
             "Instagram returned something that was not JSON — the endpoint has "
             "probably changed.", status=resp.status,
         )
     return payload
+
+
+def _instagram_message(payload):
+    """The most human-readable thing in an Instagram error body."""
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("message", "error_message", "feedback_message", "title"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    errors = payload.get("errors")
+    if isinstance(errors, dict):
+        for values in errors.values():
+            if isinstance(values, list) and values:
+                return str(values[0])
+    return ""
+
+
+def _is_challenge(payload):
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("message") == "checkpoint_required":
+        return True
+    return bool(payload.get("checkpoint_url") or payload.get("challenge"))
 
 
 def _try_json(resp):
@@ -123,22 +163,32 @@ def _try_json(resp):
 # --------------------------------------------------------------------------
 
 def bootstrap(session, store=None):
-    """Hit the homepage once to pick up csrftoken / mid / ig_did cookies.
+    """Pick up the csrftoken / mid / ig_did cookies a login needs.
 
-    Without these, the login endpoint rejects us before it ever looks at the
-    credentials.
+    Without a csrftoken the login endpoint rejects the request before it ever
+    looks at the credentials, and the rejection says nothing useful. Several
+    sources are tried because which one hands over a token varies by edge and
+    by how the address is regarded.
     """
-    resp = netclient.request(
-        "GET", BASE + "/",
-        headers={
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "en-US,en;q=0.9",
-        },
-        cookies=session.cookies,
+    attempts = (
+        (BASE + "/", {"Accept": "text/html,application/xhtml+xml"}),
+        (BASE + "/accounts/login/", {"Accept": "text/html,application/xhtml+xml"}),
     )
-    session.cookies.update(resp.cookies)
+    for url, extra in attempts:
+        try:
+            resp = netclient.request(
+                "GET", url,
+                headers=dict(extra, **{"Accept-Language": "en-US,en;q=0.9"}),
+                cookies=session.cookies,
+            )
+        except netclient.HTTPError:
+            continue
+        session.cookies.update(resp.cookies)
+        if session.cookies.get("csrftoken"):
+            break
+
     if not session.cookies.get("csrftoken"):
-        # Some edges return the token only on the shared_data endpoint.
+        # Some edges hand the token over only in shared_data's JSON.
         try:
             shared = netclient.request(
                 "GET", BASE + "/data/shared_data/",
@@ -151,6 +201,7 @@ def bootstrap(session, store=None):
                 session.cookies["csrftoken"] = token
         except netclient.HTTPError:
             pass
+
     if store is not None:
         store.save(session)
     return bool(session.cookies.get("csrftoken"))
@@ -166,6 +217,17 @@ def _enc_password(password):
 def login(session, username, password, store=None):
     if not session.cookies.get("csrftoken"):
         bootstrap(session, store)
+
+    # Sending the login without one gets a bare 400 that blames nothing.
+    # Say what is actually missing instead.
+    if not session.cookies.get("csrftoken"):
+        raise InstagramError(
+            "This server could reach Instagram but Instagram would not issue "
+            "it a session token, so the sign-in cannot even be attempted. That "
+            "usually means the address it is running from is being refused — "
+            "set UPSTREAM_PROXY, or host it somewhere with its own IP.",
+            kind="no_csrf",
+        )
 
     payload = call(
         session, "POST", "/web/accounts/login/ajax/",

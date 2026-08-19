@@ -160,3 +160,34 @@ class StoryAndCommentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ErrorReportingTests(unittest.TestCase):
+    """A bare status code is not actionable. Instagram's own words are."""
+
+    def test_the_most_readable_field_wins(self):
+        cases = [
+            ({"message": "checkpoint_required"}, "checkpoint_required"),
+            ({"error_message": "Incorrect username"}, "Incorrect username"),
+            ({"feedback_message": "Try again later"}, "Try again later"),
+            ({"errors": {"password": ["Too many attempts"]}}, "Too many attempts"),
+            ({"message": "", "title": "Sorry"}, "Sorry"),
+        ]
+        for payload, expected in cases:
+            self.assertEqual(expected, instagram._instagram_message(payload))
+
+    def test_nothing_readable_returns_empty_rather_than_junk(self):
+        for payload in (None, {}, [], "text", {"status": "fail"}, {"message": "  "}):
+            self.assertEqual("", instagram._instagram_message(payload))
+
+    def test_challenges_are_recognised_in_every_shape_seen(self):
+        for payload in (
+            {"message": "checkpoint_required"},
+            {"checkpoint_url": "/challenge/123/abc/"},
+            {"challenge": {"url": "..."}},
+        ):
+            self.assertTrue(instagram._is_challenge(payload), payload)
+
+    def test_ordinary_failures_are_not_mistaken_for_challenges(self):
+        for payload in (None, {}, {"message": "Incorrect password"}, {"status": "ok"}):
+            self.assertFalse(instagram._is_challenge(payload), payload)
