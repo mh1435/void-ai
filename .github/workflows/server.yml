@@ -3,7 +3,13 @@ name: Server
 on:
   push:
     branches: ["**"]
-    paths: ["loop/**", "server.py", "tests/**", "web/**", ".github/workflows/server.yml"]
+    paths:
+      - "voidmusic/**"
+      - "server.py"
+      - "tests/**"
+      - "js/**"
+      - "index.html"
+      - ".github/workflows/server.yml"
   pull_request:
   workflow_dispatch:
 
@@ -20,16 +26,42 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      # The server runs on the standard library alone; PyNaCl and cryptography
-      # are optional extras that enable encrypted password login. Install them
-      # so the encryption round-trip is exercised, not just the fallback.
-      - name: Install optional crypto extras
-        run: pip install -r requirements.txt
 
+      # No install step: the player has no dependencies and neither does its
+      # server. If this ever needs one, that is the regression.
       - name: Unit tests
-        run: python3 -m unittest discover -s tests -v
+        run: python3 -m unittest discover -s tests -t . -v
 
-      - name: Unit tests without the optional extras
+      - name: The app the server serves is actually there
         run: |
-          pip uninstall -y PyNaCl cryptography
-          python3 -m unittest discover -s tests -v
+          set -euo pipefail
+          for f in index.html sw.js manifest.webmanifest css/app.css \
+                   js/main.js js/backend.js js/player.js; do
+            test -s "$f" || { echo "::error::missing $f"; exit 1; }
+          done
+
+      - name: It starts, serves the app, and refuses what it should
+        run: |
+          set -euo pipefail
+          PORT=8123 HOST=127.0.0.1 python3 server.py &
+          pid=$!
+          trap 'kill $pid' EXIT
+          for _ in $(seq 20); do
+            curl -fsS http://127.0.0.1:8123/api/health >/dev/null 2>&1 && break
+            sleep 0.5
+          done
+
+          curl -fsS http://127.0.0.1:8123/api/health | grep -q '"app": "void-music"'
+          curl -fsS http://127.0.0.1:8123/ | grep -q "<title>"
+
+          # The server shares a directory with its own source; publishing it
+          # would be the interesting bug.
+          for path in /server.py /voidmusic/config.py /tests/test_app.py; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8123$path")
+            [ "$code" = "404" ] || { echo "::error::$path returned $code"; exit 1; }
+          done
+
+          # And it is not an open proxy.
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+                 "http://127.0.0.1:8123/via/example.com/")
+          [ "$code" = "403" ] || { echo "::error::allowlist returned $code"; exit 1; }

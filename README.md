@@ -6,6 +6,11 @@ no subscription, and no dependency on any service that geo-blocks by country.
 It is a plain static web app — HTML, CSS and ES modules, with **zero build step and zero
 third-party dependencies**. Serve the folder and it runs.
 
+For the case where the network blocks the catalogue outright, it also ships a small
+**self-hosted backend** (`server.py`, standard library only). Run it somewhere the Archive is
+reachable and your phone talks to one host — yours — and nothing else. It is optional; the app
+is complete without it.
+
 ---
 
 ## Why it works where other apps don't
@@ -22,9 +27,11 @@ avoids that class of failure by construction:
 | CDN-hosted fonts, CSS, JS | Everything is local and same-origin; nothing is fetched from a third party |
 | Login / payment provider | No accounts and no payments exist |
 | A single API host | One host by default, plus a user-configurable mirror list raced in parallel |
+| Nothing to do when a host is blocked outright | A backend you run yourself, which fetches on the app's behalf |
 
-The only outbound host is `archive.org`. If that is blocked on your network, add your own
-mirror or reverse proxy under **Settings → Connection** and every request follows it.
+The only outbound host the catalogue needs is `archive.org`. If it is merely slow or partly filtered, add a mirror
+under **Settings → Connection** and every request follows it. If there is no route to it at
+all, no client-side arrangement can help — see [Your own server](#your-own-server) below.
 
 ### Built for a bad connection, not just a blocked one
 
@@ -137,6 +144,94 @@ python3 -m http.server 8000
 Deploying is just uploading the folder. It works on any static host, or on a small VPS with
 nginx — which is the better option if you want a deployment that no third party can pull.
 
+To run the app *and* its backend from one process, use `server.py` instead — same URL, but
+the catalogue is proxied rather than fetched by the browser:
+
+```bash
+python3 server.py
+# Void Music 2.1.0 is running.
+#   On this machine   http://localhost:8080
+#   On your network   http://192.168.1.20:8080   <- open this on your phone
+```
+
+---
+
+## Your own server
+
+**An app on your phone cannot talk its way past a blocked host.** If your ISP filters
+`archive.org` by DNS, SNI or IP, then every client on that device is filtered with it, no
+matter how it is written. Mirror racing does not help, because there is nothing left to race.
+
+So the app does not try. Instead a server *you* run — somewhere the Archive is reachable —
+makes every request, including the audio bytes, and your device only ever loads one hostname:
+
+```
+   your phone                    your server                 the open web
+  ┌────────────┐   HTTPS to     ┌─────────────┐   HTTPS to  ┌──────────────┐
+  │ Void Music │ ─────────────► │   Python    │ ──────────► │ archive.org  │
+  │    PWA     │  your-app.com  │  (stdlib)   │             │ lrclib, CAA… │
+  └────────────┘ ◄───────────── └─────────────┘ ◄────────── └──────────────┘
+        ▲                              ▲
+   blocked network             somewhere the Archive
+   never sees archive.org      is reachable
+```
+
+### Running it
+
+No dependencies. No build step. Python 3.9+.
+
+```bash
+git clone https://github.com/mh1435/void-ai
+cd void-ai
+python3 server.py
+```
+
+It serves the player *and* proxies for it, so opening the server's URL on your phone and
+installing from there is all the setup there is — the app detects that it was served by a Void
+server and routes through it automatically. Pointing an app you installed elsewhere at a
+server is done by hand under **Settings → Connection → Your own server**.
+
+Deploying to a host that has a free tier works the same way; `render.yaml` is included.
+
+### Configuration
+
+Everything is environment variables:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `PORT` / `HOST` | `8080` / `0.0.0.0` | Where to listen |
+| `ACCESS_CODE` | *(unset)* | Required from every client. **Set this** if the server is reachable from the internet, or strangers can stream on your bandwidth |
+| `UPSTREAM_PROXY` | *(unset)* | Send upstream traffic through an HTTP(S) proxy, for when the server's own IP is what's blocked |
+| `ALLOWED_HOSTS` | *(built-in list)* | Extra hosts the server may fetch, comma-separated — e.g. your own Archive mirror |
+| `CACHE_MB` | `64` | In-memory cache for metadata and artwork. Audio is never cached, only streamed |
+| `UPSTREAM_TIMEOUT` | `20` | Seconds to first byte |
+| `VOID_DEBUG` | *(unset)* | Log every request to stderr |
+
+### What it will and will not fetch
+
+One endpoint does the work:
+
+```
+GET /via/<host>/<path>
+```
+
+`<host>` must be on the allowlist — archive.org and its datanodes, the Cover Art Archive,
+MusicBrainz, iTunes, LRCLIB, ListenBrainz, and GitHub for the update check. Everything else is
+refused with a 403, **including redirects**: archive.org answers a download with a redirect to
+whichever datanode holds the bytes, so each hop is re-checked. An unchecked hop would be a hole
+exactly as big as an unchecked request.
+
+That is the entire security model, and it is why the server is not a general-purpose proxy
+someone can point at your internal network.
+
+### Routing everything, or only what fails
+
+**Settings → Connection** has a *Route everything through it* toggle, on by default. Off, the
+direct hosts are tried first and the server catches what fails; on, the app never contacts
+archive.org at all. Leave it on if the reason you deployed a server is that the direct route is
+blocked or watched — on those networks a request to a blocked host is not just a slow failure,
+it is a logged one.
+
 ---
 
 ## The Android app
@@ -217,6 +312,7 @@ manifest.webmanifest    PWA manifest
 sw.js                   service worker: shell caching + metadata SWR
 css/app.css             all styles
 js/net.js               timeouts, backoff, mirror racing, health tracking
+js/backend.js           optional self-hosted server: detection and URL rewriting
 js/archive.js           Internet Archive client: search, metadata, stream URLs
 js/store.js             IndexedDB: playlists, likes, offline blobs, imports, pending listens
 js/player.js            audio engine: two decks, crossfade, queue, failover, Media Session
@@ -235,6 +331,14 @@ js/views.js             route views
 js/ui.js                DOM helpers, formatting, toasts
 js/main.js              routing and wiring
 android/                native APK wrapper (bundles the web app above)
+
+server.py               the optional backend: entry point, HTTP, response streaming
+voidmusic/app.py        routing: /via/<host>/<path>, /api/health, the app itself
+voidmusic/proxy.py      host allowlist, redirect re-checking, small-response cache
+voidmusic/netclient.py  dependency-free HTTP client, buffered and streaming
+voidmusic/config.py     every environment variable there is
+tests/                  the server's test suite (`python3 -m unittest discover -s tests -t .`)
+
 tools/make_icons.py     regenerates assets/ icons (pure Python, no deps)
 tools/make_android_icons.py  regenerates the APK launcher icons
 ```
@@ -243,13 +347,25 @@ tools/make_android_icons.py  regenerates the APK launcher icons
 
 - Saving a track for offline use needs a CORS-readable response from the mirror. Playback
   itself does not, so a host with strict CORS can still stream — the save will just report a
-  failure it can't work around.
+  failure it can't work around. Routing through your own server fixes this as a side effect,
+  since it sets the header itself.
 - Cover art is looked up from the item itself, then iTunes, then MusicBrainz and the Cover Art
   Archive. Art that was never published anywhere cannot be fetched, and those tracks keep a
   generated tile. Lookups are queued and cached — including misses — so a long scroll doesn't
   become hundreds of requests.
 - Storage is per-browser. Clearing site data removes playlists, likes and offline audio; the
   app asks for persistent storage to reduce the chance of eviction under pressure.
+
+## Where Loop went
+
+This repository used to hold **Loop**, a self-hosted Instagram client. Void Music was merged
+into it because the two shared a problem and half a solution: Loop's whole reason to exist was
+making a blocked host reachable from a phone, which is exactly what a music app for filtered
+networks needs. Its server lives on here as `voidmusic/`.
+
+Loop itself is unchanged and complete on the [`loop`](../../tree/loop) branch — the Android
+client, the Instagram API layer and its own PWA. Nothing was deleted, and that branch still
+builds and tests on its own.
 
 ## Licence
 
