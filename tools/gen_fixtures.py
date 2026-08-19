@@ -19,6 +19,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Media URLs are HMAC-signed with LOOP_SECRET, which is random per process by
+# design. Pin it here so the fixtures are byte-for-byte reproducible and CI can
+# tell a real shape change from a fresh signing key. This value is only ever
+# used to generate test data.
+os.environ.setdefault("LOOP_SECRET", "fixtures-only-not-a-real-secret")
+
 from loop import instagram  # noqa: E402
 
 OUT = os.path.join(
