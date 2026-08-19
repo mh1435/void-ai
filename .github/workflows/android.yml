@@ -1,20 +1,25 @@
-name: Android
+name: Build APK
 
 on:
   push:
-    branches: ["**"]
-    paths: ["android/**", "tools/gen_fixtures.py", "loop/**", ".github/workflows/android.yml"]
+    branches: ['**']
+    tags: ['v*']
   pull_request:
-    paths: ["android/**", "tools/gen_fixtures.py", "loop/**"]
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Publish a release with this tag (e.g. v1.0.0). Leave blank to only build the APK.'
+        required: false
+        default: ''
 
-concurrency:
-  group: android-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: write
 
 jobs:
   build:
+    name: Assemble Android APK
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -22,67 +27,128 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      # The core module's fixtures are generated from the Python normalisers.
-      # Regenerating them here means a server-side shape change fails the
-      # Android build rather than silently drifting out of sync.
-      - name: Regenerate API fixtures from the server
-        run: python3 tools/gen_fixtures.py
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
 
-      - name: Fail if fixtures are stale
-        run: |
-          if ! git diff --quiet -- android/core/src/test/resources; then
-            echo "::error::Committed fixtures do not match loop/instagram.py."
-            echo "Run: python3 tools/gen_fixtures.py, then commit the result."
-            git diff --stat -- android/core/src/test/resources
-            exit 1
-          fi
-
-      - name: Core unit tests (contract with the server)
+      - name: Build APK
         working-directory: android
-        run: ./gradlew :core:test --console=plain
+        run: ./gradlew --no-daemon assembleRelease
 
-      # Gradle's stack traces are hundreds of lines and push the actual
-      # "e: file:...: error:" lines out of view. Capture the log and re-print
-      # just the compiler diagnostics at the end, where they are findable.
-      - name: Build debug APK
+      # The web app is copied into the APK at build time rather than committed
+      # twice, so a silent failure of that step would ship an empty shell.
+      - name: Verify the web app was bundled
         working-directory: android
         run: |
-          set -o pipefail
-          ./gradlew :app:assembleDebug --console=plain 2>&1 | tee build-debug.log || {
-            echo "::group::Compiler diagnostics"
-            grep -E "^e: |^w: |: error:" build-debug.log | head -120 || true
-            echo "::endgroup::"
-            exit 1
-          }
+          set -euo pipefail
+          bundled="app/build/generated/webAssets/www"
+          for f in index.html sw.js manifest.webmanifest css/app.css js/main.js js/player.js assets/icon-192.png; do
+            test -s "$bundled/$f" || { echo "::error::missing $f in bundled assets"; exit 1; }
+          done
+          echo "bundled $(find "$bundled" -type f | wc -l) files"
 
-      - name: Build release APK
-        working-directory: android
+      - name: Name the artifact
+        id: rename
         run: |
-          set -o pipefail
-          ./gradlew :app:assembleRelease --console=plain 2>&1 | tee build-release.log || {
-            echo "::group::Compiler diagnostics"
-            grep -E "^e: |^w: |: error:" build-release.log | head -120 || true
-            echo "::endgroup::"
-            exit 1
-          }
+          set -euo pipefail
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk \
+             "dist/void-music-${GITHUB_REF_NAME//\//-}.apk"
+          ls -lh dist/
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: loop-apk
-          path: |
-            android/app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/apk/release/*.apk
+          name: void-music-apk
+          path: dist/*.apk
           if-no-files-found: error
+          retention-days: 30
 
-      - name: Upload test report on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
+  release:
+    name: Attach signed APK to release
+    runs-on: ubuntu-latest
+    needs: build
+    # Either a v* tag was pushed, or someone dispatched the workflow and asked
+    # for a version. The dispatch path lets the runner's own token create the
+    # tag, which is useful when the caller cannot push tags directly.
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_version != '')
+
+    env:
+      TAG: ${{ inputs.release_version || github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          name: test-reports
-          path: android/core/build/reports/tests/
-          if-no-files-found: ignore
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build signed APK
+        working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          # An optional secret overrides the checked-in key; without it the
+          # committed key is used, so every build still signs identically.
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/void.keystore"
+            ./gradlew --no-daemon assembleRelease \
+              -PVOID_KEYSTORE="$RUNNER_TEMP/void.keystore" \
+              -PVOID_KEYSTORE_PASSWORD="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+              -PVOID_KEY_ALIAS="${{ secrets.ANDROID_KEY_ALIAS }}" \
+              -PVOID_KEY_PASSWORD="${{ secrets.ANDROID_KEY_PASSWORD }}"
+          else
+            ./gradlew --no-daemon assembleRelease
+          fi
+
+      - name: Verify the APK is signed
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          SIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$SIGNER" verify --print-certs "$APK" | grep -i "SHA-256 digest" | head -2
+          echo "signed OK"
+
+      - name: Collect APK
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/void-music-${TAG}.apk"
+          ls -lh dist/
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          # Creates the tag at this commit when it does not already exist.
+          tag_name: ${{ env.TAG }}
+          name: Void Music ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*.apk
+          generate_release_notes: true
+          body: |
+            Sideloadable Android build of Void Music.
+
+            Download the `.apk` below, copy it to your phone and open it. Android
+            will ask you to allow installing from that source. No Play Store and
+            no account needed.
+
+            Signed with the project's stable key, so this installs straight
+            over any earlier v1.2.0-or-later build without uninstalling first.

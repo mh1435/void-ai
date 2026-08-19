@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only small, cheap-to-restore data is backed up.
+
+  The library itself (playlists, likes, saved audio) lives in the WebView's
+  IndexedDB under app_webview/. Saved audio alone can run to hundreds of
+  megabytes, and Android's auto-backup quota is 25 MB — including it would make
+  backup silently fail for the whole app. So it is deliberately left out.
+-->
+<full-backup-content>
+    <include domain="sharedpref" path="." />
+    <include domain="database" path="." />
+</full-backup-content>

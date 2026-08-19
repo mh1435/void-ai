@@ -1,15 +1,33 @@
+# The web app itself is built by nothing — it runs as-is.
+# These are local editor/OS artefacts.
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+node_modules/
 
-# Python bytecode from running the local static server
+# Android build outputs. The web assets are copied into app/build at build
+# time, so nothing under here is source.
+android/.gradle/
+android/build/
+android/app/build/
+android/*/build/
+android/local.properties
+android/captures/
+android/.kotlin/
+*.apk
+*.aab
+*.keystore
+*.jks
+# ...except the shared signing key, which must be identical for every build
+# or Android will not install one release over another.
+!android/keystore/void-signing.jks
+
+# Python bytecode from the server and the icon generators
 __pycache__/
 *.pyc
 
-# Session state written at runtime
-/tmp/loop-sessions/
-
-# Gradle / Android
-android/.gradle/
-android/build/
-android/*/build/
-android/local.properties
-android/.kotlin/
-*.apk
+# Runtime state written by the server (media cache spill, local config)
+/var/

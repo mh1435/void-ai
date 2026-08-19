@@ -1,366 +1,262 @@
-# Loop
+# Void Music
 
-A self-hosted Instagram client, built for one situation: **Instagram is blocked
-where you are, and you want to use your own account anyway.**
+A fast, offline-first music player for **openly-licensed** recordings. No account, no ads,
+no subscription, and no dependency on any service that geo-blocks by country.
 
-Your phone talks to *your* server. Your server talks to Instagram. That
-indirection is the entire trick — and it is worth being precise about why it is
-the only thing that can work.
+It is a plain static web app — HTML, CSS and ES modules, with **zero build step and zero
+third-party dependencies**. Serve the folder and it runs.
 
-```
-   your phone                    your server                  Instagram
-  ┌───────────┐   HTTPS to      ┌─────────────┐   HTTPS to   ┌──────────┐
-  │  Loop PWA │ ──────────────► │   Python    │ ───────────► │ /api/v1  │
-  │           │  your-app.com   │  (stdlib)   │  instagram   │   CDN    │
-  └───────────┘ ◄────────────── └─────────────┘ ◄─────────── └──────────┘
-        ▲                              ▲
-   blocked network             somewhere Instagram
-   never sees an               is reachable
-   Instagram domain
-```
+---
 
-## Read this before you start
+## Why it works where other apps don't
 
-**An app on your phone cannot bypass a network block by itself.** If your ISP
-blocks `instagram.com` by DNS, SNI or IP, then any app on your device that
-connects to `instagram.com` is blocked, no matter how it is written. There is no
-client-side trick that changes this.
+Streaming apps usually break in sanctioned or heavily-filtered regions for reasons that have
+nothing to do with audio: the app store won't serve the install, the SDK phones home to a
+blocked host, the payment provider refuses the country, or a CDN returns 403 by IP. Void Music
+avoids that class of failure by construction:
 
-So Loop does not try. Instead the *server* — which you run somewhere Instagram
-is reachable — makes every Instagram request, including fetching photos and
-videos from `*.cdninstagram.com` and `*.fbcdn.net`. Your device only ever loads
-one hostname: your own — every request the frontend makes is same-origin, which
-you can verify:
+| Usual dependency | What this app does instead |
+| --- | --- |
+| App-store distribution | Installs straight from the browser as a PWA — no store account |
+| Google Play Services / Firebase | None. No analytics, no push, no remote config |
+| CDN-hosted fonts, CSS, JS | Everything is local and same-origin; nothing is fetched from a third party |
+| Login / payment provider | No accounts and no payments exist |
+| A single API host | One host by default, plus a user-configurable mirror list raced in parallel |
+
+The only outbound host is `archive.org`. If that is blocked on your network, add your own
+mirror or reverse proxy under **Settings → Connection** and every request follows it.
+
+### Built for a bad connection, not just a blocked one
+
+- **Timeouts on every request** — a hung socket fails in seconds instead of spinning forever.
+- **Exponential backoff with jitter** on retryable failures; 4xx responses fail fast.
+- **Mirror racing** — the same request goes to several hosts at once and the first answer wins,
+  so you pay the latency of the *fastest* route rather than the slowest.
+- **Per-track source failover** — each track carries several URLs (two Archive datanodes plus
+  the main host). A dead node costs one failed request, not a dead track.
+- **Stale-while-revalidate caching** of metadata in the service worker: a flaky link shows you
+  yesterday's data instead of an error page.
+- **Pre-buffering** of the next track so transitions don't stall.
+- **A diagnostics log** in Settings showing every retry and failure, so you can tell whether a
+  problem is the app, your connection, or a block upstream.
+
+---
+
+## Where the music comes from
+
+Everything streams from the Internet Archive's open audio collections:
+
+- **Netlabels** — Creative Commons electronic, ambient and indie releases
+- **Live Concerts (etree)** — live recordings that the artists explicitly allow to be traded
+- **78 RPM Archive** — digitised 78s: jazz, blues and early pop, in the public domain
+- **Classical**, **Field Recordings**, and the Archive-wide **Open Music** pool
+
+There are no ads and no subscription because **this material is free to share** — not because a
+paywall was bypassed. Commercial catalogues (the Spotify/Apple/YouTube Music kind) are
+deliberately absent: streaming those requires a licence, and stream-ripping them is both illegal
+and something this project won't do. If you want your own commercial library here, import the
+files you already own — see below.
+
+---
+
+## Features
+
+**Playback** — queue with shuffle and repeat, seek, volume, Media Session integration so
+lock-screen and headset buttons work on Android, and an adjustable **crossfade** (0–12s under
+Settings → Playback). The player runs two audio decks: one is audible while the other holds
+what plays next, which is what makes the fade possible and makes plain "next" near-gapless
+even with crossfade off.
+
+**Queue** — open it from the now-playing screen to reorder tracks, drop ones you don't want,
+or jump straight to anything further down.
+
+**Library** — playlists, liked songs, and offline saves, all stored locally in IndexedDB.
+
+**Offline** — save any track to the device and it plays with the network switched off entirely.
+The app shell itself is cached by the service worker, so it launches offline too.
+
+**Import your own files** — under **Library → Imported**, point the app at a whole folder (or
+drag one in) and everything inside comes at once. Titles, artists, albums, track numbers and
+embedded cover art are read out of the files themselves: ID3v2 for MP3, Vorbis comments for
+FLAC and Ogg/Opus, iTunes atoms for MP4, and the filename for anything untagged. Files never
+leave the device; there is no server to upload them to.
+
+**Your YouTube playlists** — connect your account under Settings → Accounts & Sync and your own
+playlists and liked videos are listed in the app. Open one and it becomes a mix: the titles and
+the order come from YouTube's own API, and each song is then found in your imported files or the
+open catalogue. No audio is taken from YouTube — the API does not offer it and the app does not
+go around that. In the Android app connecting is one tap and nothing else: Android shows the
+Google accounts already on the phone, you pick one, and Google itself asks whether Void Music may
+see your YouTube library. Nothing to register, nothing to paste, and the grant is held by the
+account manager, so it stays connected.
+
+Google can decline to broker that for an app it does not recognise. When it does, the card says so
+and opens a folded-away advanced setup: the full OAuth flow with a Google client ID you register
+once. No credential is compiled into the app, because anything shipped inside GPL software is
+public. Either way the wrapper holds the tokens and renews them, so the refresh token never enters
+the page. In a plain browser, where nothing can catch the redirect back from Google, a pasted
+access token still works.
+
+**Mixes** — share a playlist as a short code or a small file. What travels is the running
+order, not the audio: titles, artists, the sequence you chose. Whoever opens it resolves each
+song against *their* files and the open catalogue, so two people with different libraries hear
+the same running order from different sources. Nothing is uploaded, there is no server, and
+there is no account to be refused. A plain `Artist - Title` list, an `.m3u`, or a playlist CSV
+imports just as well.
+
+**Lyrics** — synced, line by line, from LRCLIB where they exist.
+
+**Sleep timer** — 5 to 60 minutes or "end of this track", with a fade rather than a hard stop.
+
+**Listening history** — optional scrobbling to [ListenBrainz](https://listenbrainz.org): paste
+a user token under Settings. Listens that can't be sent are kept and submitted when the
+connection returns.
+
+**Appearance** — dark, light or follow-the-system, plus a true-black AMOLED mode.
+
+**Demo mode** — the *Offline Sessions* album is six short instrumentals **synthesised in your
+browser with Web Audio** the moment you press play. Nothing is downloaded, so it works with no
+connection at all — useful for checking that playback and offline saving behave on your setup
+before you trust the network path.
+
+**Keyboard** — `space` play/pause · `←`/`→` seek · `shift+←`/`→` prev/next · `↑`/`↓` volume ·
+`m` mute · `s` shuffle · `r` repeat · `/` focus search.
+
+---
+
+## Running it
+
+Any static file server works. It must be served over `http://` or `https://` — not `file://` —
+because service workers and ES modules require an origin.
 
 ```bash
-grep -rn "fetch(\|XMLHttpRequest\|src=\"http" web/js/    # only /api and /media
-grep -rn "https://www.instagram" web/js/                   # one hit: see below
+python3 -m http.server 8000
+# then open http://127.0.0.1:8000
 ```
 
-That single hit is the **Share** button, which copies an `instagram.com/p/…`
-link to hand to someone else. It is text; nothing loads it. If you would rather
-not have the string in the bundle at all, delete `sharePost` in
-`web/js/components.js`.
+Deploying is just uploading the folder. It works on any static host, or on a small VPS with
+nginx — which is the better option if you want a deployment that no third party can pull.
 
-**What this means in practice:** if your own domain also gets blocked later,
-point a different domain at the same deployment. The app does not care what it
-is called.
+---
 
-### The honest caveats
+## The Android app
 
-- **This uses Instagram's private web API.** There is no public API that can
-  read your home feed. The endpoints under `/api/v1/` are the ones instagram.com
-  itself calls; they are undocumented and Instagram changes them without notice.
-  When something breaks, it will usually be an endpoint that moved.
-- **Third-party clients are against Instagram's Terms of Use.** Logging in from
-  a datacenter IP can trigger a verification checkpoint or, occasionally, a
-  suspension. Use an account you can afford to have challenged, and expect to
-  approve a login from the official app at least once.
-- **Shared free-tier IPs are heavily rate-limited by Instagram**, because
-  thousands of other people are on them. If the app is slow or keeps asking you
-  to log in, that is usually why — see `UPSTREAM_PROXY` below.
-- **I could not test this against live Instagram**, only against the API shapes
-  it returns. Endpoint drift is the most likely thing you will hit first;
-  `/api/health` and `LOOP_DEBUG=1` exist to make that diagnosable.
+`android/` is a native APK wrapper. The whole web app is **bundled inside the APK**, so it
+installs and runs with no server anywhere and works offline from the first launch.
 
-## Two clients, one server
+### Getting the APK
 
-| | What it is | Get it |
-|---|---|---|
-| **Android app** | Native Kotlin/Compose. No WebView, no browser, nothing that loads instagram.com. | Build the APK — see below |
-| **Web app** | A PWA served by the same server. Installs via Add to Home Screen. | Just open your server's URL |
+**From CI (no toolchain needed).** Every push builds one. Open the repo's **Actions → Build
+APK** run and download the `void-music-apk` artifact. Tagging a commit `v1.0.0` also attaches
+the APK to a GitHub Release.
 
-They speak the same JSON API, so the server does not care which you use. The
-web app is the fastest way to check a deployment works; the Android app is the
-one you actually live in.
-
-## Run the server
-
-No dependencies. No build step. Python 3.9+.
-
-```bash
-python3 server.py           # http://localhost:8080
-python3 -m unittest discover -s tests   # 58 tests, no install needed
-```
-
-### Run it on your own computer (no Render, nothing public)
-
-If you would rather not put anything on the internet, run the server on a
-machine at home and point the phone at it over WiFi:
-
-```bash
-python3 server.py
-```
-
-It prints the address to enter in the app:
-
-```
-  On this machine   http://localhost:8080
-  On your network   http://192.168.1.5:8080   <- enter this in the app
-```
-
-Type that second one into the app, `http://` and port included. **Not
-`0.0.0.0`** — that is what the server listens on, not somewhere a phone can
-connect to.
-
-No `ACCESS_CODE` is needed for this: the server is not reachable from outside
-your network, so there is nothing to lock. Nothing is published, and no
-account other than your Instagram one is involved.
-
-By default it listens on every interface, so anything else on that WiFi can
-reach it too. On a network you do not control, either set `ACCESS_CODE` or
-bind to loopback only:
-
-```bash
-HOST=127.0.0.1 python3 server.py
-```
-
-### On the phone itself, in Termux
-
-Works, with two caveats. Android kills background processes, so hold a wake
-lock first, and bind to loopback since the app is on the same device:
-
-```bash
-pkg install python -y
-termux-wake-lock
-HOST=127.0.0.1 python3 server.py
-```
-
-Then enter `http://localhost:8080` in the app.
-
-The catch is unchanged and sharper here: the phone must be able to reach
-Instagram, which means a VPN on the phone. At that point the VPN is what
-defeats the block, and Loop's contribution is that Instagram gets no device
-identifiers, no advertising id and no sensors — privacy, not access. A
-machine that stays on elsewhere is the better host if you have one.
-
-**The catch, and it is the whole catch:** that computer has to be able to
-reach Instagram. If it sits on the same blocked connection as your phone, it
-is blocked too, and the app will fail one step later instead of sooner. Run a
-VPN on that computer and this works — phone → your PC → VPN → Instagram —
-with nothing exposed publicly.
-
-### Deploy to Render (what this repo is set up for)
-
-`render.yaml` is a blueprint for a free web service. Push the repo, connect it,
-and set `ACCESS_CODE` in the dashboard. `LOOP_SECRET` is generated for you.
-
-The old service on this repo started with `python3 void_web_cloud.py`, which is
-baked into the service rather than read from `render.yaml`, so that file is kept
-as a shim that boots the same app. Either start command works.
-
-### Which host to pick
-
-Any machine with outbound HTTPS works. What separates them, for this app, is
-the IP address — Instagram treats a shared datacenter IP very differently from
-one that is yours alone.
-
-| Host | Cost | Sleeps? | IP | Setup |
-|---|---|---|---|---|
-| **Render free** | free | after 15 min idle | shared, heavily challenged | already configured here |
-| **Oracle Cloud Always Free** | free, permanently | no | dedicated | ~30 min, card needed for ID |
-| **Fly.io** | small free allowance | configurable | shared-ish | ~15 min |
-| **Any $4–5 VPS** | paid | no | dedicated | ~15 min |
-
-Render is the fastest way to find out whether this works for you, and costs
-nothing. Its weakness is the IP: thousands of people share those addresses, so
-Instagram issues login checkpoints against them often. If you get challenged
-repeatedly, that is the reason, and moving to a host with a dedicated IP is the
-fix — Oracle's Always Free tier is a real VPS and costs nothing indefinitely.
-
-Nothing about the app changes when you move. Point it at the new address in
-Settings and sign in again.
-
-## Build the Android app
-
-The APK is built by CI, because it needs the Android SDK:
-
-1. Open the [**Android** workflow](../../actions/workflows/android.yml) and
-   pick the newest green run.
-2. Download the `loop-apk` artifact at the bottom of the run page and unzip
-   it. It contains both `app-debug.apk` and `app-release.apk` — install the
-   release one; the debug build is only there for troubleshooting.
-3. Copy it to your phone and open it. Android will ask you to allow installs
-   from this source, because this is not on Google Play.
-4. On first launch, enter your server address. That is the only setup.
-
-Artifacts expire after 90 days, so re-run the workflow if the latest one has
-aged out. Every push to a branch rebuilds it.
-
-The release build is signed with the standard debug key, so it installs but is
-not Play-Store publishable — which is fine for an app you sideload onto your
-own phone. To sign it properly, add a keystore and point `signingConfigs` at
-it in `android/app/build.gradle.kts`.
-
-Locally, with the Android SDK installed:
+**Locally**, with the Android SDK installed:
 
 ```bash
 cd android
-./gradlew :app:assembleDebug        # app/build/outputs/apk/debug/
-./gradlew :core:test                # the data layer, no SDK required
+./gradlew assembleDebug
+# app/build/outputs/apk/debug/app-debug.apk
 ```
 
-`:core` is plain Kotlin/JVM — models, HTTP client, error mapping — so it
-builds and tests with nothing but a JDK. `:app` is only configured when an
-Android SDK is present, which is why `./gradlew :core:test` works anywhere.
+Copy the `.apk` to the phone and open it (Android will ask you to allow installing from that
+source). Debug builds are signed with the standard debug key, which is what makes them
+installable with no setup. To ship signed release builds, set the `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` repository secrets
+and push a `v*` tag.
 
-### What the app does and does not send
+### Why a WebView wrapper and not a TWA
 
-The two things that matter here are enforced in code, not just documented:
+Bubblewrap-style Trusted Web Activities need the site hosted on HTTPS, a Digital Asset Links
+file served from that domain, and Chrome present on the device — a chain of dependencies that
+fails in exactly the conditions this project targets. This wrapper bundles the assets instead
+and serves them through `WebViewAssetLoader` over `https://appassets.androidplatform.net/`.
 
-- **`HostGuard`** (`android/core/.../LoopApi.kt`) rejects any request not
-  addressed to your configured server. Image and video loading share the same
-  OkHttp client, so no code path — not even a stray CDN URL — can reach
-  Instagram directly and expose your device's IP. There is a test that tries.
-- **A fixed identity.** The app sends `User-Agent: Loop` and nothing derived
-  from your device: no model, no OS version, no advertising id, no locale.
+That origin detail is the important part: loading from `file://` would put the app on an opaque
+origin where IndexedDB is unreliable and service workers refuse to register. Served this way the
+packaged app is an ordinary secure origin, so playlists, offline audio and the rest behave
+exactly as they do in a browser — with no server involved at all.
 
-The manifest requests `INTERNET` and `ACCESS_NETWORK_STATE`, and nothing else.
-Backups are disabled so the session token cannot leave the device.
+### What the native layer adds
 
-## Configuration
+- **Background playback.** A `mediaPlayback` foreground service keeps audio running when the
+  app is backgrounded or the screen is off, with the notification Android requires in exchange.
+  The audio still belongs to the WebView — there is no second player — the web app just tells
+  the service when something is playing via `window.VoidNative`.
+- **File and folder import.** The system file picker is wired to the web app's import control.
+  A WebView has no equivalent of `<input webkitdirectory>`, so picking a *folder* goes through
+  the Storage Access Framework instead: the user grants one directory, the app walks it, and
+  the page reads each file back over its own origin (`/localfile/<id>`) rather than having the
+  bytes shovelled across the JavaScript bridge.
+- **Back button** maps to the app's own history.
+- **External links** (an item's "Source" button) open in the browser rather than inside the app.
 
-Everything is an environment variable. Nothing is required.
+### Notes
 
-| Variable | Default | What it does |
-|---|---|---|
-| `ACCESS_CODE` | *(unset)* | Locks the deployment behind a code. **Set this** — without it, anyone who learns your URL can use your server to talk to Instagram. |
-| `LOOP_SECRET` | random per boot | Signs media URLs and the access cookie. Set it explicitly so they survive a restart. |
-| `UPSTREAM_PROXY` | *(unset)* | HTTP(S) proxy for all Instagram traffic, e.g. `http://user:pass@host:8080`. Use when the host's own IP is rate-limited or challenged. |
-| `PORT` / `HOST` | `8080` / `0.0.0.0` | Where to listen. |
-| `SESSION_DIR` | `/tmp/loop-sessions` | Where login sessions are kept so a restart does not sign you out. |
-| `SESSION_TTL` | 30 days | How long an idle session lives. |
-| `UPSTREAM_TIMEOUT` / `UPSTREAM_RETRIES` | `20` / `2` | Upstream request tuning. |
-| `MEDIA_CACHE_MB` | `64` | In-memory cache for CDN bytes. `0` disables it. |
-| `LOOP_DEBUG` | off | Request logging and tracebacks. |
+- The APK is HTTPS-only (`usesCleartextTraffic="false"`). A self-hosted mirror configured under
+  Settings must therefore be `https://` — a plain `http://` mirror works in a desktop browser
+  but is blocked inside the app.
+- `minSdk` is 24 (Android 7.0). Playback quality depends on the system WebView version.
+- The web app is **not** duplicated into `android/`. A Gradle `Sync` task copies it from the
+  repo root at build time, so `index.html` and friends stay the single source of truth for both
+  the hosted PWA and the APK; CI fails the build if that copy comes out empty.
 
-## What it does
+### Installing as a PWA instead
 
-Home feed with stories · post view with comments (and posting them) · Reels in a
-vertical snap feed · Explore grid · profiles with follow/unfollow · search for
-people and hashtags · hashtag pages · activity/notifications · like, save,
-comment · double-tap to like · carousels · story viewer with progress bars.
+You don't need the APK. Open the site in Chrome and choose **Install app** / **Add to Home
+screen** — you get an icon and a full-screen window **without the Play Store**, which matters
+because Play is exactly the piece that's unavailable in a lot of the places this app is meant to
+work. The APK mainly buys you background playback and a file you can pass around directly.
 
-It installs as a PWA (Add to Home Screen) and works in both light and dark.
+---
 
-## What Instagram can and cannot see
-
-This comes up a lot, and the answer has a common misconception in it.
-
-**Your IP address: hidden.** Instagram sees your server's IP. Your home or
-mobile IP never touches them. This is not a feature bolted on — it falls out of
-the server making every request.
-
-**Your MAC address: was never visible anyway.** MAC addresses do not travel
-over the internet. They are layer-2 identifiers that get rewritten at every
-router hop; yours reaches your Wi-Fi router and stops there. Instagram has
-never seen it, from this client or the official app. There was nothing to
-protect.
-
-**Your identity: fully known.** You sign in with your username and password.
-Instagram knows exactly who you are. Hiding your IP hides your *location and
-network*, not your account.
-
-**Device telemetry: not sent.** This is the bigger practical win. The official
-app collects your advertising id, device model and OS, sensors, precise
-location, contacts and installed-app signals. This client sends only what the
-web API needs to answer a request.
-
-**What Instagram still gets:** your account identity, everything you view, like
-and comment, timing and session patterns, and a datacenter IP — which is itself
-a flag, and part of why checkpoints happen.
-
-### This is not a VPN
-
-Your ISP still sees your phone connecting to your server's domain, via DNS and
-SNI, plus how much data and when. They cannot see that it is Instagram content.
-But this defeats a domain or IP block; it does not hide that you are using an
-unusual server, and it is not anonymity from whoever runs the block. If
-accessing Instagram where you are carries consequences beyond the site being
-unavailable, this design does not protect you from that.
-
-Whoever runs the server sees everything. That is you — set `ACCESS_CODE` so it
-stays that way.
-
-## Security posture
-
-- Your Instagram password is forwarded to Instagram to create a session and is
-  **never written to disk or logged**. Only the resulting session cookies are
-  stored, server-side.
-- The browser holds one opaque session id. Instagram cookies never reach it, so
-  a stolen device cookie is useless off your server.
-- `/media` only fetches HMAC-signed URLs on an explicit host allowlist
-  (`*.cdninstagram.com`, `*.fbcdn.net`, `instagram.com`). Both checks are
-  enforced independently, so a valid signature for an off-list host is still
-  refused — this cannot be used as an open proxy.
-- TLS verification is never disabled. On a network that already tampers with
-  your traffic, that would be exactly the wrong corner to cut.
-- Anyone with access to `SESSION_DIR` can act as your account. Run this on a
-  host you control.
-
-## Layout
+## Project layout
 
 ```
-server.py            HTTP server + entrypoint
-void_web_cloud.py    shim for the pre-existing Render start command
-loop/config.py       every environment variable, in one place
-loop/netclient.py    dependency-free HTTP client: cookies, gzip, proxy, retries
-loop/instagram.py    Instagram web API bindings + normalisation into one shape
-loop/sessions.py     server-side session store (browser holds only a token)
-loop/mediaproxy.py   signed, allowlisted CDN proxy with an LRU cache
-loop/app.py          routing: the JSON API and static files
-
-web/index.html       app shell
-web/app.css          all styling, dark-first, mobile-first
-web/js/app.js        boot, chrome, route table
-web/js/api.js        the only file that makes network calls
-web/js/router.js     History-API router
-web/js/components.js post card, grids, avatars — the shared UI
-web/js/media.js      one observer decides which video plays anywhere
-web/js/views/*.js    feed, explore, reels, profile, post, search, story, tag,
-                     activity, settings, login
-web/sw.js            offline app shell (never caches API responses or media)
-
-android/core/        plain Kotlin/JVM: models, HTTP client, error mapping.
-                     Builds and tests without the Android SDK.
-android/app/         Compose UI: feed, stories, reels, explore, profile,
-                     post, search, activity, settings, setup/login/2FA
-tools/gen_fixtures.py  generates the core module's test fixtures by running
-                     Instagram-shaped payloads through the real normalisers
-tests/               server unit tests (stdlib unittest, no install)
+index.html              app shell
+manifest.webmanifest    PWA manifest
+sw.js                   service worker: shell caching + metadata SWR
+css/app.css             all styles
+js/net.js               timeouts, backoff, mirror racing, health tracking
+js/archive.js           Internet Archive client: search, metadata, stream URLs
+js/store.js             IndexedDB: playlists, likes, offline blobs, imports, pending listens
+js/player.js            audio engine: two decks, crossfade, queue, failover, Media Session
+js/tags.js              ID3 / Vorbis / MP4 tag and cover-art reader
+js/import.js            folder import pipeline
+js/mix.js               shareable playlists: encode, parse, resolve
+js/youtube.js           read your own YouTube playlists through the Data API
+js/artwork.js           cover art: iTunes, then MusicBrainz + Cover Art Archive
+js/lyrics.js            synced lyrics from LRCLIB
+js/scrobble.js          ListenBrainz submission, with an offline queue
+js/theme.js             dark / light / system, AMOLED
+js/update.js            in-app check for a newer release
+js/demo.js              Web Audio synthesis for the offline demo album
+js/native.js            optional bridge to the Android wrapper (no-op in a browser)
+js/views.js             route views
+js/ui.js                DOM helpers, formatting, toasts
+js/main.js              routing and wiring
+android/                native APK wrapper (bundles the web app above)
+tools/make_icons.py     regenerates assets/ icons (pure Python, no deps)
+tools/make_android_icons.py  regenerates the APK launcher icons
 ```
 
-Instagram returns posts in at least two different shapes — GraphQL `edges` on a
-profile, an `items` array on a timeline. Everything funnels through
-`normalise_post` / `normalise_graphql` in `loop/instagram.py`, so every view in
-the frontend consumes one post shape. **If you add an endpoint, normalise it
-there** rather than teaching a view a second shape.
+## Notes and limits
 
-That shape is also a contract with the Android app. `tools/gen_fixtures.py`
-feeds real Instagram-shaped payloads through those same normalisers and writes
-the output to `android/core/src/test/resources/`; the Kotlin tests decode it.
-CI regenerates the fixtures and fails if they differ from what is committed, so
-changing a normaliser breaks the Android build instead of quietly drifting out
-of sync. After changing one, run:
+- Saving a track for offline use needs a CORS-readable response from the mirror. Playback
+  itself does not, so a host with strict CORS can still stream — the save will just report a
+  failure it can't work around.
+- Cover art is looked up from the item itself, then iTunes, then MusicBrainz and the Cover Art
+  Archive. Art that was never published anywhere cannot be fetched, and those tracks keep a
+  generated tile. Lookups are queued and cached — including misses — so a long scroll doesn't
+  become hundreds of requests.
+- Storage is per-browser. Clearing site data removes playlists, likes and offline audio; the
+  app asks for persistent storage to reduce the chance of eviction under pressure.
 
-```bash
-python3 tools/gen_fixtures.py && cd android && ./gradlew :core:test
-```
+## Licence
 
-## When it stops working
+The application code is **GPL-3.0-or-later** — see [LICENSE](LICENSE). In short: you may use,
+study, change and redistribute it, and anything you distribute that is built from it must be
+free software under the same licence, with its source available.
 
-Open **Settings** in the app. It tells you whether *the server* can reach
-Instagram, which is the one thing you cannot tell from a blank feed.
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| "Cannot reach your Loop server" | your device can't reach *your* domain | your domain is blocked or the host is asleep — try a different domain |
-| "This server could not reach Instagram" | the host is blocked or offline | set `UPSTREAM_PROXY`, or move the server |
-| Signed out repeatedly | Instagram is challenging the login | approve it once in the official app, then sign in again |
-| "Instagram is rate-limiting this server" | shared datacenter IP | set `UPSTREAM_PROXY`, or move to a VPS with its own IP |
-| One section blank, others fine | that endpoint moved | `LOOP_DEBUG=1`, then fix the call in `loop/instagram.py` |
-
-## Not affiliated with Instagram or Meta
-
-This is an independent client for your own account. It does not remove ads,
-bypass any paid feature, or access anything your account cannot already see.
+The recordings it plays are **not** covered by that — each carries its own licence (public
+domain, Creative Commons, or a trading policy set by the artist), shown on the item page and
+linked back to its Archive source.

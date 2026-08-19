@@ -1,16 +1,11 @@
-# kotlinx.serialization keeps its generated serializers on the companion.
--keepattributes *Annotation*, InnerClasses
--dontnote kotlinx.serialization.**
--keepclassmembers class dev.loop.core.** {
-    *** Companion;
-}
--keepclasseswithmembers class dev.loop.core.** {
-    kotlinx.serialization.KSerializer serializer(...);
-}
--keep,includedescriptorclasses class dev.loop.core.**$$serializer { *; }
+# Minification is disabled for release builds, so this file is mostly a
+# safeguard in case it is ever turned on.
 
-# OkHttp ships references to optional platform classes.
--dontwarn okhttp3.internal.platform.**
--dontwarn org.conscrypt.**
--dontwarn org.bouncycastle.**
--dontwarn org.openjsse.**
+# Methods reachable only from JavaScript have no Java callers, so shrinking
+# would strip them and silently break the bridge.
+-keepclassmembers class dev.voidmusic.app.NativeBridge {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+-keepattributes JavascriptInterface
+-keepattributes *Annotation*

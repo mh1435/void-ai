@@ -1,3 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#0B0B0F</color>
+    <!-- Mirrors the bg and accent custom properties in css/app.css, so the
+         native chrome and the web UI are the same colour with no flash
+         between them. Keep these in step with that file. -->
+    <color name="void_bg">#FF0B0A13</color>
+    <color name="void_accent">#FFA76CFF</color>
+    <color name="ic_launcher_background">#FF0B0A13</color>
 </resources>

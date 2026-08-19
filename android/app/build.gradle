@@ -1,0 +1,116 @@
+plugins {
+    id 'com.android.application'
+}
+
+/*
+ * The web app is NOT duplicated into the Android project. It is copied out of
+ * the repository root at build time, so `index.html` and friends stay the single
+ * source of truth for both the hosted PWA and the APK.
+ */
+def webAssetsDir = layout.buildDirectory.dir("generated/webAssets").get().asFile
+def repoRoot = rootProject.file("..")
+
+tasks.register('syncWebApp', Sync) {
+    description = 'Copies the web app into the APK assets.'
+    from(repoRoot) {
+        include 'index.html'
+        include 'sw.js'
+        include 'manifest.webmanifest'
+        include 'css/**'
+        include 'js/**'
+        include 'assets/**'
+    }
+    into new File(webAssetsDir, "www")
+}
+
+android {
+    namespace 'dev.voidmusic.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'dev.voidmusic.app'
+        minSdk 24
+        targetSdk 35
+        versionCode 14
+        versionName '2.0.0'
+        resourceConfigurations += ['en']
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs += webAssetsDir
+        }
+    }
+
+    /*
+     * Every build is signed with ONE stable key, checked in at
+     * android/keystore/void-signing.jks.
+     *
+     * Android refuses to install an update whose signature differs from the
+     * installed copy. The default debug key is generated per machine, and a CI
+     * runner is a fresh machine every time — so each release was signed with a
+     * different throwaway key and could only be installed by uninstalling
+     * first. A committed key makes every build upgrade cleanly in place.
+     *
+     * The trade-off is that the key is not secret: anyone who can read this
+     * repository could sign something that installs as an update. That is
+     * acceptable for a sideloaded app in a private repo, and can be replaced
+     * by passing -PVOID_KEYSTORE (see the CI workflow) without code changes.
+     */
+    signingConfigs {
+        shared {
+            storeFile project.hasProperty('VOID_KEYSTORE')
+                ? file(project.property('VOID_KEYSTORE'))
+                : rootProject.file('keystore/void-signing.jks')
+            storePassword project.findProperty('VOID_KEYSTORE_PASSWORD') ?: 'voidmusic'
+            keyAlias project.findProperty('VOID_KEY_ALIAS') ?: 'void'
+            keyPassword project.findProperty('VOID_KEY_PASSWORD') ?: 'voidmusic'
+        }
+    }
+
+    buildTypes {
+        debug {
+            // Same applicationId and same key as release, so a debug build and
+            // a release build replace each other instead of installing twice.
+            signingConfig signingConfigs.shared
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.shared
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        // Lint still runs on demand (./gradlew lint) and its findings are worth
+        // fixing, but a warning must not be able to block a sideload release
+        // build — there is no store review here that it would be gating.
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    packaging {
+        resources.excludes += ['META-INF/*.version', 'DebugProbesKt.bin']
+    }
+}
+
+// Make sure the copy runs before anything tries to package assets.
+tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'syncWebApp' }
+tasks.matching { it.name ==~ /^merge.*Assets$/ }.configureEach { dependsOn 'syncWebApp' }
+
+dependencies {
+    // WebViewAssetLoader serves the bundled files over a real https:// origin,
+    // which is what lets IndexedDB, service workers and the rest behave exactly
+    // as they do in a browser. androidx.core is only used for the notification.
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.core:core:1.13.1'
+    // MediaSessionCompat and MediaStyle: what puts the track on the lock
+    // screen, in the shade, and in HyperOS's island.
+    implementation 'androidx.media:media:1.7.0'
+}
