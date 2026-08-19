@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.IBinder;
+import android.util.Log;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
@@ -35,6 +36,7 @@ import androidx.media.session.MediaButtonReceiver;
  */
 public class PlaybackService extends Service {
 
+    private static final String TAG = "VoidMusic";
     private static final String CHANNEL_ID = "void_playback";
     private static final int NOTIFICATION_ID = 1;
 
@@ -57,10 +59,28 @@ public class PlaybackService extends Service {
 
     private static final NowPlaying state = new NowPlaying();
 
+    /** The running service, so updates never have to go through an Intent. */
+    private static volatile PlaybackService instance;
+
     private MediaSessionCompat session;
     private boolean started;
+    /** What the visible notification currently says, so ticks can skip it. */
+    private String shownAs = "";
 
-    /** Push the current state to the notification and the media session. */
+    /**
+     * Push the current state to the notification and the media session.
+     *
+     * <p>Position ticks arrive about once a second, and every one of them used
+     * to go through {@code startForegroundService()}. Android holds each of
+     * those calls to a promise — {@code startForeground()} within a few seconds
+     * — and a service that is already in the foreground does not answer it
+     * again, so the platform killed the app a few seconds into every song
+     * ({@code ForegroundServiceDidNotStartInTimeException}).
+     *
+     * <p>So the Intent is now only for starting the service. Once it is
+     * running, updates go straight to the live instance: no Intent, no promise
+     * to keep, and far less work per tick.
+     */
     static void update(Context context, NowPlaying next) {
         synchronized (state) {
             state.title = next.title;
@@ -71,11 +91,29 @@ public class PlaybackService extends Service {
             state.playing = next.playing;
             if (next.artwork != null) state.artwork = next.artwork;
         }
+
+        PlaybackService live = instance;
+        if (live != null) {
+            live.applyState();
+            return;
+        }
+
+        // Nothing running yet. Only playback is worth starting a service for;
+        // a paused track with no service has nothing to keep alive.
+        if (!next.playing) return;
+
         Intent intent = new Intent(context, PlaybackService.class).setAction(ACTION_UPDATE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent);
-        } else {
-            context.startService(intent);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent);
+            } else {
+                context.startService(intent);
+            }
+        } catch (Exception e) {
+            // Android 12+ refuses a foreground start from the background in
+            // some states. Playback carries on regardless; only the
+            // notification is missing.
+            Log.w(TAG, "could not start playback service: " + e.getMessage());
         }
     }
 
@@ -109,12 +147,18 @@ public class PlaybackService extends Service {
     }
 
     public static void stop(Context context) {
-        context.startService(new Intent(context, PlaybackService.class).setAction(ACTION_STOP));
+        PlaybackService live = instance;
+        if (live != null) {
+            live.shutdown();
+            return;
+        }
+        synchronized (state) { state.playing = false; }
     }
 
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         createChannel();
 
         session = new MediaSessionCompat(this, "VoidMusic");
@@ -143,17 +187,49 @@ public class PlaybackService extends Service {
         String action = intent != null ? intent.getAction() : null;
         if (ACTION_STOP.equals(action)) {
             command("pause");
-            stopForegroundCompat(true);
-            stopSelf();
+            shutdown();
             return START_NOT_STICKY;
         }
 
-        NowPlaying snapshot = snapshot();
-        session.setMetadata(metadataOf(snapshot));
-        session.setPlaybackState(stateOf(snapshot));
+        // This callback answers a startForegroundService() call, so it must
+        // enter the foreground here whatever playback is doing — then step
+        // back down if the track turned out to be paused.
+        NowPlaying now = snapshot();
+        session.setMetadata(metadataOf(now));
+        session.setPlaybackState(stateOf(now));
+        shownAs = "";
+        enterForeground(buildNotification(now));
+        if (!now.playing) stepDown(now);
 
-        Notification notification = buildNotification(snapshot);
-        if (!started) {
+        return START_NOT_STICKY;
+    }
+
+    /** Refresh the session and the notification without any Intent traffic. */
+    private void applyState() {
+        if (session == null) return;
+        NowPlaying now = snapshot();
+
+        // The position moves every second; the session carries it, so the
+        // notification only has to be rebuilt when what it *says* changes.
+        session.setPlaybackState(stateOf(now));
+
+        String signature = now.title + "\u0000" + now.artist + "\u0000" + now.album
+                + "\u0000" + now.playing + "\u0000" + (now.artwork == null ? 0 : now.artwork.hashCode());
+        if (signature.equals(shownAs)) return;
+        shownAs = signature;
+
+        session.setMetadata(metadataOf(now));
+        if (now.playing) enterForeground(buildNotification(now));
+        else stepDown(now);
+    }
+
+    private void enterForeground(Notification notification) {
+        if (started) {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) manager.notify(NOTIFICATION_ID, notification);
+            return;
+        }
+        try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(NOTIFICATION_ID, notification,
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
@@ -161,17 +237,28 @@ public class PlaybackService extends Service {
                 startForeground(NOTIFICATION_ID, notification);
             }
             started = true;
-        } else {
+        } catch (Exception e) {
+            // Never let a notification problem take playback down with it.
+            Log.w(TAG, "could not enter the foreground: " + e.getMessage());
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.notify(NOTIFICATION_ID, notification);
-            if (!snapshot.playing) {
-                // Paused: drop out of the foreground so the notification can be
-                // swiped away, but keep it on screen to resume from.
-                stopForegroundCompat(false);
-                started = false;
-            }
         }
-        return START_NOT_STICKY;
+    }
+
+    /** Paused: keep the notification to resume from, but leave the foreground. */
+    private void stepDown(NowPlaying now) {
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (started) {
+            stopForegroundCompat(false);
+            started = false;
+        }
+        if (manager != null) manager.notify(NOTIFICATION_ID, buildNotification(now));
+    }
+
+    private void shutdown() {
+        stopForegroundCompat(true);
+        started = false;
+        stopSelf();
     }
 
     private NowPlaying snapshot() {
@@ -311,6 +398,7 @@ public class PlaybackService extends Service {
 
     @Override
     public void onDestroy() {
+        instance = null;
         if (session != null) {
             session.setActive(false);
             session.release();
