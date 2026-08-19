@@ -237,6 +237,8 @@ def api_login_cookie(request):
         request.session,
         str(payload.get("sessionid", "")),
         str(payload.get("csrftoken", "")),
+        # The browser's own UA, so the adopted session keeps matching it.
+        str(payload.get("user_agent", "")),
         store,
     )
     return json_result(result)

@@ -20,10 +20,10 @@ from . import config
 
 class Session:
     __slots__ = ("token", "cookies", "www_claim", "user_id", "username",
-                 "created", "touched")
+                 "created", "touched", "user_agent")
 
     def __init__(self, token, cookies=None, www_claim="0", user_id="",
-                 username="", created=None, touched=None):
+                 username="", created=None, touched=None, user_agent=""):
         self.token = token
         self.cookies = cookies or {}
         self.www_claim = www_claim or "0"
@@ -31,6 +31,10 @@ class Session:
         self.username = username
         self.created = created or time.time()
         self.touched = touched or time.time()
+        # The user-agent this session must be used with. A session adopted from
+        # a browser is bound by Instagram to the browser that made it; sending
+        # a different one is rejected as "useragent mismatch".
+        self.user_agent = user_agent
 
     @property
     def csrf(self):
@@ -49,11 +53,14 @@ class Session:
             "username": self.username,
             "created": self.created,
             "touched": self.touched,
+            "user_agent": self.user_agent,
         }
 
     @classmethod
     def from_dict(cls, raw):
-        return cls(**raw)
+        return cls(**{k: v for k, v in raw.items()
+                      if k in ("token", "cookies", "www_claim", "user_id",
+                               "username", "created", "touched", "user_agent")})
 
 
 class SessionStore:

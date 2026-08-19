@@ -114,3 +114,32 @@ class SessionSerialisationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UserAgentBindingTests(unittest.TestCase):
+    """A session adopted from a browser must keep that browser's user-agent."""
+
+    def test_user_agent_round_trips(self):
+        s = Session("t", user_agent="Mozilla/5.0 (Android) Firefox/130")
+        restored = Session.from_dict(s.to_dict())
+        self.assertEqual("Mozilla/5.0 (Android) Firefox/130", restored.user_agent)
+
+    def test_old_session_files_without_a_user_agent_still_load(self):
+        # Files written before this field existed must not break on load.
+        legacy = {"token": "t", "cookies": {}, "www_claim": "0",
+                  "user_id": "5", "username": "a",
+                  "created": 1.0, "touched": 2.0}
+        restored = Session.from_dict(legacy)
+        self.assertEqual("", restored.user_agent)
+
+    def test_a_bound_session_sends_its_user_agent(self):
+        from loop import instagram
+        s = Session("t", cookies={"csrftoken": "c"},
+                    user_agent="Mozilla/5.0 (Android) Firefox/130")
+        headers = instagram._headers(s)
+        self.assertEqual("Mozilla/5.0 (Android) Firefox/130", headers["User-Agent"])
+
+    def test_an_unbound_session_leaves_the_user_agent_to_the_default(self):
+        from loop import instagram
+        s = Session("t", cookies={"csrftoken": "c"})
+        self.assertNotIn("User-Agent", instagram._headers(s))

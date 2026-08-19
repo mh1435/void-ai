@@ -62,7 +62,12 @@ export const api = {
   login: (username, password) =>
     request('/api/session/login', { method: 'POST', body: { username, password } }),
   loginWithCookie: (sessionid, csrftoken) =>
-    request('/api/session/cookie', { method: 'POST', body: { sessionid, csrftoken } }),
+    request('/api/session/cookie', {
+      method: 'POST',
+      // The session cookie was minted for this exact browser, so hand the
+      // server this browser's user-agent to reuse it without a mismatch.
+      body: { sessionid, csrftoken, user_agent: navigator.userAgent },
+    }),
   twoFactor: (username, identifier, code) =>
     request('/api/session/two-factor', { method: 'POST', body: { username, identifier, code } }),
   logout: () => request('/api/session/logout', { method: 'POST' }),

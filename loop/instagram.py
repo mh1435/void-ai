@@ -53,6 +53,10 @@ def _headers(session, extra=None, referer=BASE + "/"):
     }
     if session.csrf:
         headers["X-CSRFToken"] = session.csrf
+    # A session adopted from a browser must keep speaking with that browser's
+    # user-agent, or Instagram rejects it as a mismatch.
+    if getattr(session, "user_agent", ""):
+        headers["User-Agent"] = session.user_agent
     if extra:
         headers.update(extra)
     return headers
@@ -332,7 +336,7 @@ def two_factor(session, username, identifier, code, store=None):
     )
 
 
-def login_with_session(session, sessionid, csrftoken="", store=None):
+def login_with_session(session, sessionid, csrftoken="", user_agent="", store=None):
     """Adopt a session Instagram already issued, e.g. one from a browser.
 
     This is the way around a login being refused not because it is wrong but
@@ -343,6 +347,11 @@ def login_with_session(session, sessionid, csrftoken="", store=None):
     sessionid = (sessionid or "").strip().strip('"').strip("'")
     if not sessionid:
         raise InstagramError("Paste your sessionid cookie.", kind="input")
+
+    # Bind this session to the browser's own user-agent before any request, so
+    # the verification below already speaks as that browser.
+    if user_agent and user_agent.strip():
+        session.user_agent = user_agent.strip()
 
     # sessionid begins with the numeric user id: "<id>%3A..." or "<id>:...".
     decoded = urllib.parse.unquote(sessionid)
