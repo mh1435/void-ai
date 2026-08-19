@@ -228,6 +228,10 @@ tools/make_android_icons.py  regenerates the APK launcher icons
 
 ## Licence
 
-The application code is MIT. The recordings it plays are **not** covered by that — each carries
-its own licence (public domain, Creative Commons, or a trading policy set by the artist), shown
-on the item page and linked back to its Archive source.
+The application code is **GPL-3.0-or-later** — see [LICENSE](LICENSE). In short: you may use,
+study, change and redistribute it, and anything you distribute that is built from it must be
+free software under the same licence, with its source available.
+
+The recordings it plays are **not** covered by that — each carries its own licence (public
+domain, Creative Commons, or a trading policy set by the artist), shown on the item page and
+linked back to its Archive source.

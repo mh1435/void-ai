@@ -1,3 +1,14 @@
+/*
+ * Void Music — a music player for open catalogues.
+ * Copyright (C) 2026 Void Music contributors
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option)
+ * any later version. It is distributed WITHOUT ANY WARRANTY; see the GNU
+ * General Public License in LICENSE for details.
+ */
+
 /* Route views. Each exported function fills the #view container. */
 
 import * as A from './archive.js';
@@ -1712,9 +1723,9 @@ function settingsAbout() {
         el('span', { class: 'setting-icon' }, svg(ICONS.info, 22)),
         el('span', { class: 'setting-body' },
           el('strong', {}, 'Void Music'),
-          el('span', {}, 'Open-licensed music · MIT. Audio from the Internet Archive, artwork from '
-            + 'iTunes and the Cover Art Archive, lyrics from LRCLIB, listening history to '
-            + 'ListenBrainz.')),
+          el('span', {}, 'Open-licensed music · GPL-3.0-or-later. Audio from the Internet Archive, '
+            + 'artwork from iTunes and the Cover Art Archive, lyrics from LRCLIB, listening '
+            + 'history to ListenBrainz.')),
       ),
     ),
   );

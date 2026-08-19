@@ -1,3 +1,14 @@
+/*
+ * Void Music — a music player for open catalogues.
+ * Copyright (C) 2026 Void Music contributors
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option)
+ * any later version. It is distributed WITHOUT ANY WARRANTY; see the GNU
+ * General Public License in LICENSE for details.
+ */
+
 /* Bringing your own music in.
  *
  * The Archive's catalogue is open but small. Your own files are the rest of
