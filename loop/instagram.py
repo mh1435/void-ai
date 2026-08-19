@@ -368,43 +368,72 @@ def login_with_session(session, sessionid, csrftoken="", user_agent="", store=No
     if csrftoken:
         session.cookies["csrftoken"] = csrftoken.strip()
 
+    ua = session.user_agent or config.USER_AGENT
     if config.DEBUG:
-        print(f"[loop] cookie login: user_id={user_id} "
-              f"ua={(session.user_agent or '(default) ' + config.USER_AGENT)[:70]!r}",
+        print("[loop] cookie login: user_id=%s ua=%r" % (user_id, ua[:70]),
               file=sys.stderr)
-    if not session.cookies.get("csrftoken"):
-        # Write actions need a csrftoken; reading does not. Try to pick one up.
-        try:
-            bootstrap(session, store)
-        except netclient.HTTPError:
-            pass
 
-    try:
-        payload = call(session, "GET", "/accounts/current_user/",
-                       params={"edit": "true"}, store=store)
-    except LoginRequired:
+    # Verify the way a browser does: load the logged-in homepage. The /api/v1/
+    # accounts/current_user endpoint is the mobile app's, and rejects a browser
+    # session as "useragent mismatch" no matter how right the cookie is. The
+    # homepage is the exact request the browser makes, so a valid web session
+    # is accepted, and it carries the viewer's username and a csrf token.
+    resp = netclient.request(
+        "GET", BASE + "/",
+        headers={
+            "User-Agent": ua,
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+        cookies=session.cookies,
+    )
+    session.cookies.update(resp.cookies)
+    text = resp.text
+    final_url = resp.url or ""
+
+    logged_in = ("/accounts/login" not in final_url
+                 and (user_id in text or "viewerId" in text or "viewer_id" in text))
+    if not logged_in:
+        if config.DEBUG:
+            print("[loop] cookie login rejected: no logged-in viewer on "
+                  "homepage (final url %s)" % final_url, file=sys.stderr)
         session.cookies.pop("sessionid", None)
         raise InstagramError(
-            "Instagram did not accept that session cookie. It may have expired, "
-            "been copied incompletely, or the account was signed out. Log in "
-            "again in your browser and copy a fresh sessionid.",
+            "Instagram did not accept that session cookie. It may have expired "
+            "or been copied incompletely. Log in again in your browser and copy "
+            "a fresh sessionid.",
             kind="bad_session",
         )
-    except InstagramError as exc:
-        # e.g. "useragent mismatch": surface Instagram's own words, and log the
-        # UA so we can see whether the browser's identity actually reached here.
-        if config.DEBUG:
-            print(f"[loop] cookie login rejected: {exc} "
-                  f"(ua sent: {session.user_agent[:70]!r})", file=sys.stderr)
-        session.cookies.pop("sessionid", None)
-        raise
 
-    user = payload.get("user") or {}
-    session.user_id = str(user.get("pk") or user_id)
-    session.username = user.get("username", "")
+    username = ""
+    for pattern in (
+        '"viewer":{',
+        '"username":"',
+    ):
+        idx = text.find('"username":"')
+        if idx != -1:
+            piece = text[idx + len('"username":"'):]
+            end_q = piece.find('"')
+            if end_q != -1:
+                username = piece[:end_q]
+            break
+
+    if not session.cookies.get("csrftoken"):
+        idx = text.find('"csrf_token":"')
+        if idx != -1:
+            piece = text[idx + len('"csrf_token":"'):]
+            end_q = piece.find('"')
+            if end_q != -1:
+                session.cookies["csrftoken"] = piece[:end_q]
+
+    session.user_id = user_id
+    session.username = username
     if store is not None:
         store.save(session)
-    return {"status": "ok", "user_id": session.user_id, "username": session.username}
+    if config.DEBUG:
+        print("[loop] cookie login ok: @%s" % (username or "(name not found)"),
+              file=sys.stderr)
+    return {"status": "ok", "user_id": user_id, "username": username}
 
 
 def logout(session, store=None):
