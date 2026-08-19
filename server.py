@@ -122,9 +122,18 @@ def main():
     # the app, which is not somewhere a phone can connect to. Print what to use.
     print(f"Loop {__version__} is running.\n")
     print(f"  On this machine   http://localhost:{config.PORT}")
-    lan = lan_address()
-    if lan:
-        print(f"  On your network   http://{lan}:{config.PORT}   <- enter this in the app")
+
+    # Only advertise the network address when actually listening on it.
+    # Bound to loopback, that line would send someone to an address that
+    # refuses the connection.
+    if config.HOST not in ("127.0.0.1", "localhost", "::1"):
+        lan = lan_address()
+        if lan:
+            print(f"  On your network   http://{lan}:{config.PORT}   <- enter this in the app")
+            print("\n  Anyone on this network can reach it. Set ACCESS_CODE, or run")
+            print("  with HOST=127.0.0.1 if the app is on this same machine.")
+    else:
+        print("\n  Listening on this machine only - nothing else can reach it.")
     print()
 
     if config.UPSTREAM_PROXY:

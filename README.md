@@ -107,6 +107,33 @@ No `ACCESS_CODE` is needed for this: the server is not reachable from outside
 your network, so there is nothing to lock. Nothing is published, and no
 account other than your Instagram one is involved.
 
+By default it listens on every interface, so anything else on that WiFi can
+reach it too. On a network you do not control, either set `ACCESS_CODE` or
+bind to loopback only:
+
+```bash
+HOST=127.0.0.1 python3 server.py
+```
+
+### On the phone itself, in Termux
+
+Works, with two caveats. Android kills background processes, so hold a wake
+lock first, and bind to loopback since the app is on the same device:
+
+```bash
+pkg install python -y
+termux-wake-lock
+HOST=127.0.0.1 python3 server.py
+```
+
+Then enter `http://localhost:8080` in the app.
+
+The catch is unchanged and sharper here: the phone must be able to reach
+Instagram, which means a VPN on the phone. At that point the VPN is what
+defeats the block, and Loop's contribution is that Instagram gets no device
+identifiers, no advertising id and no sensors — privacy, not access. A
+machine that stays on elsewhere is the better host if you have one.
+
 **The catch, and it is the whole catch:** that computer has to be able to
 reach Instagram. If it sits on the same blocked connection as your phone, it
 is blocked too, and the app will fail one step later instead of sooner. Run a
