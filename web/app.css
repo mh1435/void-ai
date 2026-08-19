@@ -791,3 +791,23 @@ body.booting .outlet { display: none; }
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* --- performance: skip rendering what is off-screen ------------------- */
+/* content-visibility lets the browser skip layout and paint for cards that
+   are not near the viewport, which is what makes a long feed scroll smoothly
+   on a phone. contain-intrinsic-size reserves believable space so the
+   scrollbar does not jump. */
+.post {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
+}
+.tile {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 33vw;
+}
+.activity-row, .user-row, .comment {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
+}
+/* Hint the browser to keep scrolling on the compositor thread. */
+.feed, .grid, .reels, .results, .comments { will-change: scroll-position; }

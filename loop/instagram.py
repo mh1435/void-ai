@@ -8,6 +8,7 @@ frontend only ever sees one post shape.
 """
 
 import json
+import os
 import sys
 import time
 import urllib.parse
@@ -541,7 +542,7 @@ def profile(session, username, store=None):
             "full_name": user.get("full_name", ""),
             "biography": user.get("biography", ""),
             "avatar": mediaproxy.wrap(
-                user.get("profile_pic_url_hd") or user.get("profile_pic_url", "")),
+                user.get("profile_pic_url") or user.get("profile_pic_url_hd", "")),
             "is_private": bool(user.get("is_private")),
             "is_verified": bool(user.get("is_verified")),
             "followed_by_viewer": bool(user.get("followed_by_viewer")),
@@ -782,12 +783,21 @@ def delete_comment(session, media_id, comment_id):
 # normalisation — every reader above ends here
 # --------------------------------------------------------------------------
 
-def _best_image(node):
-    """Pick the largest candidate Instagram offers for an image."""
+# A phone feed does not need Instagram's largest candidate; a ~750px-wide
+# image is sharp on any phone and a fraction of the bytes. Every image crosses
+# the server's proxy hop, so this is the single biggest lever on feed speed.
+TARGET_IMAGE_WIDTH = int(os.environ.get("LOOP_IMAGE_WIDTH", 750))
+
+
+def _best_image(node, target=TARGET_IMAGE_WIDTH):
+    """Smallest candidate at least `target` wide, else the largest available."""
     versions = ((node.get("image_versions2") or {}).get("candidates")) or []
     if versions:
-        best = max(versions, key=lambda c: c.get("width", 0) or 0)
-        return best.get("url", "")
+        big_enough = [c for c in versions if (c.get("width") or 0) >= target]
+        chosen = (min(big_enough, key=lambda c: c.get("width", 0))
+                  if big_enough
+                  else max(versions, key=lambda c: c.get("width", 0) or 0))
+        return chosen.get("url", "")
     return node.get("display_url") or node.get("thumbnail_src") or ""
 
 

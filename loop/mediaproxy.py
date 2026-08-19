@@ -70,7 +70,7 @@ class _Cache:
             if hit is None:
                 return None
             body, ctype, stored = hit
-            if time.time() - stored > 3600:
+            if time.time() - stored > 21600:
                 del self._data[key]
                 self.size -= len(body)
                 return None
