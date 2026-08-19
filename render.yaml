@@ -1,27 +1,26 @@
 services:
   - type: web
-    name: void-ai
+    name: void-music
     runtime: python
     plan: free
-    # Installs PyNaCl + cryptography so the server can encrypt passwords the
-    # way instagram.com does. Both are optional - the app runs without them -
-    # but Instagram increasingly refuses the older plaintext form, so a real
-    # deployment wants them.
-    buildCommand: "pip install -r requirements.txt"
+    # Nothing to install: the player has no dependencies and neither does its
+    # server. Both are the standard library and nothing else.
+    buildCommand: ""
     startCommand: "python3 server.py"
     healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
       # Locks the deployment so only you can use it. Set a value in the
-      # Render dashboard; leave it unset and the app is open to anyone
-      # who learns the URL.
+      # Render dashboard; leave it unset and anyone who learns the URL can
+      # stream through your server on your bandwidth.
       - key: ACCESS_CODE
         sync: false
-      # Keeps signed media URLs and the access cookie valid across restarts.
-      - key: LOOP_SECRET
-        generateValue: true
-      # Optional: an HTTP(S) proxy to send Instagram traffic through, for
-      # when the host's own IP is rate-limited or challenged.
+      # Optional: an HTTP(S) proxy to send upstream traffic through, for when
+      # the host's own IP is the thing being blocked or rate-limited.
       - key: UPSTREAM_PROXY
+        sync: false
+      # Optional: extra hosts this server may fetch, comma-separated. Use it
+      # to point at your own Archive mirror.
+      - key: ALLOWED_HOSTS
         sync: false

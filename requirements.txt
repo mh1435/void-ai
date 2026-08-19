@@ -1,6 +1,0 @@
-# Optional but strongly recommended: these let the server encrypt passwords
-# the way instagram.com does. Without them it falls back to the older
-# plaintext form, which Instagram increasingly refuses. Any host that runs
-# `pip install -r requirements.txt` (Render does automatically) gets them.
-PyNaCl>=1.5.0
-cryptography>=42.0.0

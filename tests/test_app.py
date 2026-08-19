@@ -1,232 +1,181 @@
 """Routing, the access gate, and static file serving.
 
-These exercise loop/app.handle() directly rather than over a socket, so they
-run fast and do not need a port.
+These exercise voidmusic.app.handle() directly rather than over a socket, so
+they run fast and do not need a port.
 """
 
-import importlib
 import json
 import unittest
 
-from loop import app, config
-from loop.sessions import store
+from voidmusic import app, config, proxy
+
+from .stub import FakeStream, Upstream, body_of
 
 
-def call(method, path, body=b"", cookies=None, headers=None):
-    return app.handle(method, path, body, cookies or {}, headers or {})
+def call(method, path, headers=None):
+    return app.handle(method, path, headers or {})
 
 
 def payload(result):
-    return json.loads(result.body.decode())
+    return json.loads(body_of(result).decode())
 
 
 class RoutingTests(unittest.TestCase):
 
-    def test_unknown_api_endpoint_is_a_404_not_the_app_shell(self):
-        result = call("POST", "/api/does-not-exist")
+    def setUp(self):
+        # A cached answer from an earlier test would be served without ever
+        # reaching the stub.
+        proxy.cache.clear()
+
+    def test_health_reports_what_the_deployment_can_do(self):
+        result = call("GET", "/api/health")
+        self.assertEqual(200, result.status)
+        data = payload(result)
+        self.assertTrue(data["ok"])
+        self.assertIn("archive.org", data["allowed_hosts"])
+
+    def test_an_unknown_api_endpoint_is_a_404(self):
+        result = call("GET", "/api/does-not-exist")
         self.assertEqual(404, result.status)
         self.assertEqual("not_found", payload(result)["kind"])
 
-    def test_session_endpoint_issues_a_cookie(self):
-        result = call("GET", "/api/session")
-        self.assertEqual(200, result.status)
-        self.assertIn("loop_sid=", result.headers["Set-Cookie"])
-        self.assertIn("HttpOnly", result.headers["Set-Cookie"])
-        self.assertIn("SameSite=Lax", result.headers["Set-Cookie"])
+    def test_a_write_method_is_refused_outright(self):
+        # Nothing here accepts a body; a POST should not fall through to the
+        # static handler and answer 404 as though the path were the problem.
+        self.assertEqual(404, call("POST", "/via/archive.org/x").status)
 
-    def test_the_secure_flag_follows_the_forwarded_proto(self):
-        plain = call("GET", "/api/session")
-        self.assertNotIn("Secure", plain.headers["Set-Cookie"])
+    def test_preflight_is_answered_for_the_proxy(self):
+        result = call("OPTIONS", "/via/archive.org/metadata/nasa")
+        self.assertEqual(204, result.status)
+        self.assertEqual("*", result.headers["Access-Control-Allow-Origin"])
+        self.assertIn("Range", result.headers["Access-Control-Allow-Headers"])
 
-        secure = call("GET", "/api/session", headers={"x-forwarded-proto": "https"})
-        self.assertIn("Secure", secure.headers["Set-Cookie"])
+    def test_the_proxy_answers_cross_origin(self):
+        # The Android app serves the player from its own assets, so every
+        # call it makes to a server is cross-origin.
+        with Upstream(FakeStream(200, {"content-type": "application/json",
+                                       "content-length": "2"}, b"{}")):
+            result = call("GET", "/via/archive.org/metadata/nasa")
+        self.assertEqual("*", result.headers["Access-Control-Allow-Origin"])
+        self.assertIn("Content-Range",
+                      result.headers["Access-Control-Expose-Headers"])
 
-    def test_reading_endpoints_require_a_signed_in_session(self):
-        for path in ("/api/feed", "/api/explore", "/api/reels", "/api/activity",
-                     "/api/stories", "/api/user/someone", "/api/search?q=x"):
-            result = call("GET", path)
-            self.assertEqual(401, result.status, path)
-            self.assertEqual("login_required", payload(result)["kind"], path)
+    def test_the_players_own_urls_survive_the_trip(self):
+        with Upstream(FakeStream(200, {"content-type": "application/json",
+                                       "content-length": "2"}, b"{}")) as up:
+            call("GET", "/via/archive.org/services/search/v1/scrape"
+                        "?q=collection%3Anetlabels&count=100")
+        self.assertEqual(
+            "https://archive.org/services/search/v1/scrape"
+            "?q=collection%3Anetlabels&count=100",
+            up.calls[0]["url"])
 
-    def test_writing_endpoints_require_a_signed_in_session(self):
-        for method, path in (("POST", "/api/post/1/like"),
-                             ("POST", "/api/post/1/save"),
-                             ("POST", "/api/user/1/follow"),
-                             ("POST", "/api/post/1/comments")):
-            result = call(method, path, b"{}")
-            self.assertEqual(401, result.status, path)
+    def test_a_range_header_is_passed_upstream(self):
+        with Upstream(FakeStream(206, {"content-type": "audio/mpeg"},
+                                 b"abcd")) as up:
+            result = call("GET", "/via/archive.org/download/x/y.mp3",
+                          {"range": "bytes=100-200"})
+        self.assertEqual("bytes=100-200", up.calls[0]["headers"]["Range"])
+        self.assertEqual(206, result.status)
 
-    def test_user_and_user_feed_routes_do_not_collide(self):
-        """/api/user/<name> must not swallow /api/user/<id>/feed."""
-        matched = []
-        for method, pattern, handler in app.ROUTES:
-            if method == "GET" and pattern.match("/api/user/12345/feed"):
-                matched.append(pattern.pattern)
-        self.assertEqual(["^/api/user/([0-9]+)/feed$"], matched)
-
-    def test_health_needs_no_session(self):
-        result = call("GET", "/api/health")
-        self.assertEqual(200, result.status)
-        self.assertIn("instagram_reachable", payload(result))
+    def test_an_unreachable_upstream_says_so_usefully(self):
+        from voidmusic import netclient
+        with Upstream(netclient.HTTPError("cannot reach archive.org")):
+            result = call("GET", "/via/archive.org/metadata/nasa")
+        self.assertEqual(502, result.status)
+        data = payload(result)
+        self.assertEqual("upstream_unreachable", data["kind"])
+        self.assertIn("UPSTREAM_PROXY", data["error"])
 
 
 class GateTests(unittest.TestCase):
 
     def setUp(self):
-        self._original = config.ACCESS_CODE
-        config.ACCESS_CODE = "let-me-in"
+        proxy.cache.clear()
+        self._code = config.ACCESS_CODE
+        config.ACCESS_CODE = "hunter2"
 
     def tearDown(self):
-        config.ACCESS_CODE = self._original
+        config.ACCESS_CODE = self._code
 
-    def test_a_locked_server_refuses_before_asking_instagram(self):
-        result = call("GET", "/api/feed")
+    def test_the_proxy_is_locked_without_the_code(self):
+        with Upstream() as up:
+            result = call("GET", "/via/archive.org/metadata/nasa")
         self.assertEqual(401, result.status)
         self.assertEqual("gate", payload(result)["kind"])
+        self.assertEqual([], up.calls, "a locked server still made a request")
 
-    def test_login_is_behind_the_gate_too(self):
-        result = call("POST", "/api/session/login",
-                      json.dumps({"username": "a", "password": "b"}).encode())
-        self.assertEqual("gate", payload(result)["kind"])
-
-    def test_the_wrong_code_is_refused(self):
-        result = call("POST", "/api/session/gate", b'{"code": "guess"}')
+    def test_a_wrong_code_is_refused(self):
+        with Upstream() as up:
+            result = call("GET", "/via/archive.org/metadata/nasa",
+                          {"x-void-code": "hunter3"})
         self.assertEqual(401, result.status)
-        self.assertNotIn("Set-Cookie", result.headers)
+        self.assertEqual([], up.calls)
 
-    def test_the_right_code_returns_a_gate_cookie_that_opens_it(self):
-        result = call("POST", "/api/session/gate", b'{"code": "let-me-in"}')
+    def test_the_code_may_travel_as_a_header(self):
+        with Upstream(FakeStream(200, {"content-type": "application/json",
+                                       "content-length": "2"}, b"{}")) as up:
+            result = call("GET", "/via/archive.org/metadata/nasa",
+                          {"x-void-code": "hunter2"})
         self.assertEqual(200, result.status)
-        cookie = result.headers["Set-Cookie"]
-        self.assertIn("loop_gate=", cookie)
+        self.assertEqual(1, len(up.calls))
 
-        token = cookie.split("loop_gate=")[1].split(";")[0]
-        self.assertTrue(app.gate_open({"loop_gate": token}))
-        self.assertFalse(app.gate_open({"loop_gate": "forged"}))
-        self.assertFalse(app.gate_open({}))
+    def test_the_code_may_travel_in_the_query_for_a_plain_audio_element(self):
+        # <audio src> cannot carry a custom header, so the query string has to
+        # work too.
+        with Upstream(FakeStream(200, {"content-type": "audio/mpeg"},
+                                 b"abcd")) as up:
+            result = call("GET", "/via/archive.org/download/x/y.mp3?code=hunter2")
+        self.assertEqual(200, result.status)
+        self.assertEqual(1, len(up.calls))
 
-    def test_a_gate_token_does_not_work_after_the_code_changes(self):
-        result = call("POST", "/api/session/gate", b'{"code": "let-me-in"}')
-        token = result.headers["Set-Cookie"].split("loop_gate=")[1].split(";")[0]
+    def test_the_app_itself_is_still_served_so_the_code_can_be_entered(self):
+        self.assertEqual(200, call("GET", "/").status)
 
-        config.ACCESS_CODE = "different-now"
-        self.assertFalse(app.gate_open({"loop_gate": token}))
-
-    def test_an_unset_code_leaves_the_gate_open(self):
-        config.ACCESS_CODE = ""
-        self.assertTrue(app.gate_open({}))
+    def test_health_is_readable_but_admits_nothing(self):
+        result = call("GET", "/api/health")
+        self.assertEqual(200, result.status)
+        data = payload(result)
+        self.assertTrue(data["gate_required"])
+        self.assertFalse(data["gate_open"])
+        self.assertNotIn("hunter2", json.dumps(data))
 
 
 class StaticTests(unittest.TestCase):
 
     def test_the_app_shell_is_served_at_the_root(self):
-        result = app.serve_static("/")
+        result = call("GET", "/")
         self.assertEqual(200, result.status)
         self.assertIn("text/html", result.headers["Content-Type"])
+        self.assertIn(b"<title>", body_of(result))
 
-    def test_client_routes_fall_back_to_the_shell(self):
-        for path in ("/explore", "/u/someone", "/post/123", "/tag/sunset"):
-            result = app.serve_static(path)
+    def test_the_modules_and_the_worker_are_served(self):
+        for path, ctype in (("/js/main.js", "javascript"),
+                            ("/css/app.css", "css"),
+                            ("/sw.js", "javascript"),
+                            ("/manifest.webmanifest", "manifest")):
+            result = call("GET", path)
             self.assertEqual(200, result.status, path)
-            self.assertIn(b"<!doctype html>", result.body[:40].lower(), path)
+            self.assertIn(ctype, result.headers["Content-Type"], path)
 
-    def test_a_missing_asset_is_a_404_rather_than_the_shell(self):
-        result = app.serve_static("/nope.js")
-        self.assertEqual(404, result.status)
+    def test_the_server_does_not_serve_its_own_source(self):
+        # The player and the server share a directory, which is convenient
+        # right up until the server publishes itself.
+        for path in ("/server.py", "/voidmusic/config.py", "/voidmusic/app.py",
+                     "/tests/test_app.py", "/render.yaml", "/.gitignore",
+                     "/android/app/build.gradle"):
+            self.assertEqual(404, call("GET", path).status, path)
 
-    def test_traversal_cannot_read_a_file_outside_the_web_root(self):
-        for probe in ("/../../etc/passwd", "/js/../../server.py",
-                      "/js/%2e%2e/%2e%2e/etc/passwd", "/../loop/config.py"):
-            result = app.serve_static(probe)
-            self.assertNotIn(b"root:", result.body, probe)
-            self.assertNotIn(b"ACCESS_CODE", result.body, probe)
-            self.assertNotIn(b"import sys", result.body, probe)
+    def test_traversal_out_of_the_web_root_is_refused(self):
+        for path in ("/css/../../etc/passwd", "/../server.py",
+                     "/js/../../../etc/hosts", "/assets/../../voidmusic/app.py"):
+            self.assertEqual(404, call("GET", path).status, path)
 
-    def test_static_responses_carry_hardening_headers(self):
-        result = app.serve_static("/app.css")
-        self.assertEqual("nosniff", result.headers["X-Content-Type-Options"])
-        self.assertEqual("no-referrer", result.headers["Referrer-Policy"])
-
-
-class MediaRouteTests(unittest.TestCase):
-
-    def test_a_media_request_without_a_url_is_rejected(self):
-        result = call("GET", "/media")
-        self.assertEqual(400, result.status)
-
-    def test_a_media_request_with_a_bad_signature_is_rejected(self):
-        result = call(
-            "GET",
-            "/media?u=https%3A%2F%2Fscontent.cdninstagram.com%2Fa.jpg&s=forged",
-        )
-        self.assertEqual(403, result.status)
-
-
-class ErrorShapeTests(unittest.TestCase):
-
-    def test_every_error_carries_a_kind_the_clients_can_switch_on(self):
-        """Both clients map `kind` to a typed error, so it must always exist."""
-        for result in (call("GET", "/api/feed"),
-                       call("POST", "/api/nope"),
-                       call("GET", "/media")):
-            body = payload(result)
-            self.assertIn("error", body)
-            self.assertIn("kind", body)
-            self.assertTrue(body["error"], "an empty message helps nobody")
+    def test_an_unknown_path_is_a_404_rather_than_the_shell(self):
+        # The player routes on the hash, so there are no server-side routes to
+        # fall back for; a wrong path is simply wrong.
+        self.assertEqual(404, call("GET", "/nope").status)
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class RequestIdentityTests(unittest.TestCase):
-    """The headers must describe one coherent client, not two."""
-
-    def test_user_agent_matches_the_app_id_it_is_paired_with(self):
-        from loop import config
-        # IG_APP_ID is the desktop web app's. A mobile user-agent alongside it
-        # is a combination no real Instagram client sends.
-        self.assertEqual("936619743392459", config.IG_APP_ID)
-        agent = config.USER_AGENT.lower()
-        for mobile in ("iphone", "android", "mobile", "ipad"):
-            self.assertNotIn(mobile, agent,
-                             f"desktop app id paired with a {mobile} user-agent")
-
-    def test_web_app_headers_are_present(self):
-        from loop import instagram
-        from loop.sessions import Session
-        headers = instagram._headers(Session("t"))
-        for required in ("X-IG-App-ID", "X-Requested-With", "X-Instagram-AJAX",
-                         "Referer", "Origin"):
-            self.assertIn(required, headers)
-        self.assertEqual("XMLHttpRequest", headers["X-Requested-With"])
-
-
-class CookieLoginTests(unittest.TestCase):
-    """Signing in with an existing session, the way around a refused login."""
-
-    def test_the_route_exists_and_is_gated(self):
-        result = call("POST", "/api/session/cookie", b'{"sessionid":"x"}')
-        # Without a valid session it fails, but as input/bad_session, proving
-        # the route is wired - not a 404.
-        self.assertNotEqual(404, result.status)
-
-    def test_a_non_numeric_sessionid_is_rejected_clearly(self):
-        from loop import instagram
-        from loop.sessions import Session
-        with self.assertRaises(instagram.InstagramError) as caught:
-            instagram.login_with_session(Session("t"), "not-a-real-cookie")
-        self.assertIn("does not look like a sessionid", str(caught.exception))
-
-    def test_an_empty_sessionid_is_rejected(self):
-        from loop import instagram
-        from loop.sessions import Session
-        with self.assertRaises(instagram.InstagramError):
-            instagram.login_with_session(Session("t"), "   ")
-
-    def test_user_id_is_read_from_the_cookie_prefix(self):
-        # "17841400000%3Aabc..." -> user id 17841400000, before any network call.
-        from loop import instagram
-        import urllib.parse
-        raw = "17841400000%3AAbCdEf%3A9"
-        self.assertEqual("17841400000", urllib.parse.unquote(raw).split(":", 1)[0])

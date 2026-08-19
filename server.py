@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Loop — a self-hosted Instagram client.
+"""Void Music — the optional self-hosted backend.
 
-Run it anywhere Instagram is reachable; open it from anywhere it is not.
+Run it anywhere the Internet Archive is reachable; open it from anywhere it
+is not. It serves the player itself and proxies everything the player needs,
+so the device only ever talks to one host: this one.
 
     python3 server.py            # http://localhost:8080
 
-Configuration is entirely environment variables — see loop/config.py.
+Configuration is entirely environment variables — see voidmusic/config.py.
 """
 
 import socket
@@ -14,73 +16,90 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from loop import __version__, app, config
-from loop.sessions import store
+from voidmusic import __version__, app, config, proxy
 
-MAX_BODY = 4 * 1024 * 1024  # nothing we accept is remotely this big
+CHUNK = 64 * 1024
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = f"loop/{__version__}"
+    server_version = f"voidmusic/{__version__}"
     protocol_version = "HTTP/1.1"
-
-    # -- plumbing -----------------------------------------------------------
-    def _cookies(self):
-        jar = {}
-        for part in (self.headers.get("Cookie") or "").split(";"):
-            part = part.strip()
-            if "=" in part:
-                name, _, value = part.partition("=")
-                jar[name.strip()] = value.strip()
-        return jar
-
-    def _body(self):
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            return b""
-        if length <= 0:
-            return b""
-        if length > MAX_BODY:
-            return b""
-        return self.rfile.read(length)
 
     def _dispatch(self, method, send_body=True):
         try:
             result = app.handle(
-                method,
-                self.path,
-                self._body(),
-                self._cookies(),
+                method, self.path,
                 {k.lower(): v for k, v in self.headers.items()},
             )
         except Exception as exc:  # noqa: BLE001
             result = app.error_result(f"Server error: {exc}", "server", 500)
 
         try:
-            self.send_response(result.status)
-            headers = dict(result.headers)
-            headers.setdefault("Content-Length", str(len(result.body)))
-            for key, value in headers.items():
-                self.send_header(key, value)
-            self.end_headers()
-            if send_body and result.body:
-                self.wfile.write(result.body)
+            if result.chunks is not None:
+                self._send_stream(result, send_body)
+            else:
+                self._send_body(result, send_body)
         except (BrokenPipeError, ConnectionResetError):
-            # Scrolling a feed cancels in-flight image requests constantly.
+            # Skipping a track cancels an in-flight audio request; seeking
+            # cancels several. This is normal, not an error.
             pass
+
+    def _send_body(self, result, send_body):
+        body = result.body or b""
+        self.send_response(result.status)
+        headers = dict(result.headers)
+        headers["Content-Length"] = str(len(body))
+        for key, value in headers.items():
+            self.send_header(key, value)
+        self.end_headers()
+        if send_body and body:
+            self.wfile.write(body)
+
+    def _send_stream(self, result, send_body):
+        """Forward an upstream body without ever holding it all in memory.
+
+        With a Content-Length from upstream we can pass it straight through;
+        without one there is nothing to promise, so the body is chunk-encoded
+        instead. Either way the player gets bytes as they arrive, which is
+        what makes seeking in a long track feel immediate.
+        """
+        headers = dict(result.headers)
+        length = headers.get("Content-Length")
+        chunked = length is None
+
+        self.send_response(result.status)
+        if chunked:
+            headers["Transfer-Encoding"] = "chunked"
+        for key, value in headers.items():
+            self.send_header(key, value)
+        self.end_headers()
+
+        if not send_body:
+            # A HEAD asked only for the headers; closing the generator closes
+            # the upstream connection with it.
+            result.chunks.close()
+            return
+
+        try:
+            for chunk in result.chunks:
+                if chunked:
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
+                else:
+                    self.wfile.write(chunk)
+            if chunked:
+                self.wfile.write(b"0\r\n\r\n")
+        except (BrokenPipeError, ConnectionResetError):
+            # The generator's finally: closes the upstream connection for us.
+            raise
 
     def do_GET(self):
         self._dispatch("GET")
 
     def do_HEAD(self):
-        self._dispatch("GET", send_body=False)
+        self._dispatch("HEAD", send_body=False)
 
-    def do_POST(self):
-        self._dispatch("POST")
-
-    def do_DELETE(self):
-        self._dispatch("DELETE")
+    def do_OPTIONS(self):
+        self._dispatch("OPTIONS")
 
     def log_message(self, fmt, *args):
         if config.DEBUG:
@@ -88,16 +107,21 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _sweeper():
+    """Drop the whole cache periodically rather than expiring entry by entry.
+
+    Entries carry their own age check, so this only reclaims memory held by
+    things nobody has asked for in a long time.
+    """
     while True:
-        time.sleep(3600)
+        time.sleep(6 * 3600)
         try:
-            store.sweep()
+            proxy.cache.clear()
         except Exception:  # noqa: BLE001
             pass
 
 
 def lan_address():
-    """This machine's address on the local network, for the phone to point at.
+    """This machine's address on the local network, for the phone to use.
 
     Opening a UDP socket toward a routable address makes the OS pick the
     interface it would actually use. Nothing is sent.
@@ -120,24 +144,22 @@ def main():
 
     # Printing the bind address alone is how people end up typing 0.0.0.0 into
     # the app, which is not somewhere a phone can connect to. Print what to use.
-    print(f"Loop {__version__} is running.\n")
+    print(f"Void Music {__version__} is running.\n")
     print(f"  On this machine   http://localhost:{config.PORT}")
 
-    # Only advertise the network address when actually listening on it.
-    # Bound to loopback, that line would send someone to an address that
-    # refuses the connection.
     if config.HOST not in ("127.0.0.1", "localhost", "::1"):
         lan = lan_address()
         if lan:
-            print(f"  On your network   http://{lan}:{config.PORT}   <- enter this in the app")
-            print("\n  Anyone on this network can reach it. Set ACCESS_CODE, or run")
-            print("  with HOST=127.0.0.1 if the app is on this same machine.")
+            print(f"  On your network   http://{lan}:{config.PORT}"
+                  "   <- open this on your phone")
+            print("\n  Anyone on this network can reach it. Set ACCESS_CODE, or")
+            print("  run with HOST=127.0.0.1 if the app is on this machine.")
     else:
         print("\n  Listening on this machine only - nothing else can reach it.")
     print()
 
     if config.UPSTREAM_PROXY:
-        print("  Instagram traffic goes through the configured upstream proxy.")
+        print("  Upstream traffic goes through the configured proxy.")
     if config.ACCESS_CODE:
         print("  An access code is required to use this server.")
     else:
@@ -145,7 +167,7 @@ def main():
             "  No access code set. Fine on your own network; set ACCESS_CODE\n"
             "  before putting this anywhere reachable from the internet."
         )
-    print("\n  This machine must be able to reach Instagram itself.\n")
+    print("\n  This machine must be able to reach archive.org itself.\n")
 
     try:
         server.serve_forever()
