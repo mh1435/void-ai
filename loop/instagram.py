@@ -273,8 +273,28 @@ def login(session, username, password, store=None):
             "instagram.com once, approve the login, then try again.",
             kind="challenge", payload=payload,
         )
+
+    if config.DEBUG:
+        # The password is not in this payload; the response to a refused login
+        # carries only flags and, sometimes, a reason.
+        print(f"[loop] login refused for {username}: {json.dumps(payload)}",
+              file=sys.stderr)
+
+    message = _instagram_message(payload)
+    if message:
+        raise InstagramError(message, kind="bad_password", payload=payload)
+
+    # Instagram answers a refused login with authenticated:false and no reason,
+    # and it does that for a wrong password, a disabled account, and a password
+    # it could not decode alike. Saying "wrong password" here was a guess
+    # dressed up as a fact, and it sends people off retyping a correct one.
     raise InstagramError(
-        payload.get("message") or "Wrong password.", kind="bad_password",
+        "Instagram refused the sign-in without saying why. That answer covers "
+        "three different things: the password really is wrong, the account is "
+        "disabled, or this server encoded the password in a way Instagram no "
+        "longer accepts. Set LOOP_DEBUG=1 on the server and try once more - the "
+        "log will show which.",
+        kind="login_refused", payload=payload,
     )
 
 

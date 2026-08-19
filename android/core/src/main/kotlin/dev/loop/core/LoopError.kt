@@ -44,7 +44,8 @@ sealed class LoopError(message: String, cause: Throwable? = null) : Exception(me
             "rate_limited" -> RateLimited(message)
             "upstream_unreachable" -> Upstream(message)
             "not_found" -> NotFound(message)
-            "bad_password", "bad_user", "bad_code", "input" -> BadCredentials(message)
+            "bad_password", "bad_user", "bad_code", "input",
+            "login_refused", "no_csrf" -> BadCredentials(message)
             else -> Server(message)
         }
     }

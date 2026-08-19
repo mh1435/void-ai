@@ -191,3 +191,33 @@ class ErrorReportingTests(unittest.TestCase):
     def test_ordinary_failures_are_not_mistaken_for_challenges(self):
         for payload in (None, {}, {"message": "Incorrect password"}, {"status": "ok"}):
             self.assertFalse(instagram._is_challenge(payload), payload)
+
+
+class LoginRefusalTests(unittest.TestCase):
+    """A refused login must not be reported as a fact we do not have."""
+
+    def _refuse(self, payload):
+        import unittest.mock as mock
+        session = type("S", (), {"cookies": {"csrftoken": "t"}, "www_claim": "0",
+                                 "csrf": "t", "user_id": "", "username": ""})()
+        with mock.patch.object(instagram, "call", return_value=payload):
+            with self.assertRaises(instagram.InstagramError) as caught:
+                instagram.login(session, "someone", "pw")
+        return caught.exception
+
+    def test_a_reasonless_refusal_says_so_instead_of_blaming_the_password(self):
+        error = self._refuse({"authenticated": False, "user": True, "status": "ok"})
+        self.assertEqual("login_refused", error.kind)
+        self.assertNotIn("Wrong password", str(error))
+        # It must name all three causes, not pick one.
+        for cause in ("password really is wrong", "disabled", "encoded"):
+            self.assertIn(cause, str(error))
+
+    def test_instagrams_own_reason_is_used_when_it_gives_one(self):
+        error = self._refuse({"authenticated": False, "user": True,
+                              "message": "Please wait a few minutes."})
+        self.assertEqual("Please wait a few minutes.", str(error))
+
+    def test_an_unknown_username_is_still_reported_precisely(self):
+        error = self._refuse({"authenticated": False, "user": False})
+        self.assertEqual("bad_user", error.kind)
