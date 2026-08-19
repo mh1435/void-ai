@@ -12,7 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.9", "3.11", "3.13"]
+        # 3.14 is what Render installs by default when PYTHON_VERSION is
+        # unset, so it needs to be covered whether or not it is pinned.
+        python: ["3.9", "3.11", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
