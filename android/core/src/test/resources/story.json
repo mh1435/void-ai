@@ -1,0 +1,22 @@
+{
+  "avatar": "/media?u=b&s=c",
+  "items": [
+    {
+      "duration": 5,
+      "id": "s1",
+      "image": "/media?u=https%3A%2F%2Fscontent-lhr8-1.cdninstagram.com%2Fv%2Flarge.jpg&s=0c618f07ebd041822bcc9659",
+      "is_video": false,
+      "taken_at": 1731000400,
+      "video": null
+    },
+    {
+      "duration": 11.4,
+      "id": "s2",
+      "image": "/media?u=https%3A%2F%2Fscontent-lhr8-1.cdninstagram.com%2Fv%2Flarge.jpg&s=0c618f07ebd041822bcc9659",
+      "is_video": true,
+      "taken_at": 1731000500,
+      "video": "/media?u=https%3A%2F%2Fscontent-lhr8-1.cdninstagram.com%2Fv%2Fs.mp4&s=1fa7220777b25bf1e92bbf53"
+    }
+  ],
+  "username": "bob"
+}

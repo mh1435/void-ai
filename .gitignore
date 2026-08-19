@@ -5,3 +5,11 @@ __pycache__/
 
 # Session state written at runtime
 /tmp/loop-sessions/
+
+# Gradle / Android
+android/.gradle/
+android/build/
+android/*/build/
+android/local.properties
+android/.kotlin/
+*.apk

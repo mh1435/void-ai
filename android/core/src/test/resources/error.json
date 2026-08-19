@@ -1,0 +1,4 @@
+{
+  "error": "Instagram is rate-limiting this server. Wait a few minutes.",
+  "kind": "rate_limited"
+}

@@ -1,0 +1,71 @@
+name: Android
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["android/**", "tools/gen_fixtures.py", "loop/**", ".github/workflows/android.yml"]
+  pull_request:
+    paths: ["android/**", "tools/gen_fixtures.py", "loop/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The core module's fixtures are generated from the Python normalisers.
+      # Regenerating them here means a server-side shape change fails the
+      # Android build rather than silently drifting out of sync.
+      - name: Regenerate API fixtures from the server
+        run: python3 tools/gen_fixtures.py
+
+      - name: Fail if fixtures are stale
+        run: |
+          if ! git diff --quiet -- android/core/src/test/resources; then
+            echo "::error::Committed fixtures do not match loop/instagram.py."
+            echo "Run: python3 tools/gen_fixtures.py, then commit the result."
+            git diff --stat -- android/core/src/test/resources
+            exit 1
+          fi
+
+      - name: Core unit tests (contract with the server)
+        working-directory: android
+        run: ./gradlew :core:test --stacktrace
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: loop-apk
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: android/core/build/reports/tests/
+          if-no-files-found: ignore

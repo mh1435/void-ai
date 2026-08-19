@@ -1,0 +1,18 @@
+{
+  "comments": [
+    {
+      "created_at": 1731000600,
+      "id": "18000000000000000",
+      "like_count": 14,
+      "liked": true,
+      "text": "beautiful @alice",
+      "user": {
+        "avatar": "/media?u=https%3A%2F%2Fscontent-lhr8-1.cdninstagram.com%2Fv%2Fc.jpg&s=97b4904f3d026a1251d4fc35",
+        "is_verified": false,
+        "username": "carol"
+      }
+    }
+  ],
+  "count": 87,
+  "next_min_id": "cursor"
+}

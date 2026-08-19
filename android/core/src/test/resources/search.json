@@ -1,0 +1,18 @@
+{
+  "hashtags": [
+    {
+      "count": 4200000,
+      "name": "sunset"
+    }
+  ],
+  "users": [
+    {
+      "avatar": "/media?u=b&s=c",
+      "full_name": "Bob",
+      "id": "1",
+      "is_private": true,
+      "is_verified": false,
+      "username": "bob"
+    }
+  ]
+}

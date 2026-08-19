@@ -1,0 +1,55 @@
+{
+  "next_max_id": null,
+  "posts": [
+    {
+      "audio": null,
+      "caption": "hi",
+      "comment_count": 2,
+      "id": "3200000000000000004",
+      "like_count": 5,
+      "liked": false,
+      "location": "",
+      "saved": false,
+      "shortcode": "CxGraph",
+      "slides": [
+        {
+          "alt": "",
+          "height": 1,
+          "image": "/media?u=https%3A%2F%2Fscontent-lhr8-1.cdninstagram.com%2Fv%2Fa.jpg&s=34f45772b8b5a92131f46daa",
+          "video": null,
+          "width": 1
+        }
+      ],
+      "taken_at": 1731000300,
+      "thumb": "/media?u=https%3A%2F%2Fscontent-lhr8-1.cdninstagram.com%2Fv%2Fa.jpg&s=34f45772b8b5a92131f46daa",
+      "type": "carousel",
+      "user": {
+        "avatar": "/media?u=https%3A%2F%2Fscontent-lhr8-1.cdninstagram.com%2Fv%2Falice.jpg&s=568419307b5628e1be010233",
+        "full_name": "Alice",
+        "id": "17841400000",
+        "is_verified": true,
+        "username": "alice"
+      },
+      "video": null,
+      "view_count": 0
+    }
+  ],
+  "user": {
+    "avatar": "/media?u=x&s=y",
+    "biography": "photos\nand @things",
+    "counts": {
+      "followers": 1200000,
+      "following": 301,
+      "posts": 214
+    },
+    "external_url": "https://example.com",
+    "followed_by_viewer": false,
+    "follows_viewer": true,
+    "full_name": "Alice",
+    "id": "17841400000",
+    "is_private": false,
+    "is_verified": true,
+    "requested_by_viewer": false,
+    "username": "alice"
+  }
+}

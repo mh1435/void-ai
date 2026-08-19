@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "avatar": "/media?u=b&s=c",
+      "id": "1",
+      "media": "/media?u=m&s=n",
+      "new": true,
+      "text": "bob liked your photo.",
+      "timestamp": 1731000700
+    }
+  ]
+}

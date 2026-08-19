@@ -1,0 +1,9 @@
+<resources>
+    <!-- Compose paints everything; this only covers the pre-Compose window so
+         launching does not flash white on a dark device. -->
+    <style name="Theme.Loop" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
