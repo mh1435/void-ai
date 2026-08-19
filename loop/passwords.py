@@ -71,6 +71,11 @@ def fetch_key(cookies=None, force=False):
 
     encryption = body.get("encryption") or {}
     if not encryption.get("public_key") or encryption.get("key_id") is None:
+        from . import config
+        if config.DEBUG:
+            import sys
+            print(f"[loop] shared_data had keys {sorted(body.keys())}, "
+                  f"encryption block was {encryption!r}", file=sys.stderr)
         raise PasswordEncodingError(
             "Instagram's response carried no public key to encrypt with."
         )
@@ -81,19 +86,42 @@ def fetch_key(cookies=None, force=False):
 
 
 def encode(password, cookies=None):
-    """Return an enc_password string, encrypted when that is possible."""
+    """Return an enc_password string, encrypted when that is possible.
+
+    Never raises: a failure here falls back to the plaintext form rather than
+    blocking sign-in outright. But it says, under LOOP_DEBUG, exactly which
+    path it took and why - because a silent fallback to plaintext is precisely
+    the failure that reads downstream as a wrong password.
+    """
     stamp = str(int(time.time()))
 
     if not ENCRYPTION_AVAILABLE:
+        _debug("password: PyNaCl/cryptography not installed, sending plaintext")
         return plaintext(password, stamp)
 
     try:
         key = fetch_key(cookies)
-        return encrypted(password, key, stamp)
-    except (PasswordEncodingError, netclient.HTTPError, Exception):
-        # Falling back beats refusing to try: the old form still works in
-        # places, and a failure here would otherwise block sign-in entirely.
+    except Exception as exc:  # noqa: BLE001
+        _debug(f"password: could not fetch Instagram's key ({type(exc).__name__}: "
+               f"{exc}); sending plaintext")
         return plaintext(password, stamp)
+
+    try:
+        out = encrypted(password, key, stamp)
+        _debug(f"password: encrypted (key_id={key.get('key_id')}, "
+               f"version={key.get('version')})")
+        return out
+    except Exception as exc:  # noqa: BLE001
+        _debug(f"password: encryption step failed ({type(exc).__name__}: {exc}); "
+               f"sending plaintext")
+        return plaintext(password, stamp)
+
+
+def _debug(message):
+    from . import config
+    if config.DEBUG:
+        import sys
+        print(f"[loop] {message}", file=sys.stderr)
 
 
 def plaintext(password, stamp=None):
