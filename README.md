@@ -100,11 +100,22 @@ alone, so Instagram is far less likely to challenge it.
 
 The APK is built by CI, because it needs the Android SDK:
 
-1. Push to GitHub. The **Android** workflow builds debug and release APKs.
-2. Open the run, download the `loop-apk` artifact, unzip it.
-3. Copy the APK to your phone and install it (you will have to allow
-   installing from unknown sources — this is not on Google Play).
+1. Open the [**Android** workflow](../../actions/workflows/android.yml) and
+   pick the newest green run.
+2. Download the `loop-apk` artifact at the bottom of the run page and unzip
+   it. It contains both `app-debug.apk` and `app-release.apk` — install the
+   release one; the debug build is only there for troubleshooting.
+3. Copy it to your phone and open it. Android will ask you to allow installs
+   from this source, because this is not on Google Play.
 4. On first launch, enter your server address. That is the only setup.
+
+Artifacts expire after 90 days, so re-run the workflow if the latest one has
+aged out. Every push to a branch rebuilds it.
+
+The release build is signed with the standard debug key, so it installs but is
+not Play-Store publishable — which is fine for an app you sideload onto your
+own phone. To sign it properly, add a keystore and point `signingConfigs` at
+it in `android/app/build.gradle.kts`.
 
 Locally, with the Android SDK installed:
 
