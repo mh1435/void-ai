@@ -34,6 +34,7 @@ import kotlinx.coroutines.launch
 private sealed interface Step {
     data object Gate : Step
     data object Credentials : Step
+    data object WebLogin : Step
     data class TwoFactor(val challenge: LoginResult) : Step
 }
 
@@ -67,6 +68,16 @@ fun LoginScreen(
                 busy = false
             }
         }
+    }
+
+    if (step is Step.WebLogin) {
+        WebLoginScreen(onCaptured = { sessionid, userAgent ->
+            run {
+                container.requireApi().loginWithCookie(sessionid, userAgent)
+                onDone()
+            }
+        })
+        return
     }
 
     Column(
@@ -103,7 +114,20 @@ fun LoginScreen(
             }
 
             Step.Credentials -> {
-                Hint("Sign in to Instagram.")
+                Button(
+                    onClick = { step = Step.WebLogin },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Sign in through Instagram") }
+                Text(
+                    "Opens Instagram's own login — handles verification codes " +
+                        "and works when a direct password sign-in is refused.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
+                )
+                Hint("Or sign in with a password directly.")
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it; error = null },

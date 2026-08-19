@@ -78,6 +78,16 @@ class LoopApi(
         LoginResult.serializer(),
     )
 
+    /**
+     * Adopt a session captured from the in-app Instagram login. The user-agent
+     * is the login WebView's own, so it matches the session Instagram issued.
+     */
+    suspend fun loginWithCookie(sessionid: String, userAgent: String): LoginResult = post(
+        "api/session/cookie",
+        mapOf("sessionid" to sessionid, "user_agent" to userAgent),
+        LoginResult.serializer(),
+    )
+
     suspend fun logout(): Ok =
         post("api/session/logout", emptyMap(), Ok.serializer()).also { cookieJar.clear() }
 
