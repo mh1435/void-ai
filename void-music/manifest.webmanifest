@@ -1,0 +1,15 @@
+{
+  "name": "Void Music",
+  "short_name": "Void",
+  "description": "A self-hosted music discovery player built on legal Creative Commons catalogs.",
+  "start_url": "/",
+  "scope": "/",
+  "theme_color": "#8b5cf6",
+  "background_color": "#0a0a0f",
+  "display": "standalone",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

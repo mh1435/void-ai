@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Void Music</title>
+  <meta name="description" content="A self-hosted music player built on legal Creative Commons catalogs.">
+  <meta name="theme-color" content="#8b5cf6">
+  <meta name="color-scheme" content="dark light">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Void">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/assets/icon.svg">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- ============================== HOME ============================== -->
+    <section id="view-home" class="view">
+      <div class="hero-card">
+        <div class="hero-artwork">
+          <img id="hero-img" src="/assets/default-art.svg" alt="">
+        </div>
+        <div class="hero-content">
+          <span class="hero-label">Daily Discovery</span>
+          <h2 class="hero-title">Daily Mix</h2>
+          <p id="hero-meta" class="hero-meta">Loading tracks…</p>
+          <div class="hero-actions">
+            <button class="btn-primary" id="hero-play">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              Play
+            </button>
+            <button class="btn-icon" id="hero-add" title="Add to library">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="category-pills" data-pill-group="home">
+        <button class="pill active">All</button>
+        <button class="pill">Pop/Rock</button>
+        <button class="pill">Hip-Hop</button>
+        <button class="pill">Electronic</button>
+        <button class="pill">Jazz</button>
+      </div>
+
+      <section class="content-section">
+        <div class="section-header">
+          <h3>New Releases</h3>
+          <button class="see-all" data-nav="library">See all</button>
+        </div>
+        <div class="horizontal-scroll" id="new-releases">
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+        </div>
+      </section>
+
+      <section class="content-section">
+        <div class="section-header">
+          <h3>Playlists</h3>
+          <button class="see-all" data-nav="library">See all</button>
+        </div>
+        <div class="horizontal-scroll" id="playlists">
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+        </div>
+      </section>
+
+      <section class="content-section">
+        <div class="section-header">
+          <h3>Top Albums</h3>
+          <button class="see-all" data-nav="library">Show all</button>
+        </div>
+        <div class="vertical-list" id="top-albums">
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+        </div>
+      </section>
+    </section>
+
+    <!-- ============================== LIBRARY ============================ -->
+    <section id="view-library" class="view hidden">
+      <div class="library-header">
+        <h1>Library</h1>
+        <div class="library-actions">
+          <button class="icon-btn" id="library-sort" title="Sort">⇅</button>
+          <button class="icon-btn" id="library-refresh" title="Refresh">↻</button>
+        </div>
+      </div>
+
+      <div class="category-pills" data-pill-group="library-kind">
+        <button class="pill active" data-kind="recent">Recently played</button>
+        <button class="pill" data-kind="liked">Liked</button>
+      </div>
+
+      <div id="library-content" class="library-list"></div>
+    </section>
+
+    <!-- ============================== SEARCH ============================= -->
+    <section id="view-search" class="view hidden">
+      <div class="search-header">
+        <h1>Search</h1>
+      </div>
+      <div class="search-bar-container">
+        <div class="search-bar">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input type="text" id="search-input" placeholder="Songs, artists, albums…" autocomplete="off">
+          <button id="search-clear" class="hidden" aria-label="Clear search">×</button>
+        </div>
+      </div>
+
+      <div id="search-recent" class="search-section">
+        <div class="section-header" style="padding:0; margin-bottom:8px;">
+          <span class="section-label">Recent</span>
+          <button class="text-btn" id="search-recent-clear">Clear</button>
+        </div>
+        <div id="recent-list"></div>
+      </div>
+
+      <div id="search-results" class="search-section hidden">
+        <div class="results-category">
+          <h4>Songs</h4>
+          <div id="results-songs" class="results-list"></div>
+        </div>
+        <div class="results-category">
+          <h4>Artists</h4>
+          <div id="results-artists" class="artist-chips"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== SYNC ================================ -->
+    <section id="view-sync" class="view hidden">
+      <h1 class="page-title">Sync</h1>
+
+      <div class="sync-status">
+        <div id="sync-badge" class="sync-badge synced">Synced</div>
+        <div class="sync-stats">
+          <div><strong id="sync-tracks">0</strong><span>Tracks</span></div>
+          <div><strong id="sync-liked">0</strong><span>Liked</span></div>
+          <div><strong id="sync-searches">0</strong><span>Searches</span></div>
+          <div><strong id="sync-storage">0 KB</strong><span>Storage</span></div>
+        </div>
+        <p id="sync-time" class="sync-time">Never synced</p>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-card">
+          <div class="sync-row">
+            <span>Catalog sources</span>
+            <span class="sync-value" id="sync-source-status">Checking…</span>
+          </div>
+
+          <div class="sync-toggle-group">
+            <span>Playback</span>
+            <div class="segmented-control" data-segment="playback">
+              <button class="active" data-value="online">Online</button>
+              <button data-value="offline">Offline</button>
+            </div>
+          </div>
+
+          <div class="sync-toggle-group">
+            <span>Downloads</span>
+            <div class="segmented-control" data-segment="downloads">
+              <button class="active" data-value="wifi">Wi-Fi only</button>
+              <button data-value="always">Always</button>
+            </div>
+          </div>
+
+          <button class="btn-primary" id="sync-refresh" style="width:100%; margin-top:12px; justify-content:center;">
+            Update Streaming Index
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h4 class="settings-label">Sources</h4>
+        <div class="settings-card source-card">
+          <div class="source-header">
+            <span>Jamendo</span>
+            <span class="badge connected" id="jamendo-badge">Not connected</span>
+          </div>
+          <div class="source-stats">
+            <span id="jamendo-stats">No API key set</span>
+          </div>
+          <div class="sync-mode">
+            <span>Go to Settings to add a free API key</span>
+          </div>
+        </div>
+        <div class="settings-card source-card" style="margin-top:12px;">
+          <div class="source-header">
+            <span>Internet Archive</span>
+            <span class="badge connected">Connected</span>
+          </div>
+          <div class="source-stats">
+            <span>Creative Commons audio · no key required</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== SETTINGS ============================ -->
+    <section id="view-settings" class="view hidden">
+      <h1 class="page-title">Settings</h1>
+
+      <div class="settings-group">
+        <div class="settings-card">
+          <h4 class="settings-label">Void Music</h4>
+          <p class="settings-desc">Zero-dependency, self-hosted music discovery built on legal Creative Commons catalogs — Jamendo and the Internet Archive. No accounts, no tracking, everything stays on this device.</p>
+          <div class="settings-actions">
+            <a class="btn-primary" href="https://www.jamendo.com/admin/applications" target="_blank" rel="noopener">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+              </svg>
+              Get a Jamendo key
+            </a>
+            <a class="btn-secondary" href="https://archive.org" target="_blank" rel="noopener">Archive.org</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input type="text" id="settings-search" placeholder="Search settings">
+        </div>
+
+        <div class="settings-card" data-settings-row="appearance">
+          <h4 class="settings-label">Appearance</h4>
+          <div class="settings-field">
+            <label for="theme-select">Theme</label>
+            <select id="theme-select" style="background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; color:var(--text-primary); font-size:14px;">
+              <option value="system">Follow system</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="amoled">AMOLED black</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-card" data-settings-row="audio" style="margin-top:12px;">
+          <h4 class="settings-label">Audio &amp; Catalog</h4>
+          <div class="settings-field">
+            <label for="jamendo-key">Jamendo API key (optional)</label>
+            <input type="text" id="jamendo-key" placeholder="Paste your free client_id">
+          </div>
+          <p class="settings-hint">
+            Void ships using only the Internet Archive's Creative Commons catalog by default.
+            Add a free <a href="https://www.jamendo.com/admin/applications" target="_blank" rel="noopener">Jamendo client_id</a>
+            to expand New Releases, Playlists and Top Albums. Stored only on this device.
+          </p>
+          <div class="settings-actions" style="margin-top:10px;">
+            <button class="btn-secondary" id="jamendo-save">Save key</button>
+            <button class="btn-secondary" id="jamendo-clear">Remove key</button>
+          </div>
+        </div>
+
+        <a class="settings-row" href="#library" data-nav="library" style="margin-top:12px;">
+          <div class="settings-icon">📁</div>
+          <div class="settings-text">
+            <div>Library &amp; Storage</div>
+            <small id="settings-storage-line">—</small>
+          </div>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </a>
+
+        <button class="settings-row" id="settings-reset">
+          <div class="settings-icon">🗑</div>
+          <div class="settings-text">
+            <div>Clear local data</div>
+            <small>Recently played, liked songs, search history</small>
+          </div>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ============================== MINI PLAYER =========================== -->
+  <div id="mini-player" class="mini-player hidden">
+    <div class="mini-player-art">
+      <img id="mini-art" src="/assets/default-art.svg" alt="">
+    </div>
+    <div class="mini-player-info" id="mini-info">
+      <div id="mini-title" class="mini-title">No track</div>
+      <div id="mini-artist" class="mini-artist">Select a song</div>
+    </div>
+    <div class="mini-player-controls">
+      <button id="mini-like" class="mini-btn mini-btn-ghost" aria-label="Like track">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+        </svg>
+      </button>
+      <button id="mini-play" class="mini-btn" aria-label="Play/pause">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+      <button id="mini-next" class="mini-btn" aria-label="Next track">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+      </button>
+    </div>
+    <div class="mini-progress">
+      <div id="mini-progress-bar" class="mini-progress-bar"></div>
+    </div>
+  </div>
+
+  <!-- ============================== BOTTOM NAV ============================ -->
+  <nav id="bottom-nav" class="bottom-nav">
+    <a href="#home" class="nav-item active" data-view="home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+      <span>Home</span>
+    </a>
+    <a href="#library" class="nav-item" data-view="library">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+      </svg>
+      <span>Library</span>
+    </a>
+    <a href="#search" class="nav-item" data-view="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/>
+        <path d="M21 21l-4.35-4.35"/>
+      </svg>
+      <span>Search</span>
+    </a>
+    <a href="#sync" class="nav-item" data-view="sync">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="23 4 23 10 17 10"/>
+        <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+      </svg>
+      <span>Sync</span>
+    </a>
+    <a href="#settings" class="nav-item" data-view="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+      </svg>
+      <span>Settings</span>
+    </a>
+  </nav>
+
+  <div id="toast-host" class="toast-host" aria-live="polite"></div>
+
+  <audio id="audio-engine" preload="none"></audio>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
