@@ -149,9 +149,27 @@ The old service on this repo started with `python3 void_web_cloud.py`, which is
 baked into the service rather than read from `render.yaml`, so that file is kept
 as a shim that boots the same app. Either start command works.
 
-Any host with outbound HTTPS works just as well — Fly, a $5 VPS, a Raspberry Pi
-at a friend's place abroad. A VPS you own is the better option: its IP is yours
-alone, so Instagram is far less likely to challenge it.
+### Which host to pick
+
+Any machine with outbound HTTPS works. What separates them, for this app, is
+the IP address — Instagram treats a shared datacenter IP very differently from
+one that is yours alone.
+
+| Host | Cost | Sleeps? | IP | Setup |
+|---|---|---|---|---|
+| **Render free** | free | after 15 min idle | shared, heavily challenged | already configured here |
+| **Oracle Cloud Always Free** | free, permanently | no | dedicated | ~30 min, card needed for ID |
+| **Fly.io** | small free allowance | configurable | shared-ish | ~15 min |
+| **Any $4–5 VPS** | paid | no | dedicated | ~15 min |
+
+Render is the fastest way to find out whether this works for you, and costs
+nothing. Its weakness is the IP: thousands of people share those addresses, so
+Instagram issues login checkpoints against them often. If you get challenged
+repeatedly, that is the reason, and moving to a host with a dedicated IP is the
+fix — Oracle's Always Free tier is a real VPS and costs nothing indefinitely.
+
+Nothing about the app changes when you move. Point it at the new address in
+Settings and sign in again.
 
 ## Build the Android app
 
