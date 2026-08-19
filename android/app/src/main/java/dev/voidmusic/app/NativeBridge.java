@@ -112,6 +112,48 @@ public class NativeBridge {
     }
 
     /**
+     * True when the phone has a Google account Android can broker for us — the
+     * one-tap path, with no client ID anywhere.
+     */
+    @JavascriptInterface
+    public boolean canPickAccount() {
+        return AccountAuth.available(activity);
+    }
+
+    /**
+     * Show the account picker. Android then asks Google for permission on our
+     * behalf, and the answer arrives at {@code window.__voidAccount(ok, error)}.
+     */
+    @JavascriptInterface
+    public void pickAccount() {
+        // Posted rather than returned: startActivityForResult belongs to the UI
+        // thread, so there is nothing to answer synchronously. Success and
+        // failure both arrive at window.__voidAccount.
+        activity.runOnUiThread(activity::pickGoogleAccount);
+    }
+
+    @JavascriptInterface
+    public boolean accountSignedIn() {
+        return AccountAuth.signedIn(activity);
+    }
+
+    @JavascriptInterface
+    public String accountName() {
+        return AccountAuth.accountName(activity);
+    }
+
+    /** A live token for the picked account, refreshed when it has gone stale. */
+    @JavascriptInterface
+    public String accountToken() {
+        return AccountAuth.token(activity);
+    }
+
+    @JavascriptInterface
+    public void accountSignOut() {
+        AccountAuth.signOut(activity);
+    }
+
+    /**
      * Send the user to Google's consent page. The answer comes back through
      * {@code window.__voidOAuth(ok, message)} once the browser returns.
      */

@@ -85,12 +85,17 @@ leave the device; there is no server to upload them to.
 playlists and liked videos are listed in the app. Open one and it becomes a mix: the titles and
 the order come from YouTube's own API, and each song is then found in your imported files or the
 open catalogue. No audio is taken from YouTube — the API does not offer it and the app does not
-go around that. In the Android app this is a real **Sign in with Google**: one tap, Google's own consent page in
-your browser, and it stays signed in afterwards — the wrapper keeps the refresh token and renews
-the short-lived one itself, so the refresh token never enters the page. It needs a Google OAuth
-client ID once, which you register yourself: no credential is compiled into the app, because
-anything shipped inside GPL software is public. In a plain browser, where nothing can catch the
-redirect back from Google, a pasted access token still works.
+go around that. In the Android app connecting is one tap and nothing else: Android shows the
+Google accounts already on the phone, you pick one, and Google itself asks whether Void Music may
+see your YouTube library. Nothing to register, nothing to paste, and the grant is held by the
+account manager, so it stays connected.
+
+Google can decline to broker that for an app it does not recognise. When it does, the card says so
+and opens a folded-away advanced setup: the full OAuth flow with a Google client ID you register
+once. No credential is compiled into the app, because anything shipped inside GPL software is
+public. Either way the wrapper holds the tokens and renews them, so the refresh token never enters
+the page. In a plain browser, where nothing can catch the redirect back from Google, a pasted
+access token still works.
 
 **Mixes** — share a playlist as a short code or a small file. What travels is the running
 order, not the audio: titles, artists, the sequence you chose. Whoever opens it resolves each

@@ -15,6 +15,7 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.accounts.AccountManager;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -59,6 +60,7 @@ public class MainActivity extends Activity {
     private static final int REQ_FILE_CHOOSER = 1001;
     private static final int REQ_NOTIFICATIONS = 1002;
     private static final int REQ_FOLDER = 1003;
+    private static final int REQ_ACCOUNT = 1004;
 
     /** Path the page fetches a picked file's bytes from, on our own origin. */
     private static final String LOCAL_FILE_PATH = "/localfile/";
@@ -286,6 +288,19 @@ public class MainActivity extends Activity {
         return OAuthClient.begin(this, clientId);
     }
 
+    /**
+     * The one-tap path: Android's own account picker, then Google's own consent
+     * prompt. Nothing to register, nothing to paste.
+     */
+    void pickGoogleAccount() {
+        try {
+            startActivityForResult(AccountAuth.chooserIntent(), REQ_ACCOUNT);
+        } catch (Exception e) {
+            Log.w(TAG, "no account picker on this device: " + e.getMessage());
+            AccountAuth.fail("This phone has no account picker");
+        }
+    }
+
     /** Same thing, reachable from the JavaScript bridge. */
     void openExternal(String url) {
         try {
@@ -307,6 +322,15 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQ_ACCOUNT) {
+            String name = resultCode == RESULT_OK && data != null
+                    ? data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+                    : null;
+            // Asking for a token is what triggers Google's "allow?" prompt, so
+            // the sign-in is not finished until that comes back.
+            AccountAuth.authorise(this, name);
+            return;
+        }
         if (requestCode == REQ_FOLDER) {
             Uri tree = resultCode == RESULT_OK && data != null ? data.getData() : null;
             if (tree != null) onFolderGranted(tree);

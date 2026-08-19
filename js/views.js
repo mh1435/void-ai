@@ -22,7 +22,10 @@ import { checkForUpdate, APP_VERSION } from './update.js';
 import { canPickFolder, pickFolder, openExternal } from './native.js';
 import { encodeMix, decodeMix, parseText, resolveMix, playable, forgetLibrary } from './mix.js';
 import * as YT from './youtube.js';
-import { canSignIn, googleAccount, signInWithGoogle } from './native.js';
+import {
+  canSignIn, googleAccount, signInWithGoogle,
+  canPickAccount, phoneAccount, connectPhoneAccount,
+} from './native.js';
 import { importFiles, filesFromDrop, isAudioFile } from './import.js';
 import { scrobbler } from './scrobble.js';
 import {
@@ -1353,7 +1356,7 @@ export function openMixImporter() {
 
 function youtubeStatusText() {
   if (YT.signedIn()) {
-    const who = googleAccount.name();
+    const who = YT.accountLabel();
     return who ? `Signed in as ${who}` : 'Signed in';
   }
   return YT.connected() ? 'Token saved' : 'Not connected';
@@ -1362,13 +1365,18 @@ function youtubeStatusText() {
 /**
  * The YouTube card.
  *
- * Inside the app this is a real sign-in: one tap, Google's own consent page in
- * the browser, and it stays signed in afterwards because the wrapper keeps a
- * refresh token. The only thing it needs first is a client ID, which the user
- * registers once — nothing can be shipped inside a GPL app and still be theirs.
+ * There are three ways in, and the card shows the least work first.
  *
- * In a plain browser there is no way to catch the redirect back from Google, so
- * that case keeps the pasted-token path.
+ * On a phone with a Google account on it, Android brokers the whole thing:
+ * tap, pick the account, and Google itself asks whether Void Music may see
+ * your YouTube library. Nothing to register, nothing to paste.
+ *
+ * Google can refuse to broker for an app it does not recognise. When that
+ * happens the card says so and opens the advanced setup — the same real OAuth
+ * flow as before, which always works but wants a client ID registered once.
+ *
+ * In a plain browser neither is possible, because nothing there can catch the
+ * redirect back from Google, so that case keeps the pasted-token path.
  */
 function youtubeSetting(status) {
   const body = el('span', { class: 'setting-body' },
@@ -1378,13 +1386,101 @@ function youtubeSetting(status) {
       + 'you saved.'),
   );
 
-  if (canSignIn) body.append(...signInControls(status));
+  if (canPickAccount || canSignIn) body.append(...signInControls(status));
   else body.append(...pastedTokenControls(status));
 
   return el('div', { class: 'setting static' }, body);
 }
 
 function signInControls(status) {
+  if (YT.signedIn()) return connectedControls(status);
+
+  const advanced = clientIdControls(status);
+  const out = [];
+
+  if (canPickAccount) {
+    out.push(
+      status,
+      el('span', { style: 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' },
+        el('button', {
+          class: 'btn', type: 'button',
+          onclick: async (e) => {
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            status.textContent = 'Waiting for Google…';
+
+            const result = await connectPhoneAccount();
+            btn.disabled = false;
+
+            if (!result.ok) {
+              status.textContent = result.error || 'Google refused the sign-in';
+              toast(result.error || 'Google refused the sign-in', 'err', 6000);
+              // Whatever went wrong, the client-ID flow is the way past it.
+              advanced.reveal();
+              return;
+            }
+
+            await announceSignedIn();
+          },
+        }, 'Connect YouTube account'),
+      ),
+      el('span', { style: 'margin-top:12px' },
+        'Tap it and Android shows the Google accounts already on this phone. Pick one, and '
+        + 'Google itself asks whether Void Music may see your YouTube library. There is nothing '
+        + 'to register and nothing to paste.'),
+    );
+  } else {
+    out.push(status);
+    advanced.reveal();
+  }
+
+  out.push(advanced.node);
+  return out;
+}
+
+/** The card once an account is connected, however it got connected. */
+function connectedControls(status) {
+  return [
+    status,
+    el('span', { style: 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' },
+      el('button', {
+        class: 'btn', type: 'button', onclick: () => navigate('#/youtube'),
+      }, 'My playlists'),
+      el('button', {
+        class: 'btn secondary', type: 'button',
+        onclick: async () => {
+          phoneAccount.signOut();
+          googleAccount.signOut();
+          await YT.setToken('');
+          toast('Signed out of YouTube');
+          renderSettings('accounts');
+        },
+      }, 'Sign out'),
+    ),
+  ];
+}
+
+/** Ask YouTube whose account this is, and say so. */
+async function announceSignedIn() {
+  try {
+    const name = await YT.whoAmI();
+    if (!YT.signedInByPhone()) googleAccount.setName(name);
+    toast(`Signed in as ${name}`, 'ok');
+  } catch (err) {
+    toast(`Signed in, but YouTube said: ${err.message}`, 'warn', 5000);
+  }
+  renderSettings('accounts');
+}
+
+/**
+ * The fallback: a Google Cloud client ID.
+ *
+ * Folded away by default, because most people will never need it — it only
+ * matters when Google will not let Android broker the sign-in. Returns the
+ * node and a way to open it, which is what the brokered path calls when it
+ * fails.
+ */
+function clientIdControls(status) {
   const clientInput = el('input', {
     type: 'text', value: googleAccount.clientId(),
     placeholder: 'Google OAuth client ID', 'aria-label': 'Google OAuth client ID',
@@ -1408,49 +1504,20 @@ function signInControls(status) {
         return;
       }
 
-      // The token is live now; ask YouTube whose it is so the card can say so.
-      try {
-        const name = await YT.whoAmI();
-        googleAccount.setName(name);
-        toast(`Signed in as ${name}`, 'ok');
-      } catch (err) {
-        toast(`Signed in, but YouTube said: ${err.message}`, 'warn', 5000);
-      }
-      renderSettings('accounts');
+      await announceSignedIn();
     },
   }, 'Sign in with Google');
 
-  const out = [];
-
-  if (YT.signedIn()) {
-    out.push(
-      status,
-      el('span', { style: 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' },
-        el('button', {
-          class: 'btn', type: 'button', onclick: () => navigate('#/youtube'),
-        }, 'My playlists'),
-        el('button', {
-          class: 'btn secondary', type: 'button',
-          onclick: async () => {
-            googleAccount.signOut();
-            await YT.setToken('');
-            toast('Signed out of YouTube');
-            renderSettings('accounts');
-          },
-        }, 'Sign out'),
-      ),
-    );
-    return out;
-  }
-
-  out.push(
-    el('span', { style: 'margin-top:12px' }, clientInput),
-    status,
+  const node = el('details', { class: 'advanced', style: 'margin-top:14px' },
+    el('summary', {}, canPickAccount
+      ? 'If that does not work: use a Google client ID'
+      : 'Sign in with a Google client ID'),
+    el('span', { style: 'margin-top:12px;display:block' }, clientInput),
     el('span', { style: 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' }, signIn),
-    el('span', { style: 'margin-top:12px' },
-      'The client ID is a one-time setup, and after it you just tap the button. In Google Cloud '
-      + 'Console: create a project, enable the YouTube Data API v3, then under Credentials create '
-      + 'an OAuth client of type ', el('strong', {}, 'Android'),
+    el('span', { style: 'margin-top:12px;display:block' },
+      'A one-time setup, and after it you just tap the button. In Google Cloud Console: create a '
+      + 'project, enable the YouTube Data API v3, then under Credentials create an OAuth client '
+      + 'of type ', el('strong', {}, 'Android'),
       ' with package name ', el('code', {}, 'dev.voidmusic.app'),
       ' and this app’s signing fingerprint. Google issues no secret for that type — the app is '
       + 'identified by its signature instead. Add your own address as a test user and Google will '
@@ -1477,7 +1544,8 @@ function signInControls(status) {
       }, 'Where do I find the fingerprint?'),
     ),
   );
-  return out;
+
+  return { node, reveal: () => { node.open = true; } };
 }
 
 function pastedTokenControls(status) {

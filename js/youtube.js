@@ -32,7 +32,7 @@
  * package name and signing certificate. */
 
 import { getSetting, setSetting } from './store.js';
-import { googleAccount, canSignIn } from './native.js';
+import { googleAccount, canSignIn, phoneAccount, canPickAccount } from './native.js';
 
 const API = 'https://www.googleapis.com/youtube/v3';
 const TIMEOUT_MS = 15000;
@@ -41,13 +41,19 @@ const TIMEOUT_MS = 15000;
 export const LIKED_PLAYLIST = 'LL';
 
 /**
- * The token to use right now.
+ * The token to use right now, in order of how little the user had to do:
  *
- * A wrapper that can sign in properly owns the tokens and refreshes them, so
- * it always wins. The pasted token is the fallback for a plain browser, where
- * there is no way to catch a redirect back from Google.
+ *  1. the Google account already on the phone, brokered by Android;
+ *  2. the client-ID sign-in, for when Google refuses to broker;
+ *  3. a pasted token, which is all a plain browser can manage.
+ *
+ * Both wrapper paths refresh their own tokens, so what comes back is live.
  */
 export function token() {
+  if (canPickAccount && phoneAccount.signedIn()) {
+    const brokered = phoneAccount.token();
+    if (brokered) return brokered;
+  }
   if (canSignIn) {
     const managed = googleAccount.token();
     if (managed) return managed;
@@ -61,7 +67,18 @@ export function connected() {
 
 /** True when the account was signed in properly rather than pasted. */
 export function signedIn() {
-  return canSignIn && googleAccount.signedIn();
+  return (canPickAccount && phoneAccount.signedIn()) || (canSignIn && googleAccount.signedIn());
+}
+
+/** True when the sign-in was the one-tap kind, with nothing to configure. */
+export function signedInByPhone() {
+  return canPickAccount && phoneAccount.signedIn();
+}
+
+/** Whose account is connected, as far as the app knows without asking YouTube. */
+export function accountLabel() {
+  if (signedInByPhone()) return phoneAccount.name();
+  return canSignIn ? googleAccount.name() : '';
 }
 
 export async function setToken(value) {

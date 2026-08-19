@@ -72,6 +72,73 @@ export const canSignIn = (() => {
   }
 })();
 
+/**
+ * True when Android can broker the sign-in through the Google account already
+ * on the phone. This is the path with nothing to set up: tap, pick the account,
+ * approve, done.
+ */
+export const canPickAccount = (() => {
+  try {
+    return Boolean(bridge?.canPickAccount?.());
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * The brokered account: Android holds the grant, we only ever ask it for a
+ * token. Separate from `googleAccount` below, which is the client-ID flow.
+ */
+export const phoneAccount = {
+  signedIn() {
+    try { return Boolean(bridge?.accountSignedIn?.()); } catch { return false; }
+  },
+  name() {
+    try { return String(bridge?.accountName?.() || ''); } catch { return ''; }
+  },
+  token() {
+    try { return String(bridge?.accountToken?.() || ''); } catch { return ''; }
+  },
+  signOut() {
+    try { bridge?.accountSignOut?.(); } catch { /* older wrapper */ }
+  },
+};
+
+/**
+ * Tap to connect, with no client ID and nothing to paste.
+ *
+ * Android shows its own account picker; picking one makes it ask Google for
+ * permission on our behalf, which is the "allow this app to see your YouTube
+ * account?" prompt. Resolves { ok, error } when that has been answered.
+ *
+ * Google can refuse to issue a token to an app it does not recognise. That is
+ * not a bug to hide — it is reported plainly, and the client-ID flow is still
+ * there for when it happens.
+ */
+export function connectPhoneAccount({ timeoutMs = 3 * 60 * 1000 } = {}) {
+  if (!canPickAccount) return Promise.resolve({ ok: false, error: 'Not available here' });
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (ok, error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      delete window.__voidAccount;
+      resolve({ ok: Boolean(ok), error: error || '' });
+    };
+
+    const timer = setTimeout(() => done(false, 'Timed out waiting for Google'), timeoutMs);
+    window.__voidAccount = (ok, message) => done(ok, message);
+
+    try {
+      bridge.pickAccount();
+    } catch (err) {
+      done(false, err.message);
+    }
+  });
+}
+
 export const googleAccount = {
   signedIn() {
     try { return Boolean(bridge?.signedIn?.()); } catch { return false; }
