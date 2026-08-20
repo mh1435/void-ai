@@ -115,10 +115,29 @@ final class YoutubeCookieSession {
         return null; // null = accepted
     }
 
-    /** A pasted value may have "Cookie: " in front, or stray quoting; take just the pairs. */
+    /**
+     * A pasted value arrives in whatever shape the place it was copied from
+     * uses: the header itself ({@code name=value; name2=value2}), one
+     * {@code name=value} pair per line from a cookie table or a bookmarklet
+     * that logs {@code document.cookie} split apart, or wrapped in a leading
+     * "Cookie:" and/or stray quotes. Normalising all of that to one
+     * semicolon-joined line is what the actual parsing below expects.
+     */
     private static String clean(String raw) {
         String s = raw == null ? "" : raw.trim();
         if (s.regionMatches(true, 0, "cookie:", 0, 7)) s = s.substring(7).trim();
+        if (s.length() >= 2 && ((s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"')
+                || (s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\''))) {
+            s = s.substring(1, s.length() - 1).trim();
+        }
+        // A newline is never legal inside a cookie header; if the paste has
+        // one, it was laid out one name=value pair per line and needs joining
+        // back into the single line the parsing below expects. Left alone
+        // otherwise — a stray tab is ambiguous enough to guess wrong about,
+        // so this does not try to reconstruct name=value out of one.
+        if (s.indexOf('\n') >= 0 || s.indexOf('\r') >= 0) {
+            s = String.join("; ", s.split("[\\r\\n]+"));
+        }
         return s;
     }
 

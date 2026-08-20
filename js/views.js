@@ -1587,19 +1587,54 @@ function cookieSignInControls(status, advanced) {
   );
 }
 
+/**
+ * Reads document.cookie on whatever page it is run against and copies it —
+ * a bookmarklet, not a paste-from-devtools instruction, because devtools is
+ * not realistically reachable on a phone browser. It works specifically
+ * because Google's own web client needs to compute the same SAPISIDHASH
+ * signature from JavaScript, so SAPISID itself is never marked HttpOnly —
+ * unlike a couple of the session cookies alongside it, which is the one
+ * honest gap here: a cookie jar built this way is what the signature needs,
+ * but it can be missing one or two of the HttpOnly ones a real browser would
+ * also send, which the in-app sign-in captures completely and this cannot.
+ */
+const COOKIE_BOOKMARKLET = 'javascript:(function(){var c=document.cookie;'
+  + 'if(navigator.clipboard&&navigator.clipboard.writeText){'
+  + 'navigator.clipboard.writeText(c).then(function(){alert("Copied — switch to Void Music and paste it.");},'
+  + 'function(){prompt("Copy this:",c);});'
+  + '}else{prompt("Copy this:",c);}})();';
+
 function openPasteCookieSheet(status) {
   openSheet((box, close) => {
     const field = el('textarea', {
       class: 'mix-code', rows: '5', spellcheck: false,
-      placeholder: 'The whole "cookie" request header, copied from a signed-in browser tab',
+      placeholder: 'Paste what the bookmarklet copied, or a cookie header from a browser you can inspect',
+    });
+    const bookmarkletField = el('input', {
+      type: 'text', readonly: true, value: COOKIE_BOOKMARKLET, 'aria-label': 'Bookmarklet address',
     });
     box.append(
       sheetHead('Paste a YouTube cookie', close),
       el('div', { class: 'import-body' },
         el('p', { class: 'modal-hint', style: 'text-align:left;padding:0' },
-          'From a browser where you are already signed in to YouTube: open dev tools on any '
-          + 'music.youtube.com request, find the Cookie request header, and paste its whole '
-          + 'value here.'),
+          'A phone browser has no easy dev tools, so the quickest way to get this is a bookmarklet — '
+          + 'a bookmark that runs a snippet instead of opening a page:'),
+        el('ol', { style: 'text-align:left;padding-left:20px;margin:8px 0;color:var(--muted)' },
+          el('li', {}, 'Copy the text below, add a new bookmark in your phone’s browser, and paste it as the address.'),
+          el('li', {}, 'Sign in to youtube.com in that browser, if you have not already.'),
+          el('li', {}, 'Open the bookmark while on youtube.com. It copies your cookie — paste it here.'),
+        ),
+        el('span', { style: 'display:flex;gap:8px;margin-bottom:10px' },
+          bookmarkletField,
+          el('button', {
+            class: 'btn outline', type: 'button', style: 'flex:none',
+            onclick: async (e) => {
+              const ok = await copyText(COOKIE_BOOKMARKLET);
+              toast(ok ? 'Bookmarklet copied' : 'Select the text and copy it', ok ? 'ok' : 'warn');
+              if (ok) { const btn = e.currentTarget; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = 'Copy'; }, 1500); }
+            },
+          }, 'Copy'),
+        ),
         field,
         el('button', {
           class: 'btn', type: 'button', style: 'margin-top:10px',

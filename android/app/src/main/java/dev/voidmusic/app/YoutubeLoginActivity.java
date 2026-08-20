@@ -26,16 +26,26 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
+import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewFeature;
+
+import java.util.Collections;
+
 /**
  * A real youtube.com sign-in, inside the app.
  *
  * <p>This is deliberately not the same shape as {@link OAuthClient}'s sign-in,
- * which hands off to the system browser. Google actively detects and blocks
- * an embedded WebView specifically on its OAuth consent page (the
- * {@code disallowed_useragent} error) — that restriction exists for the
- * authorization endpoint, not for the ordinary youtube.com sign-in form, so
- * loading the real site here and letting the user tap its own "Sign in"
- * works the same way it would in any other embedded browser.
+ * which hands off to the system browser. Google blocks its sign-in pages from
+ * an embedded WebView on purpose — "This browser or app may not be secure" —
+ * and it turns out that check is not limited to the OAuth consent screen the
+ * way an earlier version of this comment claimed; the ordinary youtube.com
+ * form is refused too. What actually triggers it, independent of the
+ * user-agent string, is the {@code X-Requested-With} header every WebView
+ * silently attaches naming the embedding app — suppressed below via the
+ * androidx.webkit allow-list API built for exactly this. Whether that alone
+ * is enough is genuinely unverified: Google's detection is undocumented and
+ * this could not be tested against a live sign-in from the sandbox that
+ * wrote it. The "Paste cookie" button covers the case where it is not.
  *
  * <p>What this Activity produces is not a token but a cookie — the same
  * session cookie youtube.com hands any signed-in browser tab. See
@@ -105,6 +115,17 @@ public class YoutubeLoginActivity extends Activity {
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
                         + "Chrome/124.0.0.0 Safari/537.36");
 
+        // Every WebView silently adds an X-Requested-With header naming the
+        // embedding app's package — invisible in the page itself, but exactly
+        // what Google's sign-in checks for to show "this browser or app may
+        // not be secure" and refuse to continue, independent of the user-agent
+        // string above. An empty allow-list here means no origin gets the
+        // header from this WebView at all, which is fine: it is only ever
+        // used for this one sign-in page.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+            WebSettingsCompat.setRequestedWithHeaderOriginAllowList(webView, Collections.emptySet());
+        }
+
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
@@ -156,9 +177,10 @@ public class YoutubeLoginActivity extends Activity {
 
         new AlertDialog.Builder(this)
                 .setTitle("Paste a YouTube cookie")
-                .setMessage("From a browser where you are signed in to YouTube: open dev tools on "
-                        + "any music.youtube.com request, find the Cookie request header, and "
-                        + "paste its whole value here.")
+                .setMessage("Dev tools are not realistically reachable on a phone browser, so the "
+                        + "quickest way to get this is the bookmarklet under Settings → YouTube → "
+                        + "\"Or paste a cookie instead\" — cancel this screen, open that, and come "
+                        + "back once you have copied it.")
                 .setView(field)
                 .setPositiveButton("Use this", (d, w) -> finishWith(true, field.getText().toString()))
                 .setNegativeButton("Cancel", null)
