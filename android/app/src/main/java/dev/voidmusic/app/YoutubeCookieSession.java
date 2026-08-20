@@ -241,10 +241,48 @@ final class YoutubeCookieSession {
 
         List<Item> items = scanForItems(response, wantPlaylists);
         lastDiagnostic = items.isEmpty()
-            ? "Signed in and got a reply, but found nothing playable in it "
-                + "(" + response.toString().length() + " bytes back)"
+            ? "Signed in and got a reply (" + response.toString().length() + " bytes) but "
+                + "the scanner found nothing playable in it. Shape: " + keySkeleton(response, 0)
             : "";
         return items;
+    }
+
+    /**
+     * A compact outline of an unknown JSON tree's key names and shapes — the
+     * actual ground truth {@link #scanForItems} needs to be fixed against,
+     * since this sandbox cannot fetch a real response to inspect and the raw
+     * body is too large to read productively. An object shows its keys; an
+     * array shows its length and, if the budget allows, the shape of its
+     * first element, since innertube nests almost everything worth finding
+     * inside arrays named {@code contents}.
+     */
+    private static String keySkeleton(Object node, int depth) {
+        if (depth >= 5) return "…";
+        if (node instanceof JSONObject) {
+            JSONObject obj = (JSONObject) node;
+            StringBuilder out = new StringBuilder("{");
+            java.util.Iterator<String> keys = obj.keys();
+            boolean first = true;
+            while (keys.hasNext()) {
+                String key = keys.next();
+                if (!first) out.append(',');
+                first = false;
+                out.append(key);
+                Object child = obj.opt(key);
+                if (child instanceof JSONObject || child instanceof JSONArray) {
+                    out.append(':').append(keySkeleton(child, depth + 1));
+                }
+                if (out.length() > 350) { out.append(",…"); break; }
+            }
+            return out.append('}').toString();
+        }
+        if (node instanceof JSONArray) {
+            JSONArray arr = (JSONArray) node;
+            if (arr.length() == 0) return "[]";
+            return "[" + arr.length() + "×" + keySkeleton(arr.opt(0), depth + 1) + "]";
+        }
+        return String.valueOf(node).length() > 12
+            ? "\"" + String.valueOf(node).substring(0, 12) + "…\"" : "\"" + node + "\"";
     }
 
     private static JSONObject baseBody() {
