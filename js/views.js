@@ -707,12 +707,50 @@ export async function renderSearch(query) {
       songSection.replaceChildren(
         sectionHead('Songs'),
         el('p', { class: 'modal-hint' }, 'No individual songs matched — try the albums below.'),
+        youtubeFallback(query),
       );
     }
   } catch (err) {
     if (signal.aborted) return;
     songSection.replaceChildren(sectionHead('Songs'), networkError(err, () => renderSearch(query)));
   }
+}
+
+/**
+ * The Archive's index is what a record label filed, not what everyone
+ * actually calls a song — an exact, unusual phrase can legitimately not be
+ * in it. YouTube's own search is the much larger index of what people
+ * actually titled things, so a miss here tries there next: the same
+ * "resolve against the Archive or your files" pipeline a playlist already
+ * goes through, just seeded from a YouTube search instead of a playlist.
+ */
+function youtubeFallback(query) {
+  const button = el('button', { class: 'btn secondary', type: 'button' }, 'Search YouTube instead');
+  button.addEventListener('click', async () => {
+    if (!YT.connected()) {
+      toast('Sign in to YouTube in Settings to search there too', 'warn', 5000);
+      navigate('#/settings/accounts');
+      return;
+    }
+    button.disabled = true;
+    button.textContent = 'Searching YouTube…';
+    try {
+      const entries = await YT.searchVideos({ query });
+      if (!entries.length) {
+        toast('YouTube had nothing for that either', 'warn');
+        button.disabled = false;
+        button.textContent = 'Search YouTube instead';
+        return;
+      }
+      pendingMix = { name: `YouTube: ${query}`, createdAt: Date.now(), entries };
+      navigate('#/mix');
+    } catch (err) {
+      toast(err.message, 'err', 5000);
+      button.disabled = false;
+      button.textContent = 'Search YouTube instead';
+    }
+  });
+  return el('p', { style: 'margin-top:10px' }, button);
 }
 
 let searchTimer = null;
@@ -1323,7 +1361,18 @@ export function openMixImporter() {
       const text = field.value.trim();
       if (!text) { toast('Nothing to import', 'warn'); return; }
 
-      const mix = (await decodeMix(text)) || parseText(text, fallbackName);
+      let mix;
+      if (YT.looksLikeUrl(text)) {
+        try {
+          mix = await YT.mixFromUrl(text);
+        } catch (err) {
+          toast(err.message, 'err', 5000);
+          return;
+        }
+      } else {
+        mix = (await decodeMix(text)) || parseText(text, fallbackName);
+      }
+
       if (!mix || !mix.entries.length) {
         toast('That does not look like a mix or a track list', 'err', 4500);
         return;
@@ -1338,7 +1387,8 @@ export function openMixImporter() {
       el('div', { class: 'import-body' },
         el('p', { class: 'modal-hint', style: 'text-align:left;padding:0' },
           'A mix is a list of songs and their order. Void Music finds each one in your own '
-          + 'files or the Archive. A plain “Artist - Title” list, an .m3u or a playlist CSV works too.'),
+          + 'files or the Archive. A plain “Artist - Title” list, an .m3u, a playlist CSV, or a '
+          + 'YouTube video or playlist link all work too.'),
         field,
         file,
         el('div', { class: 'item-actions' },

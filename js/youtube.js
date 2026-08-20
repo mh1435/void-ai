@@ -259,3 +259,120 @@ export async function playlistAsMix(playlist, { signal } = {}) {
     entries,
   };
 }
+
+/* ── Any video or playlist, not just your own ─────────────────────────
+ *
+ * Everything above reads YOUR library: playlists the Data API says are
+ * yours. This section is different — it takes a link or a typed search and
+ * turns it into the same title/artist entries, for videos and playlists
+ * nobody has to own or have saved anywhere.
+ *
+ * A single video needs no sign-in at all: oEmbed is a public, unauthenticated
+ * YouTube endpoint built for exactly this — "what is this URL called" — and
+ * it is all a title lookup needs. A playlist by ID has no such public
+ * endpoint; reading its contents is a Data API call like any other, so it
+ * still wants a signed-in token, but not that the playlist be yours —
+ * `playlistItems.list` never checks ownership, only that the playlist itself
+ * is public.
+ */
+
+/** video/shorts/live id, and/or playlist id, from anything that looks like a YouTube URL. */
+export function parseUrl(text) {
+  const raw = String(text || '').trim();
+  let url;
+  try {
+    url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch {
+    return null;
+  }
+  if (!/(^|\.)youtube\.com$|(^|\.)youtu\.be$/i.test(url.hostname)) return null;
+
+  let videoId = url.searchParams.get('v') || '';
+  if (!videoId && url.hostname.toLowerCase().includes('youtu.be')) {
+    videoId = url.pathname.split('/').filter(Boolean)[0] || '';
+  }
+  if (!videoId) {
+    const m = url.pathname.match(/\/(shorts|live|embed)\/([^/?]+)/);
+    if (m) videoId = m[2];
+  }
+  const playlistId = url.searchParams.get('list') || '';
+
+  return (videoId || playlistId) ? { videoId, playlistId } : null;
+}
+
+/** Whether a pasted line is a YouTube link at all, before trying to resolve it. */
+export function looksLikeUrl(text) {
+  return Boolean(parseUrl(text));
+}
+
+/**
+ * A video's title and channel, with no sign-in and no API key.
+ *
+ * oEmbed is public by design — it is what lets any website turn a pasted
+ * YouTube link into an embed card — so this is the one lookup in the file
+ * that works whether or not the user has ever connected an account.
+ */
+export async function videoInfo(videoId, { signal } = {}) {
+  const url = `https://www.youtube.com/oembed?format=json&url=${
+    encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`;
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  signal?.addEventListener('abort', () => ctl.abort(), { once: true });
+
+  try {
+    const res = await fetch(url, { signal: ctl.signal });
+    if (res.status === 404 || res.status === 401) {
+      throw new Error('That video is private, deleted, or age-restricted');
+    }
+    if (!res.ok) throw new Error(`YouTube said HTTP ${res.status}`);
+    const data = await res.json();
+    return toEntry(data.title, data.author_name);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * A single video or a whole playlist, from whatever URL someone pasted.
+ * Prefers the video when a URL carries both (a song played from within a
+ * playlist) — that is what the person actually clicked share on.
+ */
+export async function mixFromUrl(text, { signal } = {}) {
+  const parsed = parseUrl(text);
+  if (!parsed) throw new Error('That does not look like a YouTube link');
+
+  if (parsed.videoId) {
+    const entry = await videoInfo(parsed.videoId, { signal });
+    return { name: entry.title || 'YouTube video', createdAt: Date.now(), entries: [entry] };
+  }
+
+  if (!connected()) throw new Error('Sign in to YouTube in Settings to read a playlist link');
+  const entries = await playlistEntries(parsed.playlistId, { signal });
+  return { name: 'YouTube playlist', createdAt: Date.now(), entries };
+}
+
+/**
+ * Search YouTube itself by keywords, for the song a phrase like "scream for
+ * my ice cream" never finds on the Archive — its index is what a record
+ * label filed, not what everyone actually calls a song.
+ *
+ * Needs a signed-in token: `search.list` is the one Data API call this file
+ * makes that is not scoped to "your own" anything, and unlike the others it
+ * has no free tier without one — Google requires either an API key (this is
+ * GPL software; nothing shipped in it can be a secret) or an OAuth token,
+ * which an already-connected account supplies for free.
+ */
+export async function searchVideos({ query, max = 20, signal } = {}) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  if (!connected()) throw new Error('Sign in to YouTube in Settings to search there');
+
+  const data = await call('search', {
+    part: 'snippet', q, type: 'video', maxResults: Math.min(max, 50), videoCategoryId: '10',
+  }, { signal });
+
+  return (data.items || [])
+    .map((item) => toEntry(item.snippet?.title, item.snippet?.channelTitle))
+    .filter((e) => e.title);
+}
