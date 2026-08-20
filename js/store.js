@@ -81,6 +81,10 @@ const DEFAULTS = {
   shuffle: false,
   preferLowBitrate: false,
   autoOfflineLiked: false,
+  // Oldest release year to show. The Archive's audio skews heavily historical —
+  // digitised 78s, public-domain classical, field recordings — which is not what
+  // most people want a music app to open on. 0 turns the cutoff off entirely.
+  minYear: 2005,
   mirrors: '',
   serverUrl: '',
   serverCode: '',

@@ -463,7 +463,7 @@ export async function renderHome() {
   const chartSlot = el('section', { class: 'section' });
 
   const chipRow = el('div', { class: 'chips' },
-    ...A.COLLECTIONS.map((c) => el('button', {
+    ...A.visibleCollections().map((c) => el('button', {
       class: `chip${c.id === homeCollection ? ' active' : ''}`,
       type: 'button',
       dataset: { collection: c.id },
@@ -1967,6 +1967,18 @@ function settingsPlayback() {
         null, Boolean(getSetting('preferLowBitrate')), async (on) => {
           await setSetting('preferLowBitrate', on);
           A.config.preferLowBitrate = on;
+        }),
+    ),
+    el('p', { class: 'group-label' }, 'Discovery'),
+    el('div', { class: 'group' },
+      toggleRow('Modern releases only',
+        'Hide anything released before 2005, and anything the Archive has no year for. '
+        + 'Turn this off to include the 78 RPM and public-domain catalogues.',
+        null, Number(getSetting('minYear')) > 0, async (on) => {
+          const year = on ? 2005 : 0;
+          await setSetting('minYear', year);
+          A.setMinYear(year);
+          toast(on ? 'Showing 2005 and newer' : 'Showing everything');
         }),
     ),
   );

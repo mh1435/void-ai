@@ -625,6 +625,7 @@ async function boot() {
   A.config.mirrors = String(getSetting('mirrors') || '')
     .split(',').map((s) => s.trim()).filter(Boolean);
   A.config.preferLowBitrate = Boolean(getSetting('preferLowBitrate'));
+  A.setMinYear(getSetting('minYear'));
 
   // Settle the backend before anything asks the network for a track: a
   // request that leaves for a blocked host is a slow failure at best, and on

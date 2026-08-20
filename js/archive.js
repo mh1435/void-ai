@@ -73,6 +73,9 @@ export const COLLECTIONS = [
     blurb: 'Digitised 78s — jazz, blues and early pop, public domain',
     glyph: '◎',
     c1: '#6a4a24', c2: '#2e2418',
+    // Every record in here predates the tape era, so a year cutoff empties it
+    // completely. Hidden rather than deleted: drop the cutoff and it returns.
+    historical: true,
   },
   {
     id: 'audio_music',
@@ -97,6 +100,11 @@ export const COLLECTIONS = [
   },
 ];
 
+/** The collections worth showing under the current year cutoff. */
+export function visibleCollections() {
+  return COLLECTIONS.filter((c) => !(c.historical && minYear));
+}
+
 /* ── Search ────────────────────────────────────────────────────────── */
 
 /** Escape Lucene syntax so a user's punctuation can't break the query. */
@@ -115,9 +123,27 @@ const NON_MUSIC_COLLECTIONS = [
   'samples_only', 'audio_tech', 'gratefuldead_covers_only', 'gdlivetapes',
 ];
 
+/**
+ * Oldest year any search will return, applied as a Lucene range on the index
+ * rather than by dropping rows after the fact — otherwise page 2 would be
+ * filtered against a page 1 that had already lost half its rows, and the result
+ * count shown to the user would be a lie.
+ *
+ * An item with no year at all is excluded, which is the strict reading: the
+ * Archive cannot tell us a release is recent, so we do not assume it. Set the
+ * cutoff to 0 to search everything again.
+ */
+let minYear = 2005;
+
+/** Called at boot with the stored setting; see DEFAULTS.minYear. */
+export function setMinYear(year) {
+  minYear = Number(year) > 0 ? Number(year) : 0;
+}
+
 function buildQuery({ query, collection, creator, musicOnly = true }) {
   const parts = ['mediatype:(audio)'];
   if (collection) parts.push(`collection:(${escapeLucene(collection)})`);
+  if (minYear) parts.push(`year:[${minYear} TO 9999]`);
 
   // An artist page wants only that artist's records, not everything mentioning
   // them, so creator is matched on its own rather than OR'd with the title.
