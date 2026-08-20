@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Plain platform theme, same known-working parent the shipping WebView
+         app uses (android/app/src/main/res/values/themes.xml) — no Material
+         Components library dependency needed for that alone. Compose owns
+         actual theming at runtime via MaterialTheme in MainActivity.kt; this
+         only needs to be a valid, no-ActionBar window theme to launch into. -->
+    <style name="Theme.VoidNative" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>
