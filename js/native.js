@@ -245,6 +245,10 @@ export const ytCookie = {
     try { return JSON.parse(bridge?.ytCookiePlaylistTracks?.(String(playlistId || '')) || '[]'); }
     catch { return []; }
   },
+  /** Why the last library/search/playlistTracks call above came back empty, or ''. */
+  lastDiagnostic() {
+    try { return String(bridge?.ytCookieLastDiagnostic?.() || ''); } catch { return ''; }
+  },
 };
 
 /** Opens the sign-in screen and waits for it to close. Resolves { ok, error }. */

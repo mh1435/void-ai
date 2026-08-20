@@ -180,14 +180,28 @@ final class YoutubeCookieSession {
         boolean isPlaylist;
     }
 
+    /**
+     * Why the most recent call came back empty, or "" after one that
+     * genuinely found nothing. This exists because "empty" was ambiguous in
+     * a way that made the last two rounds of fixes guesses instead of
+     * diagnoses: a rejected cookie, a stale API key, and a response whose
+     * shape this cannot parse all look identical from the page's side
+     * without it. Read once, right after a call returns an empty list — a
+     * second call overwrites it.
+     */
+    private static volatile String lastDiagnostic = "";
+
+    static String lastDiagnostic() {
+        return lastDiagnostic;
+    }
+
     /** "Your library" playlists, including Liked Music. Empty list on any failure. */
     static List<Item> libraryPlaylists(Context context) {
         JSONObject body = baseBody();
         try {
             body.put("browseId", "FEmusic_liked_playlists");
         } catch (Exception ignored) { /* JSONObject.put only throws on a null key */ }
-        JSONObject response = post(context, BROWSE_ENDPOINT, body);
-        return response == null ? new ArrayList<>() : scanForItems(response, true);
+        return fetch(context, BROWSE_ENDPOINT, body, true);
     }
 
     /**
@@ -204,8 +218,7 @@ final class YoutubeCookieSession {
             body.put("browseId", browseId);
         } catch (Exception ignored) {
         }
-        JSONObject response = post(context, BROWSE_ENDPOINT, body);
-        return response == null ? new ArrayList<>() : scanForItems(response, false);
+        return fetch(context, BROWSE_ENDPOINT, body, false);
     }
 
     /** Search YouTube Music itself. Empty list on any failure. */
@@ -218,8 +231,20 @@ final class YoutubeCookieSession {
             body.put("params", "EgWKAQIIAWoKEAMQBBAJEAoQBQ%3D%3D");
         } catch (Exception ignored) {
         }
-        JSONObject response = post(context, SEARCH_ENDPOINT, body);
-        return response == null ? new ArrayList<>() : scanForItems(response, false);
+        return fetch(context, SEARCH_ENDPOINT, body, false);
+    }
+
+    /** post(), then set lastDiagnostic when the caller is about to see an empty list. */
+    private static List<Item> fetch(Context context, String url, JSONObject body, boolean wantPlaylists) {
+        JSONObject response = post(context, url, body);
+        if (response == null) return new ArrayList<>(); // post() already set lastDiagnostic
+
+        List<Item> items = scanForItems(response, wantPlaylists);
+        lastDiagnostic = items.isEmpty()
+            ? "Signed in and got a reply, but found nothing playable in it "
+                + "(" + response.toString().length() + " bytes back)"
+            : "";
+        return items;
     }
 
     private static JSONObject baseBody() {
@@ -241,10 +266,16 @@ final class YoutubeCookieSession {
     private static JSONObject post(Context context, String url, JSONObject body) {
         String cookieHeader = cookie(context);
         String sapisid = sapisidOf(cookieHeader);
-        if (sapisid == null) return null;
+        if (sapisid == null) {
+            lastDiagnostic = "No signed-in session stored";
+            return null;
+        }
 
         String auth = sapisidHash(sapisid, ORIGIN);
-        if (auth == null) return null;
+        if (auth == null) {
+            lastDiagnostic = "Could not sign the request (SHA-1 unavailable)";
+            return null;
+        }
 
         try {
             HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
@@ -269,7 +300,8 @@ final class YoutubeCookieSession {
                 InputStream stream = status < 400 ? conn.getInputStream() : conn.getErrorStream();
                 String text = read(stream);
                 if (status >= 400) {
-                    Log.w(TAG, "youtube music request failed: HTTP " + status);
+                    Log.w(TAG, "youtube music request failed: HTTP " + status + ": " + text);
+                    lastDiagnostic = "HTTP " + status + errorSummary(text);
                     return null;
                 }
                 return new JSONObject(text);
@@ -278,8 +310,22 @@ final class YoutubeCookieSession {
             }
         } catch (Exception e) {
             Log.w(TAG, "youtube music request failed: " + e.getMessage());
+            lastDiagnostic = "Network error: " + e.getMessage();
             return null;
         }
+    }
+
+    /** ": <reason>" pulled out of an error body shaped like Google's usual {error:{message}}, or a raw snippet. */
+    private static String errorSummary(String body) {
+        try {
+            JSONObject error = new JSONObject(body).optJSONObject("error");
+            String message = error == null ? "" : error.optString("message", "");
+            if (!message.isEmpty()) return ": " + message;
+        } catch (Exception ignored) {
+        }
+        String snippet = body == null ? "" : body.trim();
+        if (snippet.isEmpty()) return "";
+        return ": " + snippet.substring(0, Math.min(snippet.length(), 200));
     }
 
     private static String read(InputStream stream) throws Exception {

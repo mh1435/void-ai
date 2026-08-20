@@ -90,6 +90,24 @@ export function signedInByCookie() {
   return canCookieSignIn && ytCookie.signedIn();
 }
 
+/**
+ * An empty list from the cookie session is ambiguous on its own: a genuinely
+ * empty library looks identical to a rejected cookie, a stale endpoint, or a
+ * response shape this cannot parse. YoutubeCookieSession.java sets a reason
+ * only for the failure cases, never for a call that actually found nothing —
+ * so throwing exactly when one is present turns that ambiguity into whatever
+ * error message actually explains it, surfaced through the same error UI
+ * every other YouTube call already uses, instead of a silent, unexplained
+ * "nothing found."
+ */
+function cookieItemsOrThrow(items) {
+  if (items.length === 0) {
+    const why = ytCookie.lastDiagnostic();
+    if (why) throw new Error(why);
+  }
+  return items;
+}
+
 /** Whose account is connected, as far as the app knows without asking YouTube. */
 export function accountLabel() {
   if (signedInByPhone()) return phoneAccount.name();
@@ -163,7 +181,7 @@ export async function whoAmI({ signal } = {}) {
  */
 export async function myPlaylists({ signal } = {}) {
   if (!token() && signedInByCookie()) {
-    return ytCookie.libraryPlaylists().map((item) => ({
+    return cookieItemsOrThrow(ytCookie.libraryPlaylists()).map((item) => ({
       id: item.id,
       title: item.title || 'Untitled playlist',
       count: null,
@@ -207,7 +225,7 @@ export async function myPlaylists({ signal } = {}) {
 /** The contents of one playlist, as mix entries. */
 export async function playlistEntries(playlistId, { signal, max = 400 } = {}) {
   if (!token() && signedInByCookie()) {
-    return ytCookie.playlistTracks(playlistId)
+    return cookieItemsOrThrow(ytCookie.playlistTracks(playlistId))
       .slice(0, max)
       .map((item) => toEntry(item.title, item.subtitle));
   }
@@ -410,7 +428,8 @@ export async function searchVideos({ query, max = 20, signal } = {}) {
   if (!q) return [];
 
   if (!token() && signedInByCookie()) {
-    return ytCookie.search(q).slice(0, max).map((item) => toEntry(item.title, item.subtitle));
+    return cookieItemsOrThrow(ytCookie.search(q)).slice(0, max)
+      .map((item) => toEntry(item.title, item.subtitle));
   }
 
   if (!connected()) throw new Error('Sign in to YouTube in Settings to search there');

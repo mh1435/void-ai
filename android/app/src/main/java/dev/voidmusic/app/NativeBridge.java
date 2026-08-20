@@ -316,6 +316,12 @@ public class NativeBridge {
         return jsonOf(YoutubeCookieSession.playlistTracks(activity, playlistId));
     }
 
+    /** Why the most recent ytCookie* call above came back empty, or "" if it found something. */
+    @JavascriptInterface
+    public String ytCookieLastDiagnostic() {
+        return YoutubeCookieSession.lastDiagnostic();
+    }
+
     private static String jsonOf(java.util.List<YoutubeCookieSession.Item> items) {
         JSONArray out = new JSONArray();
         for (YoutubeCookieSession.Item item : items) {
