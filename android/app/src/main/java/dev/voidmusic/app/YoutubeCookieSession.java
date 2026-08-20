@@ -228,7 +228,7 @@ final class YoutubeCookieSession {
             body.put("query", query);
             // "Songs" filter param, straight from YouTube Music's own request —
             // without it a search returns a mix of videos, artists and albums.
-            body.put("params", "EgWKAQIIAWoKEAMQBBAJEAoQBQ%3D%3D");
+            body.put("params", "EgWKAQIIAWoKEAMQBBAJEAoQBQ==");
         } catch (Exception ignored) {
         }
         return fetch(context, SEARCH_ENDPOINT, body, false);

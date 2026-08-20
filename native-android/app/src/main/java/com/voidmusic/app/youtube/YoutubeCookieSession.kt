@@ -118,7 +118,7 @@ class YoutubeCookieSession(context: Context, private val http: OkHttpClient) {
         val body = baseBody().apply {
             put("query", query)
             // "Songs" filter param, from YouTube Music's own request shape.
-            put("params", "EgWKAQIIAWoKEAMQBBAJEAoQBQ%3D%3D")
+            put("params", "EgWKAQIIAWoKEAMQBBAJEAoQBQ==")
         }
         return fetch(SEARCH_ENDPOINT, body, wantPlaylists = false)
     }
