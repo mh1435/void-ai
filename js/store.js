@@ -9,6 +9,8 @@
  * General Public License in LICENSE for details.
  */
 
+import { repairMangledText } from './tags.js';
+
 /* Local persistence.
  *
  * Everything lives on the device: playlists, likes, imported files, and the
@@ -293,6 +295,31 @@ export const local = {
     return clear('local');
   },
   count: () => count('local').catch(() => 0),
+
+  /**
+   * Repair titles stored by the ID3 reader before it handled big-endian UTF-16
+   * (see repairMangledText). Runs at boot; idempotent, because a repaired row
+   * no longer carries the fingerprint the repair looks for. Returns how many
+   * rows it rewrote so the caller can log it.
+   */
+  async repairTagEncoding() {
+    const rows = await getAll('local').catch(() => []);
+    let fixed = 0;
+    for (const row of rows) {
+      const t = row.track;
+      if (!t) continue;
+      const next = {};
+      let dirty = false;
+      for (const f of ['title', 'artist', 'album', 'albumArtist', 'genre']) {
+        const clean = repairMangledText(t[f]);
+        if (clean !== t[f]) { next[f] = clean; dirty = true; }
+      }
+      if (!dirty) continue;
+      await put('local', { ...row, track: { ...t, ...next } }).catch(() => {});
+      fixed++;
+    }
+    return fixed;
+  },
 };
 
 /* ── Recently played ───────────────────────────────────────────────── */

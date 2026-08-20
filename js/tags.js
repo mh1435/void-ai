@@ -22,9 +22,27 @@
 const dec = {
   latin1: new TextDecoder('iso-8859-1'),
   utf8: new TextDecoder('utf-8'),
-  utf16: new TextDecoder('utf-16'),      // honours the BOM
+  utf16le: new TextDecoder('utf-16le'),
   utf16be: new TextDecoder('utf-16be'),
 };
+
+/**
+ * ID3v2 encoding 0x01 is "UTF-16 with a byte-order mark", and the mark — not
+ * the spec — decides the order, per frame.
+ *
+ * The obvious `new TextDecoder('utf-16')` does NOT sniff it. The Encoding
+ * Standard defines `utf-16` as a plain alias for `utf-16le`, so a big-endian
+ * frame read under that label pairs each ASCII byte with the zero beside it
+ * and yields one CJK ideograph per character: "Stream" decodes to "匀琀爀攀愀洀".
+ * Tags written big-endian are common enough (iTunes and several taggers emit
+ * them) that this is what a mangled title in the player almost always is.
+ *
+ * Both decoders strip the mark themselves once the order is right.
+ */
+function decodeUtf16(bytes) {
+  const bigEndian = bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF;
+  return (bigEndian ? dec.utf16be : dec.utf16le).decode(bytes);
+}
 
 /** Read the head of a file without pulling the whole thing into memory. */
 async function head(file, bytes) {
@@ -48,7 +66,7 @@ const syncsafe = (b, at) => (b[at] << 21) | (b[at + 1] << 14) | (b[at + 2] << 7)
 function decodeText(bytes, encoding) {
   let out;
   switch (encoding) {
-    case 1: out = dec.utf16.decode(bytes); break;
+    case 1: out = decodeUtf16(bytes); break;
     case 2: out = dec.utf16be.decode(bytes); break;
     case 3: out = dec.utf8.decode(bytes); break;
     default: out = dec.latin1.decode(bytes); break;
@@ -476,6 +494,27 @@ export async function readTags(file) {
 function clean(v) {
   const s = String(v ?? '').replace(/\0/g, '').trim();
   return s && s !== 'Unknown' ? s : '';
+}
+
+/**
+ * Undo the mangling described on decodeUtf16, for tags that were already read
+ * and stored before it was fixed. Re-importing would not do it: the importer
+ * skips files it has seen, so a mangled title would survive until the track
+ * was deleted by hand.
+ *
+ * The fingerprint is U+FFFE at the head — a byte-swapped BOM, and a permanent
+ * noncharacter that cannot legitimately appear in text, so nothing else can
+ * match it. The mangling is a pure 16-bit byte swap, so swapping back recovers
+ * the original exactly, in any script.
+ */
+export function repairMangledText(v) {
+  if (typeof v !== 'string' || v.charCodeAt(0) !== 0xFFFE) return v;
+  let out = '';
+  for (let i = 1; i < v.length; i++) {
+    const c = v.charCodeAt(i);
+    out += String.fromCharCode(((c & 0xFF) << 8) | ((c >> 8) & 0xFF));
+  }
+  return out.replace(/\0+$/, '').trim();
 }
 
 function trackNumber(v) {

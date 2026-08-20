@@ -14,7 +14,7 @@
 import * as P from './player.js';
 import * as V from './views.js';
 import * as A from './archive.js';
-import { likes, loadSettings, getSetting, setSetting, persist } from './store.js';
+import { likes, local, loadSettings, getSetting, setSetting, persist } from './store.js';
 import { health, bus, diag } from './net.js';
 import { $, el, svg, ICONS, fmtTime, toast, tintFor, dominantColor } from './ui.js';
 import { initNative, isNativeApp } from './native.js';
@@ -626,6 +626,12 @@ async function boot() {
     .split(',').map((s) => s.trim()).filter(Boolean);
   A.config.preferLowBitrate = Boolean(getSetting('preferLowBitrate'));
   A.setMinYear(getSetting('minYear'));
+
+  // Cheap and idempotent: a scan of the imported rows, rewriting only those
+  // whose tags were read before big-endian UTF-16 was handled.
+  local.repairTagEncoding()
+    .then((n) => { if (n) diag.log('info', `repaired tag encoding on ${n} track(s)`); })
+    .catch(() => {});
 
   // Settle the backend before anything asks the network for a track: a
   // request that leaves for a blocked host is a slow failure at best, and on
