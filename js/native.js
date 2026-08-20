@@ -200,6 +200,78 @@ export function signInWithGoogle(clientId, { timeoutMs = 5 * 60 * 1000 } = {}) {
   });
 }
 
+/* ── YouTube by cookie, not a registered client ───────────────────────
+ *
+ * A second, unofficial way to connect YouTube: a real youtube.com sign-in
+ * inside the app, reading the same session music.youtube.com's own web
+ * client uses. No Cloud Console, no client ID — the tradeoff is that it is
+ * not the documented API and can stop working if Google changes what it
+ * checks. See YoutubeCookieSession.java for the honest version of this note.
+ */
+export const canCookieSignIn = (() => {
+  try {
+    return Boolean(bridge?.ytCookieOpenLogin);
+  } catch {
+    return false;
+  }
+})();
+
+export const ytCookie = {
+  signedIn() {
+    try { return Boolean(bridge?.ytCookieSignedIn?.()); } catch { return false; }
+  },
+  name() {
+    try { return String(bridge?.ytCookieAccountLabel?.() || ''); } catch { return ''; }
+  },
+  setName(value) {
+    try { bridge?.ytCookieSetAccountLabel?.(String(value || '')); } catch { /* older wrapper */ }
+  },
+  signOut() {
+    try { bridge?.ytCookieSignOut?.(); } catch { /* older wrapper */ }
+  },
+  /** Paste-a-cookie fallback, reachable without opening the login screen. Returns '' on success. */
+  adopt(rawCookieHeader) {
+    try { return String(bridge?.ytCookieAdopt?.(String(rawCookieHeader || '')) || ''); }
+    catch (err) { return err.message; }
+  },
+  /** [{id, title, subtitle, isPlaylist}], best-effort — see YoutubeCookieSession.Item. */
+  libraryPlaylists() {
+    try { return JSON.parse(bridge?.ytCookieLibraryPlaylists?.() || '[]'); } catch { return []; }
+  },
+  search(query) {
+    try { return JSON.parse(bridge?.ytCookieSearch?.(String(query || '')) || '[]'); } catch { return []; }
+  },
+  playlistTracks(playlistId) {
+    try { return JSON.parse(bridge?.ytCookiePlaylistTracks?.(String(playlistId || '')) || '[]'); }
+    catch { return []; }
+  },
+};
+
+/** Opens the sign-in screen and waits for it to close. Resolves { ok, error }. */
+export function openYoutubeCookieLogin({ timeoutMs = 5 * 60 * 1000 } = {}) {
+  if (!canCookieSignIn) return Promise.resolve({ ok: false, error: 'Not available here' });
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (ok, error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      delete window.__voidYtCookie;
+      resolve({ ok: Boolean(ok), error: error || '' });
+    };
+
+    const timer = setTimeout(() => done(false, 'Timed out waiting for the sign-in screen'), timeoutMs);
+    window.__voidYtCookie = (ok, message) => done(ok, message);
+
+    try {
+      bridge.ytCookieOpenLogin();
+    } catch (err) {
+      done(false, err.message);
+    }
+  });
+}
+
 /* ── Folder import ─────────────────────────────────────────────────── */
 
 /**

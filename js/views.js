@@ -25,6 +25,7 @@ import * as YT from './youtube.js';
 import {
   canSignIn, googleAccount, signInWithGoogle,
   canPickAccount, phoneAccount, connectPhoneAccount,
+  ytCookie, openYoutubeCookieLogin,
 } from './native.js';
 import { importFiles, filesFromDrop, isAudioFile } from './import.js';
 import { scrobbler } from './scrobble.js';
@@ -1488,7 +1489,7 @@ function youtubeSetting(status) {
       + 'you saved.'),
   );
 
-  if (canPickAccount || canSignIn) body.append(...signInControls(status));
+  if (canPickAccount || canSignIn || YT.canCookieSignIn) body.append(...signInControls(status));
   else body.append(...pastedTokenControls(status));
 
   return el('div', { class: 'setting static' }, body);
@@ -1498,11 +1499,10 @@ function signInControls(status) {
   if (YT.signedIn()) return connectedControls(status);
 
   const advanced = clientIdControls(status);
-  const out = [];
+  const out = [status];
 
   if (canPickAccount) {
     out.push(
-      status,
       el('span', { style: 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' },
         el('button', {
           class: 'btn', type: 'button',
@@ -1531,13 +1531,89 @@ function signInControls(status) {
         + 'Google itself asks whether Void Music may see your YouTube library. There is nothing '
         + 'to register and nothing to paste.'),
     );
-  } else {
-    out.push(status);
+  } else if (!YT.canCookieSignIn) {
     advanced.reveal();
   }
 
+  if (YT.canCookieSignIn) out.push(cookieSignInControls(status, advanced));
+
   out.push(advanced.node);
   return out;
+}
+
+/**
+ * A real youtube.com sign-in inside the app — no client ID, but not the
+ * documented way to do this either. See YoutubeCookieSession.java for the
+ * full account of what it reads and why it can stop working without notice;
+ * this card gives the short version and lets the choice be theirs.
+ */
+function cookieSignInControls(status, advanced) {
+  const runLogin = async (e) => {
+    const btn = e?.currentTarget;
+    if (btn) btn.disabled = true;
+    status.textContent = 'Waiting for YouTube…';
+
+    const result = await openYoutubeCookieLogin();
+    if (btn) btn.disabled = false;
+
+    if (!result.ok) {
+      if (result.error && result.error !== 'Cancelled') {
+        status.textContent = result.error;
+        toast(result.error, 'err', 5000);
+      } else {
+        status.textContent = '';
+      }
+      return;
+    }
+    await announceSignedIn();
+  };
+
+  return el('div', { style: 'margin-top:16px;padding-top:14px;border-top:1px solid var(--line)' },
+    el('p', { class: 'modal-hint', style: 'text-align:left;padding:0;margin-bottom:10px' },
+      canPickAccount || canSignIn
+        ? 'Still no luck? There is one more way in, outside all of the above.'
+        : 'Or, without any of the setup below:'),
+    el('button', { class: 'btn secondary', type: 'button', onclick: runLogin },
+      'Sign in with YouTube'),
+    el('p', { style: 'margin-top:10px' },
+      'Opens the real youtube.com sign-in and reuses that browser session — no client ID, '
+      + 'nothing to register. It reads music.youtube.com the way its own web page does rather '
+      + 'than through Google’s official API, which is why it needs no setup; it is also why '
+      + 'it is not guaranteed to keep working the way a registered client is.'),
+    el('button', {
+      class: 'btn outline', type: 'button', style: 'margin-top:10px',
+      onclick: () => openPasteCookieSheet(status),
+    }, 'Or paste a cookie instead'),
+  );
+}
+
+function openPasteCookieSheet(status) {
+  openSheet((box, close) => {
+    const field = el('textarea', {
+      class: 'mix-code', rows: '5', spellcheck: false,
+      placeholder: 'The whole "cookie" request header, copied from a signed-in browser tab',
+    });
+    box.append(
+      sheetHead('Paste a YouTube cookie', close),
+      el('div', { class: 'import-body' },
+        el('p', { class: 'modal-hint', style: 'text-align:left;padding:0' },
+          'From a browser where you are already signed in to YouTube: open dev tools on any '
+          + 'music.youtube.com request, find the Cookie request header, and paste its whole '
+          + 'value here.'),
+        field,
+        el('button', {
+          class: 'btn', type: 'button', style: 'margin-top:10px',
+          onclick: async () => {
+            const error = ytCookie.adopt(field.value);
+            if (error) { toast(error, 'err', 6000); return; }
+            close();
+            await announceSignedIn();
+          },
+        }, 'Use this'),
+      ),
+    );
+    setTimeout(() => field.focus(), 60);
+  });
 }
 
 /** The card once an account is connected, however it got connected. */
@@ -1553,6 +1629,7 @@ function connectedControls(status) {
         onclick: async () => {
           phoneAccount.signOut();
           googleAccount.signOut();
+          ytCookie.signOut();
           await YT.setToken('');
           toast('Signed out of YouTube');
           renderSettings('accounts');
@@ -1566,7 +1643,8 @@ function connectedControls(status) {
 async function announceSignedIn() {
   try {
     const name = await YT.whoAmI();
-    if (!YT.signedInByPhone()) googleAccount.setName(name);
+    if (!YT.token() && YT.signedInByCookie()) ytCookie.setName(name);
+    else if (!YT.signedInByPhone()) googleAccount.setName(name);
     toast(`Signed in as ${name}`, 'ok');
   } catch (err) {
     toast(`Signed in, but YouTube said: ${err.message}`, 'warn', 5000);

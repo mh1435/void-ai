@@ -19,6 +19,7 @@ import android.os.Build;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.security.MessageDigest;
@@ -248,6 +249,87 @@ public class NativeBridge {
     @JavascriptInterface
     public void signOut() {
         OAuthClient.signOut(activity);
+    }
+
+    /* ── YouTube, signed in by cookie rather than a registered client ── */
+
+    @JavascriptInterface
+    public boolean ytCookieSignedIn() {
+        return YoutubeCookieSession.signedIn(activity);
+    }
+
+    @JavascriptInterface
+    public String ytCookieAccountLabel() {
+        return YoutubeCookieSession.accountLabel(activity);
+    }
+
+    @JavascriptInterface
+    public void ytCookieSetAccountLabel(String name) {
+        YoutubeCookieSession.setAccountLabel(activity, name);
+    }
+
+    @JavascriptInterface
+    public void ytCookieSignOut() {
+        YoutubeCookieSession.signOut(activity);
+    }
+
+    /** Opens the sign-in screen. The answer arrives at window.__voidYtCookie(ok, message). */
+    @JavascriptInterface
+    public void ytCookieOpenLogin() {
+        activity.runOnUiThread(activity::openYoutubeLogin);
+    }
+
+    /**
+     * Adopt a cookie the page already has some other way, or none at all —
+     * returns an error string, or empty on success. Exists mainly so the
+     * paste-a-cookie fallback can also be reached from Settings, not only
+     * from inside the login screen.
+     */
+    @JavascriptInterface
+    public String ytCookieAdopt(String rawCookieHeader) {
+        String error = YoutubeCookieSession.adopt(activity, rawCookieHeader);
+        return error == null ? "" : error;
+    }
+
+    /**
+     * Your library playlists (including Liked Music), as a JSON array of
+     * {@code {id, title, subtitle, isPlaylist}}. Empty array on any failure —
+     * the page reads that the same way as "nothing found", which is the
+     * honest answer when this best-effort endpoint does not cooperate.
+     *
+     * <p>Blocks on network I/O like {@link #accountToken()} and
+     * {@link #accessToken()} already do here; JavascriptInterface calls run
+     * on a WebView worker thread, not the UI thread, so that is safe.
+     */
+    @JavascriptInterface
+    public String ytCookieLibraryPlaylists() {
+        return jsonOf(YoutubeCookieSession.libraryPlaylists(activity));
+    }
+
+    @JavascriptInterface
+    public String ytCookieSearch(String query) {
+        return jsonOf(YoutubeCookieSession.search(activity, query));
+    }
+
+    @JavascriptInterface
+    public String ytCookiePlaylistTracks(String playlistId) {
+        return jsonOf(YoutubeCookieSession.playlistTracks(activity, playlistId));
+    }
+
+    private static String jsonOf(java.util.List<YoutubeCookieSession.Item> items) {
+        JSONArray out = new JSONArray();
+        for (YoutubeCookieSession.Item item : items) {
+            JSONObject o = new JSONObject();
+            try {
+                o.put("id", item.id);
+                o.put("title", item.title);
+                o.put("subtitle", item.subtitle == null ? "" : item.subtitle);
+                o.put("isPlaylist", item.isPlaylist);
+            } catch (Exception ignored) {
+            }
+            out.put(o);
+        }
+        return out.toString();
     }
 
     /**

@@ -301,6 +301,11 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Open the youtube.com sign-in screen. The answer arrives at window.__voidYtCookie. */
+    void openYoutubeLogin() {
+        startActivity(new Intent(this, YoutubeLoginActivity.class));
+    }
+
     /** Same thing, reachable from the JavaScript bridge. */
     void openExternal(String url) {
         try {

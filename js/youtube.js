@@ -32,7 +32,12 @@
  * package name and signing certificate. */
 
 import { getSetting, setSetting } from './store.js';
-import { googleAccount, canSignIn, phoneAccount, canPickAccount } from './native.js';
+import {
+  googleAccount, canSignIn, phoneAccount, canPickAccount,
+  ytCookie, canCookieSignIn, openYoutubeCookieLogin,
+} from './native.js';
+
+export { canCookieSignIn, openYoutubeCookieLogin };
 
 const API = 'https://www.googleapis.com/youtube/v3';
 const TIMEOUT_MS = 15000;
@@ -62,12 +67,13 @@ export function token() {
 }
 
 export function connected() {
-  return Boolean(token());
+  return Boolean(token()) || signedInByCookie();
 }
 
 /** True when the account was signed in properly rather than pasted. */
 export function signedIn() {
-  return (canPickAccount && phoneAccount.signedIn()) || (canSignIn && googleAccount.signedIn());
+  return (canPickAccount && phoneAccount.signedIn()) || (canSignIn && googleAccount.signedIn())
+    || signedInByCookie();
 }
 
 /** True when the sign-in was the one-tap kind, with nothing to configure. */
@@ -75,10 +81,21 @@ export function signedInByPhone() {
   return canPickAccount && phoneAccount.signedIn();
 }
 
+/**
+ * True for the youtube.com cookie session — see YoutubeCookieSession.java.
+ * Kept distinct from the other two because it changes which calls are even
+ * possible: it has no Data API token behind it, only the innertube path.
+ */
+export function signedInByCookie() {
+  return canCookieSignIn && ytCookie.signedIn();
+}
+
 /** Whose account is connected, as far as the app knows without asking YouTube. */
 export function accountLabel() {
   if (signedInByPhone()) return phoneAccount.name();
-  return canSignIn ? googleAccount.name() : '';
+  if (canSignIn && googleAccount.signedIn()) return googleAccount.name();
+  if (signedInByCookie()) return ytCookie.name() || 'your YouTube account';
+  return '';
 }
 
 export async function setToken(value) {
@@ -128,6 +145,7 @@ export async function verify(candidate) {
 
 /** Whose account this token belongs to. */
 export async function whoAmI({ signal } = {}) {
+  if (!token() && signedInByCookie()) return ytCookie.name() || 'your YouTube account';
   const data = await call('channels', { part: 'snippet', mine: 'true' }, { signal });
   const channel = data?.items?.[0];
   if (!channel) throw new Error('No YouTube channel on that account');
@@ -136,8 +154,24 @@ export async function whoAmI({ signal } = {}) {
 
 /* ── Reading the library ───────────────────────────────────────────── */
 
-/** Every playlist you own, plus Liked videos, which the API keeps separate. */
+/**
+ * Every playlist you own, plus Liked videos, which the API keeps separate.
+ *
+ * The cookie session has no such API to page through — it reads what
+ * music.youtube.com's own "Library" tab shows, one best-effort call, whatever
+ * that returns. See YoutubeCookieSession.libraryPlaylists.
+ */
 export async function myPlaylists({ signal } = {}) {
+  if (!token() && signedInByCookie()) {
+    return ytCookie.libraryPlaylists().map((item) => ({
+      id: item.id,
+      title: item.title || 'Untitled playlist',
+      count: null,
+      cover: null,
+      liked: false,
+    }));
+  }
+
   const out = [{
     id: LIKED_PLAYLIST,
     title: 'Liked videos',
@@ -172,6 +206,12 @@ export async function myPlaylists({ signal } = {}) {
 
 /** The contents of one playlist, as mix entries. */
 export async function playlistEntries(playlistId, { signal, max = 400 } = {}) {
+  if (!token() && signedInByCookie()) {
+    return ytCookie.playlistTracks(playlistId)
+      .slice(0, max)
+      .map((item) => toEntry(item.title, item.subtitle));
+  }
+
   const entries = [];
   let pageToken = '';
 
@@ -357,15 +397,22 @@ export async function mixFromUrl(text, { signal } = {}) {
  * my ice cream" never finds on the Archive — its index is what a record
  * label filed, not what everyone actually calls a song.
  *
- * Needs a signed-in token: `search.list` is the one Data API call this file
- * makes that is not scoped to "your own" anything, and unlike the others it
- * has no free tier without one — Google requires either an API key (this is
- * GPL software; nothing shipped in it can be a secret) or an OAuth token,
- * which an already-connected account supplies for free.
+ * Needs a connected account either way. The Data API's `search.list` is the
+ * one call in this file not scoped to "your own" anything, and unlike the
+ * others it has no free tier without either an API key (this is GPL
+ * software; nothing shipped in it can be a secret) or an OAuth token — an
+ * already-connected account supplies one for free. A cookie session searches
+ * music.youtube.com's own index instead, at no extra setup cost since it is
+ * already signed in.
  */
 export async function searchVideos({ query, max = 20, signal } = {}) {
   const q = String(query || '').trim();
   if (!q) return [];
+
+  if (!token() && signedInByCookie()) {
+    return ytCookie.search(q).slice(0, max).map((item) => toEntry(item.title, item.subtitle));
+  }
+
   if (!connected()) throw new Error('Sign in to YouTube in Settings to search there');
 
   const data = await call('search', {

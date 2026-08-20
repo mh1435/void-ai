@@ -47,6 +47,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".YoutubeLoginActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Void" />
+
         <service
             android:name=".PlaybackService"
             android:exported="false"
