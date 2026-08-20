@@ -123,7 +123,8 @@ public class YoutubeLoginActivity extends Activity {
         // header from this WebView at all, which is fine: it is only ever
         // used for this one sign-in page.
         if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
-            WebSettingsCompat.setRequestedWithHeaderOriginAllowList(webView, Collections.emptySet());
+            WebSettingsCompat.setRequestedWithHeaderOriginAllowList(
+                    webView.getSettings(), Collections.emptySet());
         }
 
         CookieManager.getInstance().setAcceptCookie(true);
