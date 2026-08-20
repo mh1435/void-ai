@@ -152,6 +152,14 @@ export const googleAccount = {
   clientId() {
     try { return String(bridge?.clientId?.() || ''); } catch { return ''; }
   },
+  /** This build's own applicationId — read from the running app, not hardcoded. */
+  packageName() {
+    try { return String(bridge?.packageName?.() || '') || 'dev.voidmusic.app'; } catch { return 'dev.voidmusic.app'; }
+  },
+  /** The SHA-1 fingerprint Google's Android OAuth client form wants, or '' outside the app. */
+  signingFingerprint() {
+    try { return String(bridge?.signingFingerprint?.() || ''); } catch { return ''; }
+  },
   /** A live access token, refreshed by the wrapper when it has expired. */
   token() {
     try { return String(bridge?.accessToken?.() || ''); } catch { return ''; }

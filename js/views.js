@@ -1320,6 +1320,32 @@ async function shareMix(playlist) {
   });
 }
 
+/**
+ * A value the user needs to paste somewhere else, with a copy button next to
+ * it instead of a value they have to select by hand on a phone keyboard.
+ *
+ * Used for the package name and signing fingerprint Google's OAuth client
+ * form wants — both read live from the running app (see native.js), so
+ * there is nothing to look up in a terminal that isn't on the phone at all.
+ */
+function copyField(label, value, emptyHint = '') {
+  if (!value) {
+    return el('span', { style: 'margin-top:10px;display:block;color:var(--muted)' },
+      emptyHint || `${label} is not available here.`);
+  }
+  return el('span', { style: 'margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap' },
+    el('span', {}, `${label}: `, el('code', {}, value)),
+    el('button', {
+      class: 'btn outline', type: 'button', style: 'flex:none',
+      onclick: async (e) => {
+        const ok = await copyText(value);
+        toast(ok ? `${label} copied` : 'Select the text and copy it', ok ? 'ok' : 'warn');
+        if (ok) { const btn = e.currentTarget; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = 'Copy'; }, 1500); }
+      },
+    }, 'Copy'),
+  );
+}
+
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -1579,30 +1605,17 @@ function clientIdControls(status) {
       'A one-time setup, and after it you just tap the button. In Google Cloud Console: create a '
       + 'project, enable the YouTube Data API v3, then under Credentials create an OAuth client '
       + 'of type ', el('strong', {}, 'Android'),
-      ' with package name ', el('code', {}, 'dev.voidmusic.app'),
-      ' and this app’s signing fingerprint. Google issues no secret for that type — the app is '
-      + 'identified by its signature instead. Add your own address as a test user and Google will '
-      + 'warn that the app is unverified; that is expected for an app only you use.'),
+      ' with the package name and fingerprint below. Google issues no secret for that type — the '
+      + 'app is identified by its signature instead. Add your own address as a test user and Google '
+      + 'will warn that the app is unverified; that is expected for an app only you use.'),
+    copyField('Package name', googleAccount.packageName()),
+    copyField('Signing fingerprint (SHA-1)', googleAccount.signingFingerprint(),
+      'Only the installed app knows this — open Settings from the app itself, not a browser, to see it.'),
     el('span', { style: 'margin-top:10px;display:flex;gap:8px;flex-wrap:wrap' },
       el('button', {
         class: 'btn outline', type: 'button',
         onclick: () => openExternal('https://console.cloud.google.com/apis/credentials'),
       }, 'Open Google Cloud Console'),
-      el('button', {
-        class: 'btn outline', type: 'button',
-        onclick: () => openSheet((box, close) => {
-          box.append(sheetHead('Signing fingerprint', close),
-            el('div', { class: 'import-body' },
-              el('p', { class: 'modal-hint', style: 'text-align:left;padding:0' },
-                'Google asks for the SHA-1 fingerprint of the key this app is signed with. Every '
-                + 'Void Music release is signed with the same key, which lives in the repository '
-                + 'at android/keystore/void-signing.jks. Run this where you have the repo:'),
-              el('pre', { class: 'mix-code' },
-                'keytool -list -v -keystore android/keystore/void-signing.jks \\\n'
-                + '  -alias void -storepass voidmusic | grep SHA1'),
-            ));
-        }),
-      }, 'Where do I find the fingerprint?'),
     ),
   );
 

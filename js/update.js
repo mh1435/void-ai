@@ -19,7 +19,7 @@ import * as B from './backend.js';
  * Failure is entirely acceptable: a private repo, a blocked host or no network
  * all mean "cannot tell", never an error the user has to deal with. */
 
-export const APP_VERSION = '2.3.0';
+export const APP_VERSION = '2.3.1';
 
 const REPO = 'mh1435/void-ai';
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;

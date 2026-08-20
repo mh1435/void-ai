@@ -10,12 +10,19 @@
  */
 package dev.voidmusic.app;
 
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.Signature;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.os.Build;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 
 import org.json.JSONObject;
+
+import java.security.MessageDigest;
+import java.util.Locale;
 
 /**
  * The {@code window.VoidNative} object the web app talks to.
@@ -180,6 +187,53 @@ public class NativeBridge {
     @JavascriptInterface
     public String clientId() {
         return OAuthClient.clientId(activity);
+    }
+
+    /** This build's own applicationId, so the setup page never has to hardcode it. */
+    @JavascriptInterface
+    public String packageName() {
+        return activity.getPackageName();
+    }
+
+    /**
+     * The SHA-1 fingerprint of the certificate this build is signed with, in the
+     * colon-separated hex Google Cloud Console's "Android" OAuth client form
+     * asks for — the same value {@code keytool -list -v} prints.
+     *
+     * <p>Registering an Android OAuth client needs this fingerprint, and it is
+     * normally the step that sends someone off to install Android Studio or
+     * hunt down a keytool command just to read a value the running app already
+     * has. It doesn't need a stranger's tool: the certificate the app was
+     * installed with is available to the app itself, so this reads it straight
+     * from PackageManager and hashes it the same way Google's own tooling does.
+     */
+    @JavascriptInterface
+    public String signingFingerprint() {
+        try {
+            Signature[] signatures;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageInfo info = activity.getPackageManager().getPackageInfo(
+                        activity.getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
+                signatures = info.signingInfo.hasMultipleSigners()
+                        ? info.signingInfo.getApkContentsSigners()
+                        : info.signingInfo.getSigningCertificateHistory();
+            } else {
+                PackageInfo info = activity.getPackageManager().getPackageInfo(
+                        activity.getPackageName(), PackageManager.GET_SIGNATURES);
+                signatures = info.signatures;
+            }
+            if (signatures == null || signatures.length == 0) return "";
+
+            byte[] hash = MessageDigest.getInstance("SHA-1").digest(signatures[0].toByteArray());
+            StringBuilder out = new StringBuilder(hash.length * 3 - 1);
+            for (int i = 0; i < hash.length; i++) {
+                if (i > 0) out.append(':');
+                out.append(String.format(Locale.ROOT, "%02X", hash[i]));
+            }
+            return out.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /**
