@@ -1493,6 +1493,16 @@ function clientIdControls(status) {
     onclick: async (e) => {
       const id = clientInput.value.trim();
       if (!id) { toast('Paste your client ID first', 'warn'); return; }
+      // Every real Google OAuth client ID ends this way. Catching the shape here
+      // means a pasted email or API key gets a plain-language answer instead of
+      // sending it to Google and coming back with its own confusing error page —
+      // "Client missing a project id" / invalid_client — for a string that was
+      // never going to be a client ID.
+      if (!/\.apps\.googleusercontent\.com$/i.test(id)) {
+        toast('That doesn’t look like a Google client ID — it should end in '
+          + '.apps.googleusercontent.com', 'warn', 6000);
+        return;
+      }
 
       e.currentTarget.disabled = true;
       status.textContent = 'Waiting for Google…';

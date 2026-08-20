@@ -190,11 +190,23 @@ final class AccountAuth {
         report(false, reason);
     }
 
-    /** Turn the account manager's exceptions into something worth reading. */
+    /**
+     * Turn the account manager's exceptions into something worth reading.
+     *
+     * <p>The check used to look for the literal {@code UNREGISTERED_ON_API_CONSOLE}
+     * (upper snake case), but what {@code GoogleAuthException} actually throws for
+     * this failure is {@code UnregisteredOnApiConsole} — camel case, no
+     * underscores. The two never matched, so this app's most common sign-in
+     * failure — a phone with no matching OAuth client registered — always fell
+     * through to the raw exception text instead of the friendly message telling
+     * the user to use the setup below.
+     */
     private static String describe(Exception e) {
         String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+        String upper = message.toUpperCase(java.util.Locale.ROOT);
 
-        if (message.contains("UNREGISTERED_ON_API_CONSOLE") || message.contains("INVALID_SCOPE")) {
+        if (upper.contains("UNREGISTEREDONAPICONSOLE") || upper.contains("UNREGISTERED_ON_API_CONSOLE")
+                || upper.contains("INVALID_SCOPE") || upper.contains("INVALIDSCOPE")) {
             return "Google will not sign this app in this way — use the advanced setup below";
         }
         if (message.contains("NetworkError") || message.contains("Unable to resolve host")) {
