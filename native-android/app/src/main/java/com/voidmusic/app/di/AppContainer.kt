@@ -5,6 +5,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.voidmusic.app.data.archive.ArchiveApi
 import com.voidmusic.app.data.archive.ArchiveRepository
 import com.voidmusic.app.data.backend.BackendRouter
+import com.voidmusic.app.youtube.YoutubeAccountAuth
 import com.voidmusic.app.youtube.YoutubeCookieSession
 import com.voidmusic.app.youtube.YoutubeOAuthClient
 import com.voidmusic.app.youtube.YoutubeRepository
@@ -41,8 +42,10 @@ class AppContainer(context: Context) {
     val archiveRepository = ArchiveRepository(archiveApi, backendRouter)
 
     val youtubeOAuthClient = YoutubeOAuthClient(appContext, okHttpClient)
+    val youtubeAccountAuth = YoutubeAccountAuth(appContext)
     val youtubeCookieSession = YoutubeCookieSession(appContext, okHttpClient)
-    val youtubeRepository = YoutubeRepository(youtubeOAuthClient, youtubeCookieSession, okHttpClient)
+    val youtubeRepository =
+        YoutubeRepository(youtubeOAuthClient, youtubeAccountAuth, youtubeCookieSession, okHttpClient)
 
     val exoPlayer: ExoPlayer by lazy { ExoPlayer.Builder(appContext).build() }
 }

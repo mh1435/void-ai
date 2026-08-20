@@ -40,6 +40,17 @@ class YoutubeCookieSession(context: Context, private val http: OkHttpClient) {
         context.applicationContext.getSharedPreferences("void_yt_cookie", Context.MODE_PRIVATE)
 
     companion object {
+        /** How far beneath a container its id may sit. Small on purpose — see [scanForItems]. */
+        private const val ID_DEPTH = 2
+        /** Titles legitimately sit deeper, since flexColumns nests a few levels. */
+        private const val TITLE_DEPTH = 3
+
+        /** Subtrees holding menu and overlay labels ("Play next"), never the item's own title. */
+        private val NOISE = setOf(
+            "menu", "overlay", "badges", "thumbnail", "thumbnailRenderer", "trackingParams",
+            "navigationEndpoint", "serviceEndpoint", "playlistItemData", "loggingDirectives",
+        )
+
         private const val ORIGIN = "https://music.youtube.com"
         // The public web key music.youtube.com's own page embeds — not a
         // secret, widely referenced across community YouTube Music clients.
@@ -137,10 +148,19 @@ class YoutubeCookieSession(context: Context, private val http: OkHttpClient) {
     private suspend fun fetch(url: String, body: JSONObject, wantPlaylists: Boolean): List<Item> {
         val response = post(url, body) ?: return emptyList() // post() already set lastDiagnostic
         val items = scanForItems(response, wantPlaylists)
-        lastDiagnostic = if (items.isEmpty())
-            "Signed in and got a reply (${response.toString().length} bytes) but the scanner found " +
-                "nothing playable in it. Shape: ${keySkeleton(response, 0)}"
-        else ""
+        if (items.isNotEmpty()) {
+            lastDiagnostic = ""
+            return items
+        }
+        // Two very different failures used to look identical here: YouTube
+        // returning a page with no results at all, versus a page full of
+        // results this parser could not read. Counting "videoId" in the raw
+        // text separates them at a glance, instead of another round of
+        // guessing from a skeleton that stops above the interesting depth.
+        val text = response.toString()
+        val idCount = Regex("\"videoId\"").findAll(text).count()
+        lastDiagnostic = "Signed in, reply ${text.length} chars, $idCount videoId(s) in the raw JSON, " +
+            "but the parser read none of them. Shape: ${keySkeleton(response, 0)}"
         return items
     }
 
@@ -189,14 +209,24 @@ class YoutubeCookieSession(context: Context, private val http: OkHttpClient) {
 
     /**
      * Innertube's response shape is neither documented nor stable across
-     * client versions — this scans for a playable item's shape (a
-     * playlistId/videoId alongside a title run, one or two levels up)
-     * instead of pinning to one fixed path, so it is more likely to survive
-     * Google changing the surrounding structure than an exact-path parser.
+     * client versions.
+     *
+     * The previous version required an item's id and its title to sit in the
+     * *same* JSON object. That is why a perfectly good 196KB search response
+     * produced zero results on a real device: YouTube Music puts the id in a
+     * tiny leaf (`playlistItemData:{videoId}`, `watchEndpoint:{videoId}`)
+     * with no title beside it, and keeps the title several levels away in
+     * `flexColumns`. Every item was found, then silently dropped.
+     *
+     * This version looks for the *container* renderer: an object with an id
+     * a short hop beneath it and a title-shaped run nearby. [ID_DEPTH] is
+     * tight on purpose — that is what stops a whole shelf from collapsing
+     * into one bogus result.
      */
     private fun scanForItems(node: Any?, wantPlaylists: Boolean): List<Item> {
         val out = mutableListOf<Item>()
         scan(node, wantPlaylists, out)
+        if (out.isEmpty()) scanByRendererName(node, wantPlaylists, out)
         return out
     }
 
@@ -204,12 +234,12 @@ class YoutubeCookieSession(context: Context, private val http: OkHttpClient) {
         if (out.size >= 100) return
         when (node) {
             is JSONObject -> {
-                var id = if (wantPlaylists) node.optString("playlistId", "") else node.optString("videoId", "")
-                if (id.isEmpty() && !wantPlaylists) id = node.optString("playlistId", "")
-                if (id.isNotEmpty()) {
-                    val title = titleNear(node)
+                val id = findId(node, wantPlaylists, ID_DEPTH)
+                if (id != null) {
+                    val title = findTitle(node, TITLE_DEPTH)
                     if (title != null) {
-                        out += Item(id, title, subtitleNear(node) ?: "", node.has("playlistId"))
+                        out += Item(id, title, findSubtitle(node, TITLE_DEPTH) ?: "", wantPlaylists)
+                        return // this object was one whole item; its innards are its own fields
                     }
                 }
                 node.keys().forEach { key -> scan(node.opt(key), wantPlaylists, out) }
@@ -218,8 +248,107 @@ class YoutubeCookieSession(context: Context, private val http: OkHttpClient) {
         }
     }
 
-    private fun titleNear(obj: JSONObject): String? = runTextOf(obj.opt("title")) ?: runTextOf(obj.opt("header"))
-    private fun subtitleNear(obj: JSONObject): String? = runTextOf(obj.opt("subtitle"))
+    /**
+     * Fallback for a layout where the id sits deeper than [ID_DEPTH]: trust
+     * the renderer's key name to mark an item boundary and search further
+     * inside it. Only runs when the strict pass found nothing, so a shape it
+     * would mis-split cannot cost anything that already worked.
+     */
+    private fun scanByRendererName(node: Any?, wantPlaylists: Boolean, out: MutableList<Item>) {
+        if (out.size >= 100) return
+        when (node) {
+            is JSONObject -> node.keys().forEach { key ->
+                val child = node.opt(key)
+                val id = if (looksLikeItemRenderer(key) && child is JSONObject) findId(child, wantPlaylists, 6) else null
+                val title = if (id != null) findTitle(child, 5) else null
+                if (id != null && title != null) {
+                    out += Item(id, title, findSubtitle(child, 5) ?: "", wantPlaylists)
+                } else {
+                    scanByRendererName(child, wantPlaylists, out)
+                }
+            }
+            is JSONArray -> for (i in 0 until node.length()) scanByRendererName(node.opt(i), wantPlaylists, out)
+        }
+    }
+
+    private fun looksLikeItemRenderer(key: String): Boolean {
+        if (!key.endsWith("Renderer")) return false
+        val k = key.lowercase()
+        return "video" in k || "song" in k || "track" in k ||
+            "playlist" in k || "responsivelistitem" in k || "tworowitem" in k
+    }
+
+    /** The first `videoId`/`playlistId` within [budget] hops. */
+    private fun findId(node: Any?, wantPlaylists: Boolean, budget: Int): String? {
+        when (node) {
+            is JSONObject -> {
+                val direct = node.optString(if (wantPlaylists) "playlistId" else "videoId", "")
+                if (direct.isNotEmpty()) return direct
+                if (budget <= 0) return null
+                node.keys().forEach { key ->
+                    findId(node.opt(key), wantPlaylists, budget - 1)?.let { return it }
+                }
+            }
+            is JSONArray -> {
+                if (budget <= 0) return null
+                for (i in 0 until node.length()) findId(node.opt(i), wantPlaylists, budget - 1)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun findTitle(node: Any?, budget: Int): String? {
+        when (node) {
+            is JSONObject -> {
+                titleOf(node)?.let { return it }
+                if (budget <= 0) return null
+                node.keys().forEach { key ->
+                    if (key !in NOISE) findTitle(node.opt(key), budget - 1)?.let { return it }
+                }
+            }
+            is JSONArray -> {
+                if (budget <= 0) return null
+                for (i in 0 until node.length()) findTitle(node.opt(i), budget - 1)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /** The title-shaped fields a renderer may use, in the order they should win. */
+    private fun titleOf(obj: JSONObject): String? =
+        runTextOf(obj.opt("title"))
+            ?: flexColumnText(obj, 0)
+            ?: runTextOf(obj.opt("headline"))
+            ?: runTextOf(obj.opt("header"))
+
+    private fun findSubtitle(node: Any?, budget: Int): String? {
+        when (node) {
+            is JSONObject -> {
+                runTextOf(node.opt("subtitle"))?.let { return it }
+                flexColumnText(node, 1)?.let { return it }
+                runTextOf(node.opt("longBylineText"))?.let { return it }
+                runTextOf(node.opt("shortBylineText"))?.let { return it }
+                if (budget <= 0) return null
+                node.keys().forEach { key ->
+                    if (key !in NOISE) findSubtitle(node.opt(key), budget - 1)?.let { return it }
+                }
+            }
+            is JSONArray -> {
+                if (budget <= 0) return null
+                for (i in 0 until node.length()) findSubtitle(node.opt(i), budget - 1)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /** YouTube Music lays a row's text out in flexColumns: [0] is the title, [1] the artist. */
+    private fun flexColumnText(obj: JSONObject, index: Int): String? {
+        val cols = obj.optJSONArray("flexColumns") ?: return null
+        if (cols.length() <= index) return null
+        val renderer = cols.optJSONObject(index)
+            ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer") ?: return null
+        return runTextOf(renderer.opt("text"))
+    }
 
     /** Innertube spells plain text as {"runs":[{"text":"..."}]} or {"simpleText":"..."}. */
     private fun runTextOf(field: Any?): String? {

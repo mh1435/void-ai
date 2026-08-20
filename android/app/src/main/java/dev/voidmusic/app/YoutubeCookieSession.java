@@ -240,11 +240,27 @@ final class YoutubeCookieSession {
         if (response == null) return new ArrayList<>(); // post() already set lastDiagnostic
 
         List<Item> items = scanForItems(response, wantPlaylists);
-        lastDiagnostic = items.isEmpty()
-            ? "Signed in and got a reply (" + response.toString().length() + " bytes) but "
-                + "the scanner found nothing playable in it. Shape: " + keySkeleton(response, 0)
-            : "";
+        if (!items.isEmpty()) {
+            lastDiagnostic = "";
+            return items;
+        }
+        // Two very different failures used to look identical here: YouTube
+        // returning a page with no results in it at all, versus a page full of
+        // results this parser could not read. Whether the raw text contains
+        // "videoId" separates them in one glance, instead of another round of
+        // guessing from a key skeleton that stops above the interesting depth.
+        String text = response.toString();
+        int idCount = countOccurrences(text, "\"videoId\"");
+        lastDiagnostic = "Signed in, reply " + text.length() + " chars, "
+            + idCount + " videoId(s) in the raw JSON, but the parser read none of them. "
+            + "Shape: " + keySkeleton(response, 0);
         return items;
+    }
+
+    private static int countOccurrences(String haystack, String needle) {
+        int count = 0;
+        for (int i = haystack.indexOf(needle); i >= 0; i = haystack.indexOf(needle, i + needle.length())) count++;
+        return count;
     }
 
     /**
@@ -377,35 +393,50 @@ final class YoutubeCookieSession {
 
     /**
      * Innertube's response is a deeply nested tree whose exact shape is
-     * neither documented nor stable across client versions — the one thing
-     * that has held steady across every version this was checked against is
-     * that a playable item's object carries a {@code playlistId} or
-     * {@code videoId} alongside a {@code text} run for its title one or two
-     * levels up. Scanning for that shape instead of one fixed path is more
-     * likely to survive Google changing the surrounding structure than a
-     * parser pinned to today's exact nesting would be.
+     * neither documented nor stable across client versions.
+     *
+     * <p>The previous version of this scanner required an item's id and its
+     * title to sit in the <em>same</em> JSON object. That is why a perfectly
+     * good 196KB search response produced zero results on a real device:
+     * YouTube Music puts the id in a tiny leaf ({@code playlistItemData:
+     * {videoId}}, {@code watchEndpoint:{videoId}}) that has no title beside
+     * it, and keeps the title several levels away in {@code flexColumns}. So
+     * every item was found and then silently dropped. The javadoc claimed it
+     * looked "one or two levels up"; the code never did.
+     *
+     * <p>This version looks for the <em>container</em> renderer instead: an
+     * object with an id a short hop beneath it and a title-shaped text run
+     * nearby. {@link #ID_DEPTH} is deliberately tight — that is what stops a
+     * whole shelf (whose first item's id is further down) from collapsing
+     * into one bogus result.
      */
     private static List<Item> scanForItems(Object node, boolean wantPlaylists) {
         List<Item> out = new ArrayList<>();
         scan(node, wantPlaylists, out);
+        if (out.isEmpty()) scanByRendererName(node, wantPlaylists, out);
         return out;
     }
+
+    /** How far beneath a container its id may sit. Small on purpose — see above. */
+    private static final int ID_DEPTH = 2;
+    /** Titles legitimately sit deeper, since flexColumns nests a few levels. */
+    private static final int TITLE_DEPTH = 3;
+
+    /** Subtrees that hold menu and overlay labels ("Play next"), never the item's own title. */
+    private static final java.util.Set<String> NOISE = new java.util.HashSet<>(java.util.Arrays.asList(
+            "menu", "overlay", "badges", "thumbnail", "thumbnailRenderer", "trackingParams",
+            "navigationEndpoint", "serviceEndpoint", "playlistItemData", "loggingDirectives"));
 
     private static void scan(Object node, boolean wantPlaylists, List<Item> out) {
         if (out.size() >= 100) return; // a runaway tree should not become a runaway loop
         if (node instanceof JSONObject) {
             JSONObject obj = (JSONObject) node;
-            String id = wantPlaylists ? obj.optString("playlistId", "") : obj.optString("videoId", "");
-            if (id.isEmpty() && !wantPlaylists) id = obj.optString("playlistId", "");
-            if (!id.isEmpty()) {
-                String title = titleNear(obj);
+            String id = findId(obj, wantPlaylists, ID_DEPTH);
+            if (id != null) {
+                String title = findTitle(obj, TITLE_DEPTH);
                 if (title != null) {
-                    Item item = new Item();
-                    item.id = id;
-                    item.title = title;
-                    item.subtitle = subtitleNear(obj);
-                    item.isPlaylist = obj.has("playlistId");
-                    out.add(item);
+                    out.add(itemOf(id, title, findSubtitle(obj, TITLE_DEPTH), wantPlaylists));
+                    return; // this object was one whole item; its innards are its own fields
                 }
             }
             java.util.Iterator<String> keys = obj.keys();
@@ -416,16 +447,146 @@ final class YoutubeCookieSession {
         }
     }
 
-    /** The first plain-text "title"-shaped run inside this renderer object. */
-    private static String titleNear(JSONObject obj) {
-        String direct = runTextOf(obj.opt("title"));
-        if (direct != null) return direct;
-        String header = runTextOf(obj.opt("header"));
-        return header;
+    /**
+     * Fallback for a layout where the id sits deeper than {@link #ID_DEPTH}:
+     * trust the renderer's key name to mark an item boundary, and search
+     * further inside it. Only runs when the strict pass found nothing, so a
+     * shape it would mis-split cannot cost anything that already worked.
+     */
+    private static void scanByRendererName(Object node, boolean wantPlaylists, List<Item> out) {
+        if (out.size() >= 100) return;
+        if (node instanceof JSONObject) {
+            JSONObject obj = (JSONObject) node;
+            java.util.Iterator<String> keys = obj.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                Object child = obj.opt(key);
+                if (looksLikeItemRenderer(key) && child instanceof JSONObject) {
+                    String id = findId(child, wantPlaylists, 6);
+                    String title = findTitle(child, 5);
+                    if (id != null && title != null) {
+                        out.add(itemOf(id, title, findSubtitle(child, 5), wantPlaylists));
+                        continue;
+                    }
+                }
+                scanByRendererName(child, wantPlaylists, out);
+            }
+        } else if (node instanceof JSONArray) {
+            JSONArray arr = (JSONArray) node;
+            for (int i = 0; i < arr.length(); i++) scanByRendererName(arr.opt(i), wantPlaylists, out);
+        }
     }
 
-    private static String subtitleNear(JSONObject obj) {
-        return runTextOf(obj.opt("subtitle"));
+    private static boolean looksLikeItemRenderer(String key) {
+        if (!key.endsWith("Renderer")) return false;
+        String k = key.toLowerCase(java.util.Locale.ROOT);
+        return k.contains("video") || k.contains("song") || k.contains("track")
+                || k.contains("playlist") || k.contains("responsivelistitem") || k.contains("tworowitem");
+    }
+
+    private static Item itemOf(String id, String title, String subtitle, boolean wantPlaylists) {
+        Item item = new Item();
+        item.id = id;
+        item.title = title;
+        item.subtitle = subtitle == null ? "" : subtitle;
+        item.isPlaylist = wantPlaylists;
+        return item;
+    }
+
+    /** The first {@code videoId}/{@code playlistId} within {@code budget} hops. */
+    private static String findId(Object node, boolean wantPlaylists, int budget) {
+        if (node instanceof JSONObject) {
+            JSONObject obj = (JSONObject) node;
+            String direct = obj.optString(wantPlaylists ? "playlistId" : "videoId", "");
+            if (!direct.isEmpty()) return direct;
+            if (budget <= 0) return null;
+            java.util.Iterator<String> keys = obj.keys();
+            while (keys.hasNext()) {
+                String found = findId(obj.opt(keys.next()), wantPlaylists, budget - 1);
+                if (found != null) return found;
+            }
+        } else if (node instanceof JSONArray && budget > 0) {
+            JSONArray arr = (JSONArray) node;
+            for (int i = 0; i < arr.length(); i++) {
+                String found = findId(arr.opt(i), wantPlaylists, budget - 1);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static String findTitle(Object node, int budget) {
+        if (node instanceof JSONObject) {
+            JSONObject obj = (JSONObject) node;
+            String direct = titleOf(obj);
+            if (direct != null) return direct;
+            if (budget <= 0) return null;
+            java.util.Iterator<String> keys = obj.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                if (NOISE.contains(key)) continue;
+                String found = findTitle(obj.opt(key), budget - 1);
+                if (found != null) return found;
+            }
+        } else if (node instanceof JSONArray && budget > 0) {
+            JSONArray arr = (JSONArray) node;
+            for (int i = 0; i < arr.length(); i++) {
+                String found = findTitle(arr.opt(i), budget - 1);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    /** The title-shaped fields a renderer may use, in the order they should win. */
+    private static String titleOf(JSONObject obj) {
+        String t = runTextOf(obj.opt("title"));
+        if (t != null) return t;
+        t = flexColumnText(obj, 0);
+        if (t != null) return t;
+        t = runTextOf(obj.opt("headline"));
+        if (t != null) return t;
+        return runTextOf(obj.opt("header"));
+    }
+
+    private static String findSubtitle(Object node, int budget) {
+        if (node instanceof JSONObject) {
+            JSONObject obj = (JSONObject) node;
+            String s = runTextOf(obj.opt("subtitle"));
+            if (s != null) return s;
+            s = flexColumnText(obj, 1);
+            if (s != null) return s;
+            s = runTextOf(obj.opt("longBylineText"));
+            if (s != null) return s;
+            s = runTextOf(obj.opt("shortBylineText"));
+            if (s != null) return s;
+            if (budget <= 0) return null;
+            java.util.Iterator<String> keys = obj.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                if (NOISE.contains(key)) continue;
+                String found = findSubtitle(obj.opt(key), budget - 1);
+                if (found != null) return found;
+            }
+        } else if (node instanceof JSONArray && budget > 0) {
+            JSONArray arr = (JSONArray) node;
+            for (int i = 0; i < arr.length(); i++) {
+                String found = findSubtitle(arr.opt(i), budget - 1);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    /** YouTube Music lays a row's text out in flexColumns: [0] is the title, [1] the artist. */
+    private static String flexColumnText(JSONObject obj, int index) {
+        JSONArray cols = obj.optJSONArray("flexColumns");
+        if (cols == null || cols.length() <= index) return null;
+        JSONObject col = cols.optJSONObject(index);
+        if (col == null) return null;
+        JSONObject renderer = col.optJSONObject("musicResponsiveListItemFlexColumnRenderer");
+        if (renderer == null) return null;
+        return runTextOf(renderer.opt("text"));
     }
 
     /** Innertube spells plain text as {"runs":[{"text":"..."}]} or {"simpleText":"..."}. */

@@ -40,6 +40,7 @@ fun VoidMusicRoot(
     searchViewModel: SearchViewModel,
     onOpenArchiveItem: (ArchiveItem) -> Unit,
     onSignInWithYoutube: ((Boolean, String) -> Unit) -> Unit,
+    onSignInWithGoogleAccount: ((Boolean, String) -> Unit) -> Unit,
 ) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
@@ -66,7 +67,9 @@ fun VoidMusicRoot(
             NavHost(navController, startDestination = "search", modifier = Modifier.fillMaxSize()) {
                 composable("search") { SearchScreen(searchViewModel, onOpenItem = onOpenArchiveItem) }
                 composable("player") { PlayerScreen(playerViewModel) }
-                composable("settings") { SettingsScreen(searchViewModel, onSignInWithYoutube) }
+                composable("settings") {
+                    SettingsScreen(searchViewModel, onSignInWithYoutube, onSignInWithGoogleAccount)
+                }
             }
         }
     }
@@ -82,9 +85,11 @@ fun VoidMusicRoot(
 private fun SettingsScreen(
     searchViewModel: SearchViewModel,
     onSignInWithYoutube: ((Boolean, String) -> Unit) -> Unit,
+    onSignInWithGoogleAccount: ((Boolean, String) -> Unit) -> Unit,
 ) {
     var modernOnly by remember { mutableStateOf(true) }
     var signInStatus by remember { mutableStateOf("") }
+    var accountStatus by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         ListItem(
@@ -111,6 +116,23 @@ private fun SettingsScreen(
                         signInStatus = if (ok) "Connected" else message
                     }
                 }) { Text("Sign in") }
+            },
+        )
+        HorizontalDivider()
+        ListItem(
+            headlineContent = { Text("Use a Google account on this device") },
+            supportingContent = {
+                Text(
+                    accountStatus.ifEmpty {
+                        "Needs microG or Play Services. Google only issues a token to an app " +
+                            "registered in its API console, so this can be refused even when microG is set up."
+                    },
+                )
+            },
+            trailingContent = {
+                TextButton(onClick = {
+                    onSignInWithGoogleAccount { _, message -> accountStatus = message }
+                }) { Text("Choose") }
             },
         )
     }

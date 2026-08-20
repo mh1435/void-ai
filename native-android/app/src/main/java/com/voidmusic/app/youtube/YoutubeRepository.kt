@@ -20,10 +20,24 @@ data class YoutubePlaylist(val id: String, val title: String, val count: Int?)
  */
 class YoutubeRepository(
     private val oauth: YoutubeOAuthClient,
+    private val accountAuth: YoutubeAccountAuth,
     private val cookie: YoutubeCookieSession,
     private val http: OkHttpClient,
 ) {
-    fun connected(): Boolean = oauth.signedIn() || cookie.signedIn()
+    fun connected(): Boolean = oauth.signedIn() || accountAuth.signedIn() || cookie.signedIn()
+
+    /** Whichever official-API token source has one ready, without prompting any UI. */
+    private suspend fun dataApiToken(): String {
+        val o = oauth.accessToken()
+        if (o.isNotEmpty()) return o
+        return accountAuth.accessToken()
+    }
+
+    /** Nothing worked — surface the most specific reason available. */
+    private fun noTokenError(): Nothing {
+        if (accountAuth.signedIn() && accountAuth.lastDiagnostic.isNotEmpty()) error(accountAuth.lastDiagnostic)
+        error("Sign in to YouTube in Settings")
+    }
 
     /** The production noise people put in YouTube titles, several languages. */
     private val noise = Regex(
@@ -105,33 +119,33 @@ class YoutubeRepository(
 
     /** Every playlist you own (OAuth) or your library shows (cookie session). */
     suspend fun myPlaylists(): List<YoutubePlaylist> {
-        val token = oauth.accessToken()
+        val token = dataApiToken()
         if (token.isEmpty() && cookie.signedIn()) {
             return cookieItemsOrThrow(cookie.libraryPlaylists()).map {
                 YoutubePlaylist(it.id, it.title.ifEmpty { "Untitled playlist" }, null)
             }
         }
-        if (token.isEmpty()) error("Sign in to YouTube in Settings")
+        if (token.isEmpty()) noTokenError()
         // Data API path: playlists.list?mine=true — official Google endpoint.
         return dataApiPlaylists(token)
     }
 
     suspend fun playlistEntries(playlistId: String): List<MixEntry> {
-        val token = oauth.accessToken()
+        val token = dataApiToken()
         if (token.isEmpty() && cookie.signedIn()) {
             return cookieItemsOrThrow(cookie.playlistTracks(playlistId)).map { toEntry(it.title, it.subtitle) }
         }
-        if (token.isEmpty()) error("Sign in to YouTube in Settings to read a playlist link")
+        if (token.isEmpty()) noTokenError()
         return dataApiPlaylistItems(token, playlistId)
     }
 
     suspend fun searchVideos(query: String): List<MixEntry> {
         if (query.isBlank()) return emptyList()
-        val token = oauth.accessToken()
+        val token = dataApiToken()
         if (token.isEmpty() && cookie.signedIn()) {
             return cookieItemsOrThrow(cookie.search(query)).map { toEntry(it.title, it.subtitle) }
         }
-        if (token.isEmpty()) error("Sign in to YouTube in Settings to search there")
+        if (token.isEmpty()) noTokenError()
         return dataApiSearch(token, query)
     }
 
