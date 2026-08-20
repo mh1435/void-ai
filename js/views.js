@@ -581,6 +581,29 @@ function networkError(err, onRetry) {
 
 let searchInput = null;
 
+/**
+ * A YouTube link landed in the search box. Resolve it, don't search for it —
+ * the Archive has no idea what "?v=dQw4w9WgXcQ" means, so treating it as a
+ * search term just returns nothing. The search box itself is the paste
+ * target this way: no separate importer to find, and — for a single video —
+ * no sign-in either, since that lookup is YouTube's public oEmbed endpoint.
+ */
+async function resolveFromYoutubeUrl(url, body) {
+  body.replaceChildren(loadingRow('Reading that link…'));
+  try {
+    const mix = await YT.mixFromUrl(url);
+    if (!mix.entries.length) throw new Error('Nothing playable came back for that link');
+    pendingMix = mix;
+    navigate('#/mix');
+  } catch (err) {
+    body.replaceChildren(errorBox({
+      title: 'Could not read that link',
+      body: err.message,
+      onRetry: () => resolveFromYoutubeUrl(url, body),
+    }));
+  }
+}
+
 export async function renderSearch(query) {
   const signal = freshSignal();
   const root = el('div', {});
@@ -614,6 +637,8 @@ export async function renderSearch(query) {
     await paintRecent(body);
     return;
   }
+
+  if (YT.looksLikeUrl(query)) return resolveFromYoutubeUrl(query, body);
 
   const topSlot = el('div', {});
   const songSection = el('section', { class: 'section' },
