@@ -180,16 +180,31 @@ export async function whoAmI({ signal } = {}) {
  * that returns. See YoutubeCookieSession.libraryPlaylists.
  */
 export async function myPlaylists({ signal } = {}) {
-  if (!token() && signedInByCookie()) {
-    return cookieItemsOrThrow(ytCookie.libraryPlaylists()).map((item) => ({
-      id: item.id,
-      title: item.title || 'Untitled playlist',
-      count: null,
-      cover: null,
-      liked: false,
-    }));
+  const viaCookie = () => cookieItemsOrThrow(ytCookie.libraryPlaylists()).map((item) => ({
+    id: item.id,
+    title: item.title || 'Untitled playlist',
+    count: null,
+    cover: null,
+    liked: false,
+  }));
+
+  if (!token()) {
+    if (signedInByCookie()) return viaCookie();
+    throw new Error('Sign in to YouTube in Settings');
   }
 
+  // Unlike the other two, this one cannot fall back on an empty result: it
+  // seeds the list with "Liked videos" before calling anything, so it is
+  // never empty. A refusal is the only signal available here.
+  try {
+    return await dataApiPlaylists({ signal });
+  } catch (err) {
+    if (!signedInByCookie()) throw err;
+    return viaCookie();
+  }
+}
+
+async function dataApiPlaylists({ signal }) {
   const out = [{
     id: LIKED_PLAYLIST,
     title: 'Liked videos',
@@ -224,12 +239,24 @@ export async function myPlaylists({ signal } = {}) {
 
 /** The contents of one playlist, as mix entries. */
 export async function playlistEntries(playlistId, { signal, max = 400 } = {}) {
-  if (!token() && signedInByCookie()) {
-    return cookieItemsOrThrow(ytCookie.playlistTracks(playlistId))
-      .slice(0, max)
-      .map((item) => toEntry(item.title, item.subtitle));
+  const viaCookie = () => cookieItemsOrThrow(ytCookie.playlistTracks(playlistId))
+    .slice(0, max)
+    .map((item) => toEntry(item.title, item.subtitle));
+
+  if (!token()) {
+    if (signedInByCookie()) return viaCookie();
+    throw new Error('Sign in to YouTube in Settings to read a playlist');
   }
 
+  try {
+    return await dataApiPlaylistEntries(playlistId, { signal, max });
+  } catch (err) {
+    if (!signedInByCookie()) throw err;
+    return viaCookie();
+  }
+}
+
+async function dataApiPlaylistEntries(playlistId, { signal, max }) {
   const entries = [];
   let pageToken = '';
 
@@ -427,18 +454,33 @@ export async function searchVideos({ query, max = 20, signal } = {}) {
   const q = String(query || '').trim();
   if (!q) return [];
 
-  if (!token() && signedInByCookie()) {
-    return cookieItemsOrThrow(ytCookie.search(q)).slice(0, max)
-      .map((item) => toEntry(item.title, item.subtitle));
+  const viaCookie = () => cookieItemsOrThrow(ytCookie.search(q)).slice(0, max)
+    .map((item) => toEntry(item.title, item.subtitle));
+
+  if (!token()) {
+    if (signedInByCookie()) return viaCookie();
+    throw new Error('Sign in to YouTube in Settings to search there');
   }
 
-  if (!connected()) throw new Error('Sign in to YouTube in Settings to search there');
+  // A token exists, so the official API is worth trying — but it is no longer
+  // allowed to be the only attempt. This branch used to be `if (!token() &&
+  // signedInByCookie())`, which made the two backends mutually exclusive: any
+  // non-empty token string — a stale pasted one, or one brokered by microG
+  // that Google then refuses for an unregistered app — shadowed a perfectly
+  // good cookie session and committed this call to an API request that could
+  // only fail. That is why search worked in the native app, which has no
+  // pasted-token concept to shadow it, and failed here on the same account.
+  try {
+    const data = await call('search', {
+      part: 'snippet', q, type: 'video', maxResults: Math.min(max, 50), videoCategoryId: '10',
+    }, { signal });
 
-  const data = await call('search', {
-    part: 'snippet', q, type: 'video', maxResults: Math.min(max, 50), videoCategoryId: '10',
-  }, { signal });
-
-  return (data.items || [])
-    .map((item) => toEntry(item.snippet?.title, item.snippet?.channelTitle))
-    .filter((e) => e.title);
+    const entries = (data.items || [])
+      .map((item) => toEntry(item.snippet?.title, item.snippet?.channelTitle))
+      .filter((e) => e.title);
+    if (entries.length || !signedInByCookie()) return entries;
+  } catch (err) {
+    if (!signedInByCookie()) throw err;
+  }
+  return viaCookie();
 }

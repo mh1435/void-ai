@@ -25,7 +25,7 @@ import * as YT from './youtube.js';
 import {
   canSignIn, googleAccount, signInWithGoogle,
   canPickAccount, phoneAccount, connectPhoneAccount,
-  ytCookie, openYoutubeCookieLogin,
+  ytCookie, openYoutubeCookieLogin, signInYoutubeWithAccount,
 } from './native.js';
 import { importFiles, filesFromDrop, isAudioFile } from './import.js';
 import { scrobbler } from './scrobble.js';
@@ -1568,6 +1568,25 @@ function cookieSignInControls(status, advanced) {
     await announceSignedIn();
   };
 
+  const runAccountLogin = async (e) => {
+    const btn = e?.currentTarget;
+    if (btn) btn.disabled = true;
+    status.textContent = 'Asking Google for a session…';
+
+    const result = await signInYoutubeWithAccount();
+    if (btn) btn.disabled = false;
+
+    if (!result.ok) {
+      // The handoff can be refused outright, and the manual sign-in is then
+      // the way past it — say so rather than leaving a bare error.
+      const why = result.error || 'Google refused the sign-in';
+      status.textContent = why;
+      toast(`${why} — try “Sign in with YouTube” instead`, 'err', 6000);
+      return;
+    }
+    await announceSignedIn();
+  };
+
   return el('div', { style: 'margin-top:16px;padding-top:14px;border-top:1px solid var(--line)' },
     el('p', { class: 'modal-hint', style: 'text-align:left;padding:0;margin-bottom:10px' },
       canPickAccount || canSignIn
@@ -1575,6 +1594,17 @@ function cookieSignInControls(status, advanced) {
         : 'Or, without any of the setup below:'),
     el('button', { class: 'btn secondary', type: 'button', onclick: runLogin },
       'Sign in with YouTube'),
+    ...(canPickAccount ? [
+      el('button', {
+        class: 'btn secondary', type: 'button', style: 'margin-top:10px',
+        onclick: runAccountLogin,
+      }, 'Sign in with a Google account on this phone'),
+      el('p', { style: 'margin-top:10px' },
+        'Uses an account microG or Play Services already holds, so there is no password to type. '
+        + 'It asks for a web session rather than an API grant, which is why it can work where the '
+        + 'one-tap sign-in above gets refused for an unregistered app — but it can be refused too, '
+        + 'and the plain sign-in stays the reliable way in.'),
+    ] : []),
     el('p', { style: 'margin-top:10px' },
       'Opens the real youtube.com sign-in and reuses that browser session — no client ID, '
       + 'nothing to register. It reads music.youtube.com the way its own web page does rather '

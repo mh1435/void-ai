@@ -57,6 +57,14 @@ import java.util.Collections;
 public class YoutubeLoginActivity extends Activity {
 
     private static final String START_URL = "https://www.youtube.com/";
+
+    /**
+     * An already-authenticated URL to open instead of the plain sign-in page.
+     * {@link AccountAuth#webloginUrl} produces one from a Google account
+     * already on the device, so the microG path lands here with the password
+     * step already done — the cookie capture below is identical either way.
+     */
+    public static final String EXTRA_START_URL = "dev.voidmusic.START_URL";
     /**
      * Present once a tab is actually signed in; absent for an anonymous
      * visitor. Checked against both names {@link YoutubeCookieSession} itself
@@ -141,7 +149,8 @@ public class YoutubeLoginActivity extends Activity {
         root.addView(webView);
         setContentView(root);
 
-        webView.loadUrl(START_URL);
+        String start = getIntent() == null ? null : getIntent().getStringExtra(EXTRA_START_URL);
+        webView.loadUrl(start != null && !start.isEmpty() ? start : START_URL);
     }
 
     /**
@@ -208,6 +217,16 @@ public class YoutubeLoginActivity extends Activity {
 
         WebAppHolder.eval("window.__voidYtCookie && window.__voidYtCookie(true, \"\")");
         finish();
+    }
+
+    /**
+     * Report a failure that happened before this screen could even open — the
+     * microG handoff being refused, say. Same channel the screen itself
+     * answers on, so the page needs no second path to listen to.
+     */
+    static void reportSignIn(boolean ok, String message) {
+        WebAppHolder.eval("window.__voidYtCookie && window.__voidYtCookie("
+                + (ok ? "true" : "false") + "," + quote(message) + ")");
     }
 
     private static String quote(String value) {

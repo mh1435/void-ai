@@ -253,6 +253,22 @@ export const ytCookie = {
 
 /** Opens the sign-in screen and waits for it to close. Resolves { ok, error }. */
 export function openYoutubeCookieLogin({ timeoutMs = 5 * 60 * 1000 } = {}) {
+  return awaitCookieSignIn(() => bridge.ytCookieOpenLogin(), timeoutMs);
+}
+
+/**
+ * Sign in with a Google account already on the phone — the microG path.
+ *
+ * Ends at the same youtube.com cookie session the manual sign-in produces, so
+ * it answers on the same channel and everything downstream is unchanged. It
+ * can still be refused, in which case the manual sign-in remains the way in.
+ */
+export function signInYoutubeWithAccount({ timeoutMs = 3 * 60 * 1000 } = {}) {
+  return awaitCookieSignIn(() => bridge.ytCookieSignInWithAccount(), timeoutMs);
+}
+
+/** Both sign-in routes report through window.__voidYtCookie(ok, message). */
+function awaitCookieSignIn(start, timeoutMs) {
   if (!canCookieSignIn) return Promise.resolve({ ok: false, error: 'Not available here' });
 
   return new Promise((resolve) => {
@@ -269,7 +285,7 @@ export function openYoutubeCookieLogin({ timeoutMs = 5 * 60 * 1000 } = {}) {
     window.__voidYtCookie = (ok, message) => done(ok, message);
 
     try {
-      bridge.ytCookieOpenLogin();
+      start();
     } catch (err) {
       done(false, err.message);
     }

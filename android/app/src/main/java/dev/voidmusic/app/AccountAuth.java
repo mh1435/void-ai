@@ -50,6 +50,9 @@ final class AccountAuth {
 
     private static final String GOOGLE = "com.google";
     private static final String SCOPE = "oauth2:https://www.googleapis.com/auth/youtube.readonly";
+    /** See {@link #webloginUrl} — a web session handoff, not an API-console OAuth grant. */
+    private static final String WEBLOGIN_SCOPE =
+            "weblogin:service=youtube&continue=https://www.youtube.com/";
 
     /** Google's tokens last about an hour; treat ours as stale well before that. */
     private static final long TOKEN_LIFETIME_MS = 45 * 60 * 1000L;
@@ -135,6 +138,53 @@ final class AccountAuth {
             }
         }, "void-account-auth").start();
     }
+
+    /**
+     * A one-time URL that signs a device account into youtube.com in a browser.
+     *
+     * <p>This is a different mechanism from {@link #authorise}, and the reason
+     * it is worth having: {@link #SCOPE} asks for an OAuth grant against the
+     * <em>Data API</em>, which Google will only issue to an app registered in
+     * its API console — a sideloaded build is not, which is the whole source of
+     * the {@code UnregisteredOnApiConsole} refusal. The {@code weblogin:}
+     * pseudo-scope asks for something else entirely: the same account-to-web
+     * session handoff Android itself uses to open a Google page already signed
+     * in. It is not gated on an API-console client, so an account brokered by
+     * microG can produce one.
+     *
+     * <p>What comes back is a URL, not a token. Opening it sets ordinary
+     * youtube.com session cookies — exactly what {@link YoutubeCookieSession}
+     * already signs its requests with — so this replaces typing a password into
+     * the in-app sign-in, and nothing downstream of it changes.
+     *
+     * <p>Blocking, and never to be called from the UI thread. Returns an empty
+     * string on refusal, with the reason in {@link #lastWebloginError}.
+     */
+    static String webloginUrl(Activity activity, String name) {
+        if (name == null || name.isEmpty()) {
+            lastWebloginError = "No account chosen";
+            return "";
+        }
+        try {
+            Bundle result = AccountManager.get(activity.getApplicationContext())
+                    .getAuthToken(new Account(name, GOOGLE), WEBLOGIN_SCOPE, null, activity, null, null)
+                    .getResult();
+            String url = result.getString(AccountManager.KEY_AUTHTOKEN);
+            if (url == null || url.isEmpty()) {
+                lastWebloginError = "The account provider returned no sign-in URL";
+                return "";
+            }
+            lastWebloginError = "";
+            return url;
+        } catch (Exception e) {
+            Log.w(TAG, "weblogin failed: " + e.getMessage());
+            lastWebloginError = describe(e);
+            return "";
+        }
+    }
+
+    /** Why the last {@link #webloginUrl} came back empty. */
+    static volatile String lastWebloginError = "";
 
     private static synchronized void remember(Context context, String name, String token) {
         prefs(context).edit().putString(KEY_ACCOUNT, name).apply();

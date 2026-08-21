@@ -61,6 +61,8 @@ public class MainActivity extends Activity {
     private static final int REQ_NOTIFICATIONS = 1002;
     private static final int REQ_FOLDER = 1003;
     private static final int REQ_ACCOUNT = 1004;
+    /** Same picker, but the choice feeds the weblogin handoff rather than an API grant. */
+    private static final int REQ_ACCOUNT_WEBLOGIN = 1005;
 
     /** Path the page fetches a picked file's bytes from, on our own origin. */
     private static final String LOCAL_FILE_PATH = "/localfile/";
@@ -306,6 +308,47 @@ public class MainActivity extends Activity {
         startActivity(new Intent(this, YoutubeLoginActivity.class));
     }
 
+    /**
+     * Sign in to YouTube using a Google account already on the device — the
+     * microG path. Unlike {@link #pickGoogleAccount}, this asks for a web
+     * session rather than a Data API grant, so it is not subject to the
+     * API-console registration Google refuses a sideloaded build; see
+     * {@link AccountAuth#webloginUrl}.
+     */
+    void connectYoutubeWithAccount() {
+        String stored = AccountAuth.accountName(this);
+        if (stored == null || stored.isEmpty()) {
+            try {
+                startActivityForResult(AccountAuth.chooserIntent(), REQ_ACCOUNT_WEBLOGIN);
+            } catch (Exception e) {
+                Log.w(TAG, "no account picker on this device: " + e.getMessage());
+                YoutubeLoginActivity.reportSignIn(false, "This phone has no account picker");
+            }
+            return;
+        }
+        webloginWith(stored);
+    }
+
+    /**
+     * getAuthToken blocks and may raise its own consent screen, so it cannot
+     * run on the UI thread — but startActivity must, hence the hop back.
+     */
+    private void webloginWith(String name) {
+        new Thread(() -> {
+            String url = AccountAuth.webloginUrl(this, name);
+            runOnUiThread(() -> {
+                if (url.isEmpty()) {
+                    String why = AccountAuth.lastWebloginError;
+                    YoutubeLoginActivity.reportSignIn(false,
+                            why.isEmpty() ? "Could not sign in with " + name : why);
+                    return;
+                }
+                startActivity(new Intent(this, YoutubeLoginActivity.class)
+                        .putExtra(YoutubeLoginActivity.EXTRA_START_URL, url));
+            });
+        }, "void-weblogin").start();
+    }
+
     /** Same thing, reachable from the JavaScript bridge. */
     void openExternal(String url) {
         try {
@@ -334,6 +377,17 @@ public class MainActivity extends Activity {
             // Asking for a token is what triggers Google's "allow?" prompt, so
             // the sign-in is not finished until that comes back.
             AccountAuth.authorise(this, name);
+            return;
+        }
+        if (requestCode == REQ_ACCOUNT_WEBLOGIN) {
+            String name = resultCode == RESULT_OK && data != null
+                    ? data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+                    : null;
+            if (name == null || name.isEmpty()) {
+                YoutubeLoginActivity.reportSignIn(false, "No account chosen");
+            } else {
+                webloginWith(name);
+            }
             return;
         }
         if (requestCode == REQ_FOLDER) {

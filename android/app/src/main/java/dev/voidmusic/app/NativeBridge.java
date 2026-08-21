@@ -280,6 +280,18 @@ public class NativeBridge {
     }
 
     /**
+     * Sign in using a Google account already on the device — what microG is
+     * installed for. Answers on the same window.__voidYtCookie channel as the
+     * manual sign-in, because it ends in the same place: a youtube.com cookie
+     * session. See {@link AccountAuth#webloginUrl} for why this can work where
+     * {@link #pickAccount} is refused.
+     */
+    @JavascriptInterface
+    public void ytCookieSignInWithAccount() {
+        activity.runOnUiThread(activity::connectYoutubeWithAccount);
+    }
+
+    /**
      * Adopt a cookie the page already has some other way, or none at all —
      * returns an error string, or empty on success. Exists mainly so the
      * paste-a-cookie fallback can also be reached from Settings, not only
